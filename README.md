@@ -1,6 +1,6 @@
 # Schedules Generator
 
-This project creates optimized work schedules using Streamlit.
+This project creates optimized work schedules using Flask.
 
 ## Setup
 
@@ -12,13 +12,13 @@ This project creates optimized work schedules using Streamlit.
 
    The list includes the `pulp` package used for solving the optimization problem.
 
-2. Launch the Streamlit application:
-
+2. Launch the Flask application:
    ```bash
-   streamlit run "generador_turnos_2025_cnx_BACKUP_F_FIRST_P_LAST (1).py"
+   flask --app website.app run
    ```
 
-   When prompted, upload the demand Excel file (see assumption below).
+   When prompted on /generador upload the demand Excel file.
+
 
 3. Choose the **JEAN** profile from the sidebar to minimise the sum of excess and deficit while keeping coverage near 100%.
 4. Select **JEAN Personalizado** to choose the working days, hours per day and break placement. All other solver parameters use the JEAN profile automatically.

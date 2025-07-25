@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Generador de Horarios</h2>
+<form method="post" enctype="multipart/form-data">
+  <div class="mb-3">
+    <input type="file" name="excel" class="form-control" accept=".xlsx" required>
+  </div>
+  <button class="btn btn-primary">Generar</button>
+  <a href="{{ url_for('logout') }}" class="btn btn-secondary">Salir</a>
+</form>
+{% if image_url %}
+  <hr>
+  <h4>Resultado</h4>
+  <img src="{{ image_url }}" class="img-fluid" alt="schedule">
+{% endif %}
+{% endblock %}
