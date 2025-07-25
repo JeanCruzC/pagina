@@ -1,0 +1,10 @@
+pandas
+numpy
+openpyxl
+pyworkforce
+ortools
+matplotlib
+seaborn
+pulp
+streamlit
+psutil
