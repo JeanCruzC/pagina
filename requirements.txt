@@ -6,5 +6,5 @@ ortools
 matplotlib
 seaborn
 pulp
-streamlit
 psutil
+flask
