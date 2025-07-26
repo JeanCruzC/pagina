@@ -8,3 +8,6 @@ seaborn
 pulp
 psutil
 flask
+itertools
+collections
+hashlib

@@ -54,14 +54,38 @@ def logout():
 @login_required
 def generador():
     image_url = None
+    demand_url = None
+    metrics = None
+    download = False
     if request.method == 'POST':
-        file = request.files['excel']
+        file = request.files.get('excel')
         if file:
             dm = scheduler.load_demand_excel(file)
-            schedule = scheduler.generate_schedule(dm)
+            patterns = next(scheduler.generate_shifts_coverage_corrected())
+            assigns = scheduler.solve_in_chunks_optimized(patterns, dm)
+            metrics = scheduler.analyze_results(assigns, patterns, dm)
+            schedule = metrics['total_coverage'] if metrics else dm
             img_io = scheduler.heatmap(schedule, 'Cobertura')
+            d_io = scheduler.heatmap(dm, 'Demanda')
             path = 'static/result.png'
             with open('website/' + path, 'wb') as f:
                 f.write(img_io.read())
+            path2 = 'static/demand.png'
+            with open('website/' + path2, 'wb') as f:
+                f.write(d_io.read())
             image_url = url_for('static', filename='result.png')
-    return render_template('generador.html', image_url=image_url)
+            demand_url = url_for('static', filename='demand.png')
+            excel = scheduler.export_detailed_schedule(assigns, patterns)
+            if excel:
+                app.config['LAST_EXCEL'] = excel
+                download = True
+    return render_template('generador.html', image_url=image_url, demand_url=demand_url, metrics=metrics, download=download)
+
+
+@app.route('/download')
+@login_required
+def download():
+    data = app.config.get('LAST_EXCEL')
+    if not data:
+        return redirect(url_for('generador'))
+    return send_file(io.BytesIO(data), download_name='horario.xlsx', as_attachment=True)
