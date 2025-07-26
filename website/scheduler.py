@@ -5,6 +5,7 @@ import gc
 import hashlib
 from io import BytesIO
 from itertools import combinations, permutations
+from typing import List
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,7 @@ import psutil
 
 try:
     import pulp
+
     PULP_AVAILABLE = True
 except Exception:
     PULP_AVAILABLE = False
@@ -38,8 +40,15 @@ optimization_profile = "Equilibrado (Recomendado)"
 ACTIVE_DAYS = list(range(7))
 
 
-def _build_pattern(days, durations, start_hour, break_len, break_from_start,
-                   break_from_end, slot_factor=1):
+def _build_pattern(
+    days,
+    durations,
+    start_hour,
+    break_len,
+    break_from_start,
+    break_from_end,
+    slot_factor=1,
+):
     slots_per_day = 24 * slot_factor
     pattern = np.zeros((7, slots_per_day), dtype=np.int8)
     for day, dur in zip(days, durations):
@@ -65,7 +74,7 @@ def memory_limit_patterns(slots_per_day):
     if slots_per_day <= 0:
         return 0
     available = psutil.virtual_memory().available
-    cap = min(available, 4 * 1024 ** 3)
+    cap = min(available, 4 * 1024**3)
     return int(cap // (7 * slots_per_day))
 
 
@@ -89,6 +98,20 @@ def emergency_cleanup(threshold=85.0):
     return False
 
 
+def get_smart_start_hours(
+    demand_matrix: np.ndarray, max_hours: int = 12
+) -> List[float]:
+    """Return a list of start hours around peak demand."""
+    if demand_matrix is None or demand_matrix.size == 0:
+        return [float(h) for h in range(24)]
+
+    cols = demand_matrix.shape[1]
+    hourly_totals = demand_matrix.sum(axis=0)
+    top = np.argsort(hourly_totals)[-max_hours:]
+    hours = sorted({round(h / cols * 24, 2) for h in top})
+    return hours
+
+
 def score_pattern(pattern, demand_matrix):
     dm = demand_matrix.flatten()
     pat = pattern.astype(int)
@@ -106,17 +129,26 @@ def _resize_matrix(matrix, target_cols):
     return matrix.reshape(matrix.shape[0], target_cols, factor).max(axis=2)
 
 
-def score_and_filter_patterns(patterns, demand_matrix, *, keep_percentage=0.3,
-                              peak_bonus=1.5, critical_bonus=2.0,
-                              efficiency_bonus=1.0):
+def score_and_filter_patterns(
+    patterns,
+    demand_matrix,
+    *,
+    keep_percentage=0.3,
+    peak_bonus=1.5,
+    critical_bonus=2.0,
+    efficiency_bonus=1.0,
+):
     if demand_matrix is None or not patterns:
         return patterns
     dm = np.asarray(demand_matrix, dtype=float)
     days, hours = dm.shape
     daily_totals = dm.sum(axis=1)
     hourly_totals = dm.sum(axis=0)
-    critical_days = (np.argsort(daily_totals)[-2:]
-                     if daily_totals.size > 1 else [int(np.argmax(daily_totals))])
+    critical_days = (
+        np.argsort(daily_totals)[-2:]
+        if daily_totals.size > 1
+        else [int(np.argmax(daily_totals))]
+    )
     if np.any(hourly_totals > 0):
         thresh = np.percentile(hourly_totals[hourly_totals > 0], 75)
         peak_hours = np.where(hourly_totals >= thresh)[0]
@@ -146,12 +178,22 @@ def score_and_filter_patterns(patterns, demand_matrix, *, keep_percentage=0.3,
     return {k: patterns[k] for k in top}
 
 
-def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
-                         break_from_end=2.0, slot_duration_minutes=30,
-                         max_patterns=None, demand_matrix=None,
-                         keep_percentage=0.3, peak_bonus=1.5,
-                         critical_bonus=2.0, efficiency_bonus=1.0,
-                         max_patterns_per_shift=None, smart_start_hours=False):
+def load_shift_patterns(
+    cfg,
+    *,
+    start_hours=None,
+    break_from_start=2.0,
+    break_from_end=2.0,
+    slot_duration_minutes=30,
+    max_patterns=None,
+    demand_matrix=None,
+    keep_percentage=0.3,
+    peak_bonus=1.5,
+    critical_bonus=2.0,
+    efficiency_bonus=1.0,
+    max_patterns_per_shift=None,
+    smart_start_hours=False,
+):
     if isinstance(cfg, str):
         with open(cfg, "r") as fh:
             data = json.load(fh)
@@ -169,15 +211,25 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
         name = shift.get("name", "SHIFT")
         pat = shift.get("pattern", {})
         brk = shift.get("break", 0)
-        slot_min = slot_duration_minutes or shift.get("slot_duration_minutes", 60)
+        slot_min = slot_duration_minutes or shift.get(
+            "slot_duration_minutes", 60
+        )
         if 60 % slot_min != 0:
             raise ValueError("slot_duration_minutes must divide 60")
         step = slot_min / 60
         slot_factor = 60 // slot_min
-        base_hours = list(start_hours) if start_hours is not None else list(np.arange(0, 24, step))
+        base_hours = (
+            list(start_hours)
+            if start_hours is not None
+            else list(np.arange(0, 24, step))
+        )
         if smart_start_hours and demand_matrix is not None:
             smart = get_smart_start_hours(demand_matrix)
-            sh_hours = [h for h in base_hours if any(abs(h - s) < step/2 for s in smart)]
+            sh_hours = [
+                h
+                for h in base_hours
+                if any(abs(h - s) < step / 2 for s in smart)
+            ]
         else:
             sh_hours = base_hours
         work_days = pat.get("work_days", [])
@@ -196,7 +248,9 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
             day_candidates = range(7)
             day_combos = combinations(day_candidates, work_days)
         else:
-            day_combos = combinations(work_days, min(len(segments), len(work_days)))
+            day_combos = combinations(
+                work_days, min(len(segments), len(work_days))
+            )
         if isinstance(brk, dict):
             if brk.get("enabled", False):
                 brk_len = brk.get("length_minutes", 0) / 60
@@ -214,7 +268,15 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
         for days_sel in day_combos:
             for perm in set(permutations(segments, len(days_sel))):
                 for sh in sh_hours:
-                    pattern = _build_pattern(days_sel, perm, sh, brk_len, brk_start, brk_end, slot_factor)
+                    pattern = _build_pattern(
+                        days_sel,
+                        perm,
+                        sh,
+                        brk_len,
+                        brk_start,
+                        brk_end,
+                        slot_factor,
+                    )
                     pat_key = pattern.tobytes()
                     if pat_key in unique_patterns:
                         continue
@@ -223,15 +285,32 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
                     shift_name = f"{name}_{sh:04.1f}_{day_str}_{seg_str}"
                     shift_patterns[shift_name] = pattern
                     unique_patterns[pat_key] = shift_name
-                    if max_patterns_per_shift and len(shift_patterns) >= max_patterns_per_shift:
+                    if (
+                        max_patterns_per_shift
+                        and len(shift_patterns) >= max_patterns_per_shift
+                    ):
                         break
-                    if max_patterns is not None and len(shifts_coverage) + len(shift_patterns) >= max_patterns:
+                    if (
+                        max_patterns is not None
+                        and len(shifts_coverage) + len(shift_patterns)
+                        >= max_patterns
+                    ):
                         break
-                if max_patterns_per_shift and len(shift_patterns) >= max_patterns_per_shift:
+                if (
+                    max_patterns_per_shift
+                    and len(shift_patterns) >= max_patterns_per_shift
+                ):
                     break
-                if max_patterns is not None and len(shifts_coverage) + len(shift_patterns) >= max_patterns:
+                if (
+                    max_patterns is not None
+                    and len(shifts_coverage) + len(shift_patterns)
+                    >= max_patterns
+                ):
                     break
-            if max_patterns_per_shift and len(shift_patterns) >= max_patterns_per_shift:
+            if (
+                max_patterns_per_shift
+                and len(shift_patterns) >= max_patterns_per_shift
+            ):
                 break
         if demand_matrix is not None:
             shift_patterns = score_and_filter_patterns(
@@ -282,7 +361,11 @@ def get_adaptive_params(demand_matrix, target_coverage):
     input_hash = hashlib.md5(str(demand_matrix).encode()).hexdigest()[:12]
     total_demand = demand_matrix.sum()
     peak_demand = demand_matrix.max()
-    similar_runs = [e for e in learning_data.get("executions", []) if e.get("input_hash") == input_hash]
+    similar_runs = [
+        e
+        for e in learning_data.get("executions", [])
+        if e.get("input_hash") == input_hash
+    ]
     similar_runs.sort(key=lambda x: x.get("timestamp", 0))
     if similar_runs:
         last_run = similar_runs[-1]
@@ -292,15 +375,26 @@ def get_adaptive_params(demand_matrix, target_coverage):
         base_params = best_run.get("params", {})
         evolution_factor = min(0.3, len(similar_runs) * 0.05)
         if len(similar_runs) >= 3:
-            recent_coverages = [run.get("coverage", 0) for run in similar_runs[-3:]]
+            recent_coverages = [
+                run.get("coverage", 0) for run in similar_runs[-3:]
+            ]
             if recent_coverages[-1] <= recent_coverages[-2]:
                 evolution_factor *= 2
         if coverage_gap > 10:
             return {
-                "agent_limit_factor": max(5, int(base_params.get("agent_limit_factor", 20) * (1 - evolution_factor))),
-                "excess_penalty": base_params.get("excess_penalty", 0.1) * (1 - evolution_factor),
-                "peak_bonus": base_params.get("peak_bonus", 2.0) * (1 + evolution_factor),
-                "critical_bonus": base_params.get("critical_bonus", 2.5) * (1 + evolution_factor),
+                "agent_limit_factor": max(
+                    5,
+                    int(
+                        base_params.get("agent_limit_factor", 20)
+                        * (1 - evolution_factor)
+                    ),
+                ),
+                "excess_penalty": base_params.get("excess_penalty", 0.1)
+                * (1 - evolution_factor),
+                "peak_bonus": base_params.get("peak_bonus", 2.0)
+                * (1 + evolution_factor),
+                "critical_bonus": base_params.get("critical_bonus", 2.5)
+                * (1 + evolution_factor),
                 "precision_mode": True,
                 "learned": True,
                 "runs_count": len(similar_runs),
@@ -308,10 +402,19 @@ def get_adaptive_params(demand_matrix, target_coverage):
             }
         elif coverage_gap > 3:
             return {
-                "agent_limit_factor": max(8, int(base_params.get("agent_limit_factor", 20) * (1 - evolution_factor * 0.5))),
-                "excess_penalty": base_params.get("excess_penalty", 0.2) * (1 - evolution_factor * 0.5),
-                "peak_bonus": base_params.get("peak_bonus", 1.8) * (1 + evolution_factor * 0.5),
-                "critical_bonus": base_params.get("critical_bonus", 2.0) * (1 + evolution_factor * 0.5),
+                "agent_limit_factor": max(
+                    8,
+                    int(
+                        base_params.get("agent_limit_factor", 20)
+                        * (1 - evolution_factor * 0.5)
+                    ),
+                ),
+                "excess_penalty": base_params.get("excess_penalty", 0.2)
+                * (1 - evolution_factor * 0.5),
+                "peak_bonus": base_params.get("peak_bonus", 1.8)
+                * (1 + evolution_factor * 0.5),
+                "critical_bonus": base_params.get("critical_bonus", 2.0)
+                * (1 + evolution_factor * 0.5),
                 "precision_mode": True,
                 "learned": True,
                 "runs_count": len(similar_runs),
@@ -319,10 +422,19 @@ def get_adaptive_params(demand_matrix, target_coverage):
             }
         elif coverage_gap > 0:
             return {
-                "agent_limit_factor": max(12, int(base_params.get("agent_limit_factor", 22) * (1 - evolution_factor * 0.2))),
-                "excess_penalty": base_params.get("excess_penalty", 0.3) * (1 - evolution_factor * 0.2),
-                "peak_bonus": base_params.get("peak_bonus", 1.5) * (1 + evolution_factor * 0.2),
-                "critical_bonus": base_params.get("critical_bonus", 1.8) * (1 + evolution_factor * 0.2),
+                "agent_limit_factor": max(
+                    12,
+                    int(
+                        base_params.get("agent_limit_factor", 22)
+                        * (1 - evolution_factor * 0.2)
+                    ),
+                ),
+                "excess_penalty": base_params.get("excess_penalty", 0.3)
+                * (1 - evolution_factor * 0.2),
+                "peak_bonus": base_params.get("peak_bonus", 1.5)
+                * (1 + evolution_factor * 0.2),
+                "critical_bonus": base_params.get("critical_bonus", 1.8)
+                * (1 + evolution_factor * 0.2),
                 "precision_mode": False,
                 "learned": True,
                 "runs_count": len(similar_runs),
@@ -331,17 +443,28 @@ def get_adaptive_params(demand_matrix, target_coverage):
         else:
             noise = np.random.uniform(-0.1, 0.1)
             return {
-                "agent_limit_factor": max(15, int(base_params.get("agent_limit_factor", 20) * (1 + noise))),
-                "excess_penalty": max(0.01, base_params.get("excess_penalty", 0.5) * (1 + noise)),
-                "peak_bonus": base_params.get("peak_bonus", 1.5) * (1 + noise * 0.5),
-                "critical_bonus": base_params.get("critical_bonus", 2.0) * (1 + noise * 0.5),
+                "agent_limit_factor": max(
+                    15,
+                    int(
+                        base_params.get("agent_limit_factor", 20) * (1 + noise)
+                    ),
+                ),
+                "excess_penalty": max(
+                    0.01, base_params.get("excess_penalty", 0.5) * (1 + noise)
+                ),
+                "peak_bonus": base_params.get("peak_bonus", 1.5)
+                * (1 + noise * 0.5),
+                "critical_bonus": base_params.get("critical_bonus", 2.0)
+                * (1 + noise * 0.5),
                 "precision_mode": False,
                 "learned": True,
                 "runs_count": len(similar_runs),
                 "evolution_step": "explore",
             }
     return {
-        "agent_limit_factor": max(8, int(total_demand / max(1, peak_demand) * 3)),
+        "agent_limit_factor": max(
+            8, int(total_demand / max(1, peak_demand) * 3)
+        ),
         "excess_penalty": 0.05,
         "peak_bonus": 2.5,
         "critical_bonus": 3.0,
@@ -352,7 +475,9 @@ def get_adaptive_params(demand_matrix, target_coverage):
     }
 
 
-def save_execution_result(demand_matrix, params, coverage, total_agents, execution_time):
+def save_execution_result(
+    demand_matrix, params, coverage, total_agents, execution_time
+):
     learning_data = load_learning_data()
     input_hash = hashlib.md5(str(demand_matrix).encode()).hexdigest()[:12]
     efficiency_score = coverage / max(1, total_agents * 0.1)
@@ -375,9 +500,19 @@ def save_execution_result(demand_matrix, params, coverage, total_agents, executi
         "evolution_step": params.get("evolution_step", "unknown"),
     }
     learning_data.setdefault("executions", []).append(execution_result)
-    pattern_executions = [e for e in learning_data["executions"] if e.get("input_hash") == input_hash]
+    pattern_executions = [
+        e
+        for e in learning_data["executions"]
+        if e.get("input_hash") == input_hash
+    ]
     if len(pattern_executions) > 50:
-        learning_data["executions"] = [e for e in learning_data["executions"] if e.get("input_hash") != input_hash or e.get("timestamp", 0) >= sorted([p.get("timestamp", 0) for p in pattern_executions])[-50]]
+        learning_data["executions"] = [
+            e
+            for e in learning_data["executions"]
+            if e.get("input_hash") != input_hash
+            or e.get("timestamp", 0)
+            >= sorted([p.get("timestamp", 0) for p in pattern_executions])[-50]
+        ]
     current_best = learning_data.get("best_params", {}).get(input_hash, {})
     new_score = efficiency_score if coverage >= 98 else coverage * 2
     if not current_best or new_score > current_best.get("score", 0):
@@ -389,36 +524,59 @@ def save_execution_result(demand_matrix, params, coverage, total_agents, executi
             "efficiency_score": efficiency_score,
             "timestamp": time.time(),
         }
-    pattern_runs = [e for e in learning_data["executions"] if e.get("input_hash") == input_hash]
+    pattern_runs = [
+        e
+        for e in learning_data["executions"]
+        if e.get("input_hash") == input_hash
+    ]
     if len(pattern_runs) >= 2:
-        recent_improvement = pattern_runs[-1]["coverage"] - pattern_runs[-2]["coverage"]
+        recent_improvement = (
+            pattern_runs[-1]["coverage"] - pattern_runs[-2]["coverage"]
+        )
     else:
         recent_improvement = 0
     learning_data["stats"] = {
         "total_executions": len(learning_data["executions"]),
-        "unique_patterns": len(set(e["input_hash"] for e in learning_data["executions"])),
-        "avg_coverage": np.mean([e["coverage"] for e in learning_data["executions"][-10:]]),
+        "unique_patterns": len(
+            set(e["input_hash"] for e in learning_data["executions"])
+        ),
+        "avg_coverage": np.mean(
+            [e["coverage"] for e in learning_data["executions"][-10:]]
+        ),
         "recent_improvement": recent_improvement,
-        "best_coverage": max([e["coverage"] for e in learning_data["executions"]], default=0),
+        "best_coverage": max(
+            [e["coverage"] for e in learning_data["executions"]], default=0
+        ),
         "last_updated": time.time(),
     }
     save_learning_data(learning_data)
     return True
 
+
 # ---------------------------------------------------------------------------
 # Demand utilities
 # ---------------------------------------------------------------------------
 
+
 def load_demand_excel(file_stream) -> np.ndarray:
     df = pd.read_excel(file_stream)
     day_col = [c for c in df.columns if "Día" in c][0]
-    demand_col = [c for c in df.columns if "Erlang" in c or "Requeridos" in c][-1]
-    dm = df.pivot_table(index=day_col, values=demand_col, columns=df.index % 24, aggfunc="first").fillna(0)
+    demand_col = [c for c in df.columns if "Erlang" in c or "Requeridos" in c][
+        -1
+    ]
+    dm = df.pivot_table(
+        index=day_col,
+        values=demand_col,
+        columns=df.index % 24,
+        aggfunc="first",
+    ).fillna(0)
     dm = dm.reindex(range(1, 8)).fillna(0)
     dm = dm.sort_index()
     matrix = dm.to_numpy(dtype=int)
     if matrix.shape[1] != 24:
-        matrix = np.pad(matrix, ((0, 0), (0, 24 - matrix.shape[1])), constant_values=0)
+        matrix = np.pad(
+            matrix, ((0, 0), (0, 24 - matrix.shape[1])), constant_values=0
+        )
     return matrix
 
 
@@ -434,11 +592,15 @@ def heatmap(matrix: np.ndarray, title: str) -> BytesIO:
     buf.seek(0)
     return buf
 
+
 # ---------------------------------------------------------------------------
 # Pattern generation
 # ---------------------------------------------------------------------------
 
-def generate_weekly_pattern(start_hour, duration, working_days, dso_day=None, break_len=1):
+
+def generate_weekly_pattern(
+    start_hour, duration, working_days, dso_day=None, break_len=1
+):
     pattern = np.zeros((7, 24), dtype=np.int8)
     for day in working_days:
         if day != dso_day:
@@ -449,7 +611,10 @@ def generate_weekly_pattern(start_hour, duration, working_days, dso_day=None, br
             break_start_idx = start_hour + break_from_start
             break_end_idx = start_hour + duration - break_from_end
             if int(break_start_idx) < int(break_end_idx):
-                break_hour = int(break_start_idx) + (int(break_end_idx) - int(break_start_idx)) // 2
+                break_hour = (
+                    int(break_start_idx)
+                    + (int(break_end_idx) - int(break_start_idx)) // 2
+                )
             else:
                 break_hour = int(break_start_idx)
             for b in range(int(break_len)):
@@ -459,7 +624,9 @@ def generate_weekly_pattern(start_hour, duration, working_days, dso_day=None, br
     return pattern.flatten()
 
 
-def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break_len=1):
+def generate_weekly_pattern_10h8(
+    start_hour, working_days, eight_hour_day, break_len=1
+):
     pattern = np.zeros((7, 24), dtype=np.int8)
     for day in working_days:
         duration = 8 if day == eight_hour_day else 10
@@ -470,7 +637,10 @@ def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break
         break_start_idx = start_hour + break_from_start
         break_end_idx = start_hour + duration - break_from_end
         if int(break_start_idx) < int(break_end_idx):
-            break_hour = int(break_start_idx) + (int(break_end_idx) - int(break_start_idx)) // 2
+            break_hour = (
+                int(break_start_idx)
+                + (int(break_end_idx) - int(break_start_idx)) // 2
+            )
         else:
             break_hour = int(break_start_idx)
         for b in range(int(break_len)):
@@ -514,7 +684,9 @@ def generate_shifts_coverage_corrected(*, max_patterns=None, batch_size=None):
             for dso_day in ACTIVE_DAYS:
                 working_days = [d for d in ACTIVE_DAYS if d != dso_day][:6]
                 if len(working_days) >= 6:
-                    pattern = generate_weekly_pattern(start_hour, 8, working_days, dso_day)
+                    pattern = generate_weekly_pattern(
+                        start_hour, 8, working_days, dso_day
+                    )
                     key = pattern.tobytes()
                     if key not in seen_patterns:
                         seen_patterns.add(key)
@@ -527,20 +699,30 @@ def generate_shifts_coverage_corrected(*, max_patterns=None, batch_size=None):
             for num_days in [4, 5, 6]:
                 if num_days <= len(ACTIVE_DAYS):
                     for combo in combinations(ACTIVE_DAYS, num_days):
-                        pattern = generate_weekly_pattern_simple(start_hour, 4, list(combo))
+                        pattern = generate_weekly_pattern_simple(
+                            start_hour, 4, list(combo)
+                        )
                         key = pattern.tobytes()
                         if key not in seen_patterns:
                             seen_patterns.add(key)
-                            name = f"PT4_{start_hour:04.1f}_DAYS{''.join(map(str, combo))}"
+                            name = (
+                                f"PT4_{start_hour:04.1f}_DAYS"
+                                f"{''.join(map(str, combo))}"
+                            )
                             shifts_coverage[name] = pattern
-                            if batch_size and len(shifts_coverage) >= batch_size:
+                            if (
+                                batch_size
+                                and len(shifts_coverage) >= batch_size
+                            ):
                                 yield shifts_coverage
                                 shifts_coverage = {}
     if shifts_coverage:
         yield shifts_coverage
 
 
-def generate_shifts_coverage_optimized(demand_matrix, *, max_patterns=None, batch_size=2000, quality_threshold=0):
+def generate_shifts_coverage_optimized(
+    demand_matrix, *, max_patterns=None, batch_size=2000, quality_threshold=0
+):
     selected = 0
     seen = set()
     inner = generate_shifts_coverage_corrected(batch_size=batch_size)
@@ -572,7 +754,10 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
     total_demand = demand_matrix.sum()
     peak_demand = demand_matrix.max()
     max_per_shift = max(15, int(total_demand / max(1, len(shifts_list) / 10)))
-    shift_vars = {s: pulp.LpVariable(f"shift_{s}", 0, max_per_shift, pulp.LpInteger) for s in shifts_list}
+    shift_vars = {
+        s: pulp.LpVariable(f"shift_{s}", 0, max_per_shift, pulp.LpInteger)
+        for s in shifts_list
+    }
     deficit_vars = {}
     excess_vars = {}
     hours = demand_matrix.shape[1]
@@ -582,8 +767,14 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
             excess_vars[(d, h)] = pulp.LpVariable(f"excess_{d}_{h}", 0, None)
     daily_totals = demand_matrix.sum(axis=1)
     hourly_totals = demand_matrix.sum(axis=0)
-    critical_days = np.argsort(daily_totals)[-2:] if len(daily_totals) > 1 else [np.argmax(daily_totals)]
-    peak_hours = np.where(hourly_totals >= np.percentile(hourly_totals[hourly_totals > 0], 80))[0]
+    critical_days = (
+        np.argsort(daily_totals)[-2:]
+        if len(daily_totals) > 1
+        else [np.argmax(daily_totals)]
+    )
+    peak_hours = np.where(
+        hourly_totals >= np.percentile(hourly_totals[hourly_totals > 0], 80)
+    )[0]
     total_deficit = pulp.lpSum(deficit_vars.values())
     total_agents = pulp.lpSum(shift_vars.values())
     smart_excess_penalty = 0
@@ -593,47 +784,86 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
             if demand_val == 0:
                 smart_excess_penalty += excess_vars[(d, h)] * 50000
             elif demand_val <= 2:
-                smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 100)
+                smart_excess_penalty += excess_vars[(d, h)] * (
+                    excess_penalty * 100
+                )
             elif demand_val <= 5:
-                smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 20)
+                smart_excess_penalty += excess_vars[(d, h)] * (
+                    excess_penalty * 20
+                )
             else:
-                smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 5)
+                smart_excess_penalty += excess_vars[(d, h)] * (
+                    excess_penalty * 5
+                )
     precision_bonus = 0
     for cd in critical_days:
         if cd < 7:
-            day_multiplier = min(5.0, daily_totals[cd] / max(1, daily_totals.mean()))
+            day_multiplier = min(
+                5.0, daily_totals[cd] / max(1, daily_totals.mean())
+            )
             for h in range(hours):
                 if demand_matrix[cd, h] > 0:
-                    precision_bonus -= deficit_vars[(cd, h)] * (critical_bonus * 100 * day_multiplier)
+                    precision_bonus -= deficit_vars[(cd, h)] * (
+                        critical_bonus * 100 * day_multiplier
+                    )
     for h in peak_hours:
         if h < hours:
-            hour_multiplier = min(3.0, hourly_totals[h] / max(1, hourly_totals.mean()))
+            hour_multiplier = min(
+                3.0, hourly_totals[h] / max(1, hourly_totals.mean())
+            )
             for d in range(7):
                 if demand_matrix[d, h] > 0:
-                    precision_bonus -= deficit_vars[(d, h)] * (peak_bonus * 50 * hour_multiplier)
-    prob += (total_deficit * 100000 + smart_excess_penalty + total_agents * 0.01 + precision_bonus)
+                    precision_bonus -= deficit_vars[(d, h)] * (
+                        peak_bonus * 50 * hour_multiplier
+                    )
+    prob += (
+        total_deficit * 100000
+        + smart_excess_penalty
+        + total_agents * 0.01
+        + precision_bonus
+    )
     for d in range(7):
         for h in range(hours):
-            coverage = pulp.lpSum(shift_vars[s] * shifts_coverage[s][d * hours + h] for s in shifts_list)
+            coverage = pulp.lpSum(
+                shift_vars[s] * shifts_coverage[s][d * hours + h]
+                for s in shifts_list
+            )
             demand = demand_matrix[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage - excess_vars[(d, h)] <= demand
             if demand == 0:
                 prob += coverage <= 1
     if optimization_profile in ("JEAN", "JEAN Personalizado"):
-        dynamic_limit = max(int(total_demand / max(1, agent_limit_factor)), int(peak_demand * 1.1))
+        dynamic_limit = max(
+            int(total_demand / max(1, agent_limit_factor)),
+            int(peak_demand * 1.1),
+        )
     else:
-        dynamic_limit = max(int(total_demand / max(1, agent_limit_factor - 2)), int(peak_demand * 2))
+        dynamic_limit = max(
+            int(total_demand / max(1, agent_limit_factor - 2)),
+            int(peak_demand * 2),
+        )
     prob += total_agents <= dynamic_limit
     total_excess = pulp.lpSum(excess_vars.values())
     prob += total_excess <= total_demand * 0.10
     for d in range(7):
         day_demand = demand_matrix[d].sum()
         if day_demand > 0:
-            day_coverage = pulp.lpSum(shift_vars[s] * np.sum(np.array(shifts_coverage[s]).reshape(7, hours)[d]) for s in shifts_list)
+            day_coverage = pulp.lpSum(
+                shift_vars[s]
+                * np.sum(np.array(shifts_coverage[s]).reshape(7, hours)[d])
+                for s in shifts_list
+            )
             prob += day_coverage <= day_demand * 1.15
             prob += day_coverage >= day_demand * 0.85
-    solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER, gapRel=0.02, threads=4, presolve=1, cuts=1)
+    solver = pulp.PULP_CBC_CMD(
+        msg=0,
+        timeLimit=TIME_SOLVER,
+        gapRel=0.02,
+        threads=4,
+        presolve=1,
+        cuts=1,
+    )
     prob.solve(solver)
     assignments = {}
     if prob.status == pulp.LpStatusOptimal:
@@ -648,8 +878,12 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
 
 
 def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix):
-    ft_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('FT')}
-    pt_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('PT')}
+    ft_shifts = {
+        k: v for k, v in shifts_coverage.items() if k.startswith("FT")
+    }
+    pt_shifts = {
+        k: v for k, v in shifts_coverage.items() if k.startswith("PT")
+    }
     ft_assignments = optimize_ft_no_excess(ft_shifts, demand_matrix)
     ft_coverage = np.zeros_like(demand_matrix)
     for name, count in ft_assignments.items():
@@ -666,22 +900,29 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix):
         return {}
     prob = pulp.LpProblem("FT_No_Excess", pulp.LpMinimize)
     max_ft_per_shift = max(10, int(demand_matrix.sum() / agent_limit_factor))
-    ft_vars = {s: pulp.LpVariable(f"ft_{s}", 0, max_ft_per_shift, pulp.LpInteger) for s in ft_shifts}
+    ft_vars = {
+        s: pulp.LpVariable(f"ft_{s}", 0, max_ft_per_shift, pulp.LpInteger)
+        for s in ft_shifts
+    }
     deficit_vars = {}
     hours = demand_matrix.shape[1]
     for d in range(7):
         for h in range(hours):
-            deficit_vars[(d, h)] = pulp.LpVariable(f"ft_deficit_{d}_{h}", 0, None)
+            deficit_vars[(d, h)] = pulp.LpVariable(
+                f"ft_deficit_{d}_{h}", 0, None
+            )
     total_deficit = pulp.lpSum(deficit_vars.values())
     total_ft_agents = pulp.lpSum(ft_vars.values())
     prob += total_deficit * 1000 + total_ft_agents * 1
     for d in range(7):
         for h in range(hours):
-            coverage = pulp.lpSum(ft_vars[s] * ft_shifts[s][d * hours + h] for s in ft_shifts)
+            coverage = pulp.lpSum(
+                ft_vars[s] * ft_shifts[s][d * hours + h] for s in ft_shifts
+            )
             demand = demand_matrix[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage <= demand
-    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
+    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER // 2))
     assignments = {}
     if prob.status == pulp.LpStatusOptimal:
         for s in ft_shifts:
@@ -695,28 +936,43 @@ def optimize_pt_complete(pt_shifts, remaining_demand):
     if not pt_shifts or remaining_demand.sum() == 0:
         return {}
     prob = pulp.LpProblem("PT_Complete", pulp.LpMinimize)
-    max_pt_per_shift = max(10, int(remaining_demand.sum() / max(1, agent_limit_factor)))
-    pt_vars = {s: pulp.LpVariable(f"pt_{s}", 0, max_pt_per_shift, pulp.LpInteger) for s in pt_shifts}
+    max_pt_per_shift = max(
+        10, int(remaining_demand.sum() / max(1, agent_limit_factor))
+    )
+    pt_vars = {
+        s: pulp.LpVariable(f"pt_{s}", 0, max_pt_per_shift, pulp.LpInteger)
+        for s in pt_shifts
+    }
     deficit_vars = {}
     excess_vars = {}
     hours = remaining_demand.shape[1]
     for d in range(7):
         for h in range(hours):
-            deficit_vars[(d, h)] = pulp.LpVariable(f"pt_deficit_{d}_{h}", 0, None)
-            excess_vars[(d, h)] = pulp.LpVariable(f"pt_excess_{d}_{h}", 0, None)
+            deficit_vars[(d, h)] = pulp.LpVariable(
+                f"pt_deficit_{d}_{h}", 0, None
+            )
+            excess_vars[(d, h)] = pulp.LpVariable(
+                f"pt_excess_{d}_{h}", 0, None
+            )
     total_deficit = pulp.lpSum(deficit_vars.values())
     total_excess = pulp.lpSum(excess_vars.values())
     total_pt_agents = pulp.lpSum(pt_vars.values())
-    prob += total_deficit * 1000 + total_excess * (excess_penalty * 20) + total_pt_agents * 1
+    prob += (
+        total_deficit * 1000
+        + total_excess * (excess_penalty * 20)
+        + total_pt_agents * 1
+    )
     if optimization_profile in ("JEAN", "JEAN Personalizado"):
         prob += total_excess == 0
     for d in range(7):
         for h in range(hours):
-            coverage = pulp.lpSum(pt_vars[s] * pt_shifts[s][d * hours + h] for s in pt_shifts)
+            coverage = pulp.lpSum(
+                pt_vars[s] * pt_shifts[s][d * hours + h] for s in pt_shifts
+            )
             demand = remaining_demand[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage - excess_vars[(d, h)] <= demand
-    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
+    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER // 2))
     assignments = {}
     if prob.status == pulp.LpStatusOptimal:
         for s in pt_shifts:
@@ -726,7 +982,9 @@ def optimize_pt_complete(pt_shifts, remaining_demand):
     return assignments
 
 
-def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000):
+def solve_in_chunks_optimized(
+    shifts_coverage, demand_matrix, base_chunk_size=10000
+):
     scored = []
     seen = set()
     for name, pat in shifts_coverage.items():
@@ -761,7 +1019,11 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
 def analyze_results(assignments, shifts_coverage, demand_matrix):
     if not assignments:
         return None
-    slots_per_day = len(next(iter(shifts_coverage.values()))) // 7 if shifts_coverage else 24
+    slots_per_day = (
+        len(next(iter(shifts_coverage.values()))) // 7
+        if shifts_coverage
+        else 24
+    )
     total_coverage = np.zeros((7, slots_per_day), dtype=np.int16)
     total_agents = 0
     ft_agents = 0
@@ -772,31 +1034,33 @@ def analyze_results(assignments, shifts_coverage, demand_matrix):
         pattern_matrix = np.array(weekly_pattern).reshape(7, slots_per_day)
         total_coverage += pattern_matrix * count
         total_agents += count
-        if shift_name.startswith('FT'):
+        if shift_name.startswith("FT"):
             ft_agents += count
         else:
             pt_agents += count
     total_demand = demand_matrix.sum()
     total_covered = np.minimum(total_coverage, demand_matrix).sum()
-    coverage_percentage = (total_covered / total_demand) * 100 if total_demand > 0 else 0
+    coverage_percentage = (
+        (total_covered / total_demand) * 100 if total_demand > 0 else 0
+    )
     diff_matrix = total_coverage - demand_matrix
     overstaffing = np.sum(diff_matrix[diff_matrix > 0])
     understaffing = np.sum(np.abs(diff_matrix[diff_matrix < 0]))
     return {
-        'total_coverage': total_coverage,
-        'total_agents': total_agents,
-        'ft_agents': ft_agents,
-        'pt_agents': pt_agents,
-        'coverage_percentage': coverage_percentage,
-        'overstaffing': overstaffing,
-        'understaffing': understaffing,
-        'diff_matrix': diff_matrix,
+        "total_coverage": total_coverage,
+        "total_agents": total_agents,
+        "ft_agents": ft_agents,
+        "pt_agents": pt_agents,
+        "coverage_percentage": coverage_percentage,
+        "overstaffing": overstaffing,
+        "understaffing": understaffing,
+        "diff_matrix": diff_matrix,
     }
 
 
 def _extract_start_hour(name: str) -> float:
-    for part in name.split('_'):
-        if '.' in part and part.replace('.', '').isdigit():
+    for part in name.split("_"):
+        if "." in part and part.replace(".", "").isdigit():
             try:
                 return float(part)
             except ValueError:
@@ -813,15 +1077,15 @@ def export_detailed_schedule(assignments, shifts_coverage):
         weekly_pattern = shifts_coverage[shift_name]
         slots_per_day = len(weekly_pattern) // 7
         pattern_matrix = np.array(weekly_pattern).reshape(7, slots_per_day)
-        parts = shift_name.split('_')
+        parts = shift_name.split("_")
         start_hour = _extract_start_hour(shift_name)
-        if shift_name.startswith('FT10p8'):
-            shift_type = 'FT'
+        if shift_name.startswith("FT10p8"):
+            shift_type = "FT"
             shift_duration = 10
             total_hours = shift_duration + 1
-        elif shift_name.startswith('FT'):
-            shift_type = 'FT'
-            if '_Variado_' in shift_name or len(parts) > 4:
+        elif shift_name.startswith("FT"):
+            shift_type = "FT"
+            if "_Variado_" in shift_name or len(parts) > 4:
                 shift_duration = int(pattern_matrix.sum(axis=1).max())
             else:
                 try:
@@ -832,9 +1096,9 @@ def export_detailed_schedule(assignments, shifts_coverage):
                 except (ValueError, IndexError):
                     shift_duration = int(pattern_matrix.sum(axis=1).max())
             total_hours = shift_duration + 1
-        elif shift_name.startswith('PT'):
-            shift_type = 'PT'
-            if '_Variado_' in shift_name or len(parts) > 4:
+        elif shift_name.startswith("PT"):
+            shift_type = "PT"
+            if "_Variado_" in shift_name or len(parts) > 4:
                 shift_duration = int(pattern_matrix.sum(axis=1).max())
             else:
                 try:
@@ -846,7 +1110,7 @@ def export_detailed_schedule(assignments, shifts_coverage):
                     shift_duration = int(pattern_matrix.sum(axis=1).max())
             total_hours = shift_duration
         else:
-            shift_type = 'FT'
+            shift_type = "FT"
             shift_duration = 8
             total_hours = 9
         for agent_num in range(count):
@@ -855,18 +1119,29 @@ def export_detailed_schedule(assignments, shifts_coverage):
                 work_hours = np.where(day_pattern == 1)[0]
                 if len(work_hours) > 0:
                     start_idx = int(start_hour)
-                    if shift_name.startswith('PT') or shift_name.startswith('FT10p8'):
+                    if shift_name.startswith("PT") or shift_name.startswith(
+                        "FT10p8"
+                    ):
                         end_idx = (int(work_hours[-1]) + 1) % 24
                         next_day = end_idx <= start_idx
-                        horario = f"{start_idx:02d}:00-{end_idx:02d}:00" + ("+1" if next_day else "")
+                        horario = f"{start_idx:02d}:00-{end_idx:02d}:00" + (
+                            "+1" if next_day else ""
+                        )
                     else:
                         end_idx = int(work_hours[-1]) + 1
                         next_day = end_idx <= start_idx
-                        horario = f"{start_idx:02d}:00-{end_idx % 24:02d}:00" + ("+1" if next_day else "")
-                    if shift_name.startswith('PT'):
+                        horario = (
+                            f"{start_idx:02d}:00-{end_idx % 24:02d}:00"
+                            + ("+1" if next_day else "")
+                        )
+                    if shift_name.startswith("PT"):
                         break_time = ""
-                    elif shift_name.startswith('FT10p8'):
-                        all_expected = set(range(int(start_hour), int(start_hour + total_hours)))
+                    elif shift_name.startswith("FT10p8"):
+                        all_expected = set(
+                            range(
+                                int(start_hour), int(start_hour + total_hours)
+                            )
+                        )
                         actual_hours = set(work_hours)
                         break_hours = all_expected - actual_hours
                         if break_hours:
@@ -874,47 +1149,83 @@ def export_detailed_schedule(assignments, shifts_coverage):
                             break_end = (break_hour + 1) % 24
                             if break_end == 0:
                                 break_end = 24
-                            break_time = f"{break_hour:02d}:00-{break_end:02d}:00"
+                            break_time = (
+                                f"{break_hour:02d}:00-{break_end:02d}:00"
+                            )
                         else:
                             break_time = ""
                     else:
                         expected = list(range(start_idx, end_idx))
                         if next_day:
-                            expected = list(range(start_idx, 24)) + list(range(0, end_idx % 24))
+                            expected = list(range(start_idx, 24)) + list(
+                                range(0, end_idx % 24)
+                            )
                         break_hours = set(expected) - set(work_hours)
                         if break_hours:
                             break_hour = min(break_hours)
-                            break_time = f"{break_hour % 24:02d}:00-{((break_hour + 1) % 24) or 24:02d}:00"
+                            break_time = (
+                                f"{break_hour % 24:02d}:00-"
+                                f"{((break_hour + 1) % 24) or 24:02d}:00"
+                            )
                         else:
                             break_time = ""
-                    detailed_data.append({
-                        'Agente': f"AGT_{agent_id:03d}",
-                        'Dia': ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][day],
-                        'Horario': horario,
-                        'Break': break_time,
-                        'Turno': shift_name,
-                        'Tipo': shift_type,
-                    })
+                    detailed_data.append(
+                        {
+                            "Agente": f"AGT_{agent_id:03d}",
+                            "Dia": [
+                                "Lunes",
+                                "Martes",
+                                "Miércoles",
+                                "Jueves",
+                                "Viernes",
+                                "Sábado",
+                                "Domingo",
+                            ][day],
+                            "Horario": horario,
+                            "Break": break_time,
+                            "Turno": shift_name,
+                            "Tipo": shift_type,
+                        }
+                    )
                 else:
-                    detailed_data.append({
-                        'Agente': f"AGT_{agent_id:03d}",
-                        'Dia': ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][day],
-                        'Horario': "DSO",
-                        'Break': "",
-                        'Turno': shift_name,
-                        'Tipo': 'DSO',
-                    })
+                    detailed_data.append(
+                        {
+                            "Agente": f"AGT_{agent_id:03d}",
+                            "Dia": [
+                                "Lunes",
+                                "Martes",
+                                "Miércoles",
+                                "Jueves",
+                                "Viernes",
+                                "Sábado",
+                                "Domingo",
+                            ][day],
+                            "Horario": "DSO",
+                            "Break": "",
+                            "Turno": shift_name,
+                            "Tipo": "DSO",
+                        }
+                    )
             agent_id += 1
     df_detailed = pd.DataFrame(detailed_data)
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_detailed.to_excel(writer, sheet_name='Horarios_Semanales', index=False)
-        df_summary = df_detailed.groupby(['Agente', 'Turno']).size().reset_index(name='Dias_Trabajo')
-        df_summary.to_excel(writer, sheet_name='Resumen_Agentes', index=False)
-        df_shifts = pd.DataFrame([
-            {'Turno': shift, 'Agentes': count} for shift, count in assignments.items()
-        ])
-        df_shifts.to_excel(writer, sheet_name='Turnos_Asignados', index=False)
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_detailed.to_excel(
+            writer, sheet_name="Horarios_Semanales", index=False
+        )
+        df_summary = (
+            df_detailed.groupby(["Agente", "Turno"])
+            .size()
+            .reset_index(name="Dias_Trabajo")
+        )
+        df_summary.to_excel(writer, sheet_name="Resumen_Agentes", index=False)
+        df_shifts = pd.DataFrame(
+            [
+                {"Turno": shift, "Agentes": count}
+                for shift, count in assignments.items()
+            ]
+        )
+        df_shifts.to_excel(writer, sheet_name="Turnos_Asignados", index=False)
     return output.getvalue()
 
 
@@ -924,17 +1235,20 @@ def run_complete_optimization(file_stream, config=None):
     patterns = {}
     for batch in generate_shifts_coverage_optimized(
         demand_matrix,
-        max_patterns=config.get('max_patterns'),
-        batch_size=config.get('batch_size', 2000),
-        quality_threshold=config.get('quality_threshold', 0),
+        max_patterns=config.get("max_patterns"),
+        batch_size=config.get("batch_size", 2000),
+        quality_threshold=config.get("quality_threshold", 0),
     ):
         patterns.update(batch)
-        if config.get('max_patterns') and len(patterns) >= config['max_patterns']:
+        if (
+            config.get("max_patterns")
+            and len(patterns) >= config["max_patterns"]
+        ):
             break
     assignments = solve_in_chunks_optimized(
         patterns,
         demand_matrix,
-        base_chunk_size=config.get('base_chunk_size', 10000),
+        base_chunk_size=config.get("base_chunk_size", 10000),
     )
     results = analyze_results(assignments, patterns, demand_matrix)
     excel = export_detailed_schedule(assignments, patterns)
