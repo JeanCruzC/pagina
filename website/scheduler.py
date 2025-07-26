@@ -11,6 +11,8 @@ import base64
 
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")  # Use a non-GUI backend for server-side generation
 import matplotlib.pyplot as plt
 import seaborn as sns
 import psutil
