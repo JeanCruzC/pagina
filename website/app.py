@@ -87,7 +87,12 @@ def generador():
             except Exception:
                 flash('Plantilla JEAN inválida')
 
-        result = scheduler.run_complete_optimization(excel, config=cfg)
+        try:
+            result = scheduler.run_complete_optimization(excel, config=cfg)
+        except Exception as e:
+            code = 400 if isinstance(e, ValueError) else 500
+            return {"error": str(e)}, code
+
         result["download_url"] = url_for("download_excel") if session.get("last_excel_result") else None
         return result
 

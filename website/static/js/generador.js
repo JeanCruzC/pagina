@@ -92,10 +92,23 @@ if (form) {
     const data = new FormData(form);
     try {
       const res = await fetch('/generador', { method: 'POST', body: data });
-      const json = await res.json();
+      let json;
+      try {
+        json = await res.json();
+      } catch (err) {
+        console.error('JSON parse error:', err);
+        alert('Error: ' + err);
+        return;
+      }
+      if (!res.ok) {
+        console.error('Server error:', json);
+        alert(json.error || 'Error');
+        return;
+      }
       displayResults(json);
     } catch (err) {
       console.error(err);
+      alert('Error: ' + err);
     }
     if (progressContainer && progressBar) {
       progressBar.style.width = '0%';
