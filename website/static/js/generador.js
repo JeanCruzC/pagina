@@ -109,24 +109,26 @@ document.getElementById('pt').addEventListener('change', togglePTOptions);
 
 /* Intercept form submission and send via fetch. */
 const form = document.getElementById('genForm');
+const progressContainer = document.getElementById('progress-container');
+const progressBar = document.getElementById('progressBar');
 if (form) {
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    const progress = document.getElementById('progress') || (() => {
-      const p = document.createElement('div');
-      p.id = 'progress';
-      form.after(p);
-      return p;
-    })();
-    progress.textContent = 'Generando...';
+    if (progressContainer && progressBar) {
+      progressContainer.style.display = 'block';
+      progressBar.style.width = '100%';
+    }
     const data = new FormData(form);
     try {
       const res = await fetch('/generador', { method: 'POST', body: data });
       const json = await res.json();
       displayResults(json);
-      progress.textContent = '';
     } catch (err) {
-      progress.textContent = 'Error al generar';
+      console.error(err);
+    }
+    if (progressContainer && progressBar) {
+      progressBar.style.width = '0%';
+      progressContainer.style.display = 'none';
     }
   });
 }
