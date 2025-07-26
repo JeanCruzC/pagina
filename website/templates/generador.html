@@ -1,13 +1,27 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Generador de Horarios</h2>
+<style>
+  #sidebar {
+    background: #f8f8f8;
+    border-radius: 8px;
+    padding: 15px;
+  }
+  #progress-container {
+    display: none;
+  }
+  #results img {
+    max-width: 100%;
+    height: auto;
+  }
+</style>
+<h2 class="mb-4">Generador de Horarios</h2>
 <form method="post" enctype="multipart/form-data" id="genForm">
-  <div class="mb-3">
-    <label class="form-label">Archivo de demanda</label>
-    <input type="file" name="excel" class="form-control" accept=".xlsx" required>
-  </div>
   <div class="row">
-    <div class="col-md-4">
+    <aside class="col-md-4" id="sidebar">
+      <div class="mb-3">
+        <label class="form-label">Archivo de demanda</label>
+        <input type="file" name="excel" class="form-control" accept=".xlsx" required>
+      </div>
       <h5>Configuración</h5>
       <label class="form-label">Iteraciones: <span id="it_val">30</span></label>
       <input type="range" class="form-range" min="10" max="100" value="30" name="iterations" id="iterations">
@@ -27,7 +41,7 @@
         <label class="form-check-label" for="pt">Part Time</label>
       </div>
 
-      <div id="ft_opts" class="ms-3">
+      <div id="ft_opts" class="ms-3 mt-2">
         <div class="form-check">
           <input class="form-check-input" type="checkbox" value="1" name="allow_8h" checked id="allow_8h">
           <label class="form-check-label" for="allow_8h">8 horas</label>
@@ -38,7 +52,7 @@
         </div>
       </div>
 
-      <div id="pt_opts" class="ms-3">
+      <div id="pt_opts" class="ms-3 mt-2">
         <div class="form-check">
           <input class="form-check-input" type="checkbox" value="1" name="allow_pt_4h" checked id="allow_pt_4h">
           <label class="form-check-label" for="allow_pt_4h">PT 4h</label>
@@ -91,23 +105,54 @@
         <label class="form-label">Plantilla JEAN (JSON)</label>
         <input type="file" name="jean_file" class="form-control" accept="application/json">
       </div>
+    </aside>
 
-    </div>
+    <section class="col-md-8">
+      <button class="btn btn-primary mb-3" type="submit">Generar</button>
+      <a href="{{ url_for('logout') }}" class="btn btn-secondary mb-3">Salir</a>
+
+      <div id="progress-container" class="my-3">
+        <div class="progress">
+          <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div id="results">
+        {% if metrics %}
+        <h4 class="mt-4">Resultados</h4>
+        <p>Agentes estimados: {{ metrics.total_agents }}</p>
+        <p>Cobertura: {{ '%.1f'|format(metrics.coverage_percentage) }}%</p>
+        <img src="{{ demand_url }}" class="img-fluid" alt="demand">
+        <img src="{{ image_url }}" class="img-fluid" alt="schedule">
+        {% if download %}
+        <p class="mt-2"><a class="btn btn-success" href="{{ url_for('download') }}">Descargar Excel</a></p>
+        {% endif %}
+        {% endif %}
+      </div>
+    </section>
   </div>
-  <button class="btn btn-primary mt-3">Generar</button>
-  <a href="{{ url_for('logout') }}" class="btn btn-secondary mt-3">Salir</a>
 </form>
 
-{% if metrics %}
-  <hr>
-  <h4>Resultados</h4>
-  <p>Agentes estimados: {{ metrics.total_agents }}</p>
-  <p>Cobertura: {{ '%.1f'|format(metrics.coverage_percentage) }}%</p>
-  <img src="{{ demand_url }}" class="img-fluid" alt="demand">
-  <img src="{{ image_url }}" class="img-fluid" alt="schedule">
-  {% if download %}
-  <p class="mt-2"><a class="btn btn-success" href="{{ url_for('download') }}">Descargar Excel</a></p>
-  {% endif %}
-{% endif %}
 <script src="{{ url_for('static', filename='js/generador.js') }}"></script>
+<script>
+  const ft = document.getElementById('ft');
+  const pt = document.getElementById('pt');
+  const ft_opts = document.getElementById('ft_opts');
+  const pt_opts = document.getElementById('pt_opts');
+  function updateContractVisibility() {
+    ft_opts.style.display = ft.checked ? 'block' : 'none';
+    pt_opts.style.display = pt.checked ? 'block' : 'none';
+  }
+  ft.addEventListener('change', updateContractVisibility);
+  pt.addEventListener('change', updateContractVisibility);
+  updateContractVisibility();
+
+  const form = document.getElementById('genForm');
+  const progressContainer = document.getElementById('progress-container');
+  const progressBar = document.getElementById('progressBar');
+  form.addEventListener('submit', () => {
+    progressContainer.style.display = 'block';
+    progressBar.style.width = '100%';
+  });
+</script>
 {% endblock %}
