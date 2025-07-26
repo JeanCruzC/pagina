@@ -1,16 +1,113 @@
 {% extends 'base.html' %}
 {% block content %}
 <h2>Generador de Horarios</h2>
-<form method="post" enctype="multipart/form-data">
+<form method="post" enctype="multipart/form-data" id="genForm">
   <div class="mb-3">
+    <label class="form-label">Archivo de demanda</label>
     <input type="file" name="excel" class="form-control" accept=".xlsx" required>
   </div>
-  <button class="btn btn-primary">Generar</button>
-  <a href="{{ url_for('logout') }}" class="btn btn-secondary">Salir</a>
+  <div class="row">
+    <div class="col-md-4">
+      <h5>Configuración</h5>
+      <label class="form-label">Iteraciones: <span id="it_val">30</span></label>
+      <input type="range" class="form-range" min="10" max="100" value="30" name="iterations" id="iterations">
+
+      <label class="form-label">Tiempo solver (s): <span id="time_val">240</span></label>
+      <input type="range" class="form-range" min="60" max="600" step="30" value="240" name="solver_time" id="solver_time">
+
+      <label class="form-label">Cobertura objetivo (%): <span id="cov_val">98</span></label>
+      <input type="range" class="form-range" min="95" max="100" value="98" name="coverage" id="coverage">
+
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" value="1" id="ft" name="use_ft" checked>
+        <label class="form-check-label" for="ft">Full Time</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" value="1" id="pt" name="use_pt" checked>
+        <label class="form-check-label" for="pt">Part Time</label>
+      </div>
+
+      <div id="ft_opts" class="ms-3">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" value="1" name="allow_8h" checked id="allow_8h">
+          <label class="form-check-label" for="allow_8h">8 horas</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" value="1" name="allow_10h8" id="allow_10h8">
+          <label class="form-check-label" for="allow_10h8">10h + 8h</label>
+        </div>
+      </div>
+
+      <div id="pt_opts" class="ms-3">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" value="1" name="allow_pt_4h" checked id="allow_pt_4h">
+          <label class="form-check-label" for="allow_pt_4h">PT 4h</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" value="1" name="allow_pt_6h" checked id="allow_pt_6h">
+          <label class="form-check-label" for="allow_pt_6h">PT 6h</label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" value="1" name="allow_pt_5h" id="allow_pt_5h">
+          <label class="form-check-label" for="allow_pt_5h">PT 5h</label>
+        </div>
+      </div>
+
+      <label class="form-label mt-3">Break desde inicio (h): <span id="bstart_val">2.5</span></label>
+      <input type="range" class="form-range" min="1" max="5" step="0.5" value="2.5" name="break_from_start" id="break_from_start">
+
+      <label class="form-label">Break antes del fin (h): <span id="bend_val">2.5</span></label>
+      <input type="range" class="form-range" min="1" max="5" step="0.5" value="2.5" name="break_from_end" id="break_from_end">
+
+      <label class="form-label mt-3">Perfil de optimización</label>
+      <select class="form-select" name="profile" id="profile">
+        <option>Equilibrado (Recomendado)</option>
+        <option>Conservador</option>
+        <option>Agresivo</option>
+        <option>Máxima Cobertura</option>
+        <option>Mínimo Costo</option>
+        <option>100% Cobertura Eficiente</option>
+        <option>100% Cobertura Total</option>
+        <option>Cobertura Perfecta</option>
+        <option>100% Exacto</option>
+        <option>JEAN</option>
+        <option>JEAN Personalizado</option>
+        <option>Personalizado</option>
+        <option>Aprendizaje Adaptativo</option>
+      </select>
+
+      <div id="personalizado" class="mt-2" style="display:none">
+        <label class="form-label">Factor límite agentes</label>
+        <input type="number" step="1" min="5" max="35" value="25" class="form-control" name="agent_limit_factor">
+        <label class="form-label">Penalización exceso</label>
+        <input type="number" step="0.1" value="0.5" class="form-control" name="excess_penalty">
+        <label class="form-label">Bonificación pico</label>
+        <input type="number" step="0.1" value="1.5" class="form-control" name="peak_bonus">
+        <label class="form-label">Bonificación crítica</label>
+        <input type="number" step="0.1" value="2.0" class="form-control" name="critical_bonus">
+      </div>
+
+      <div id="jean" class="mt-2" style="display:none">
+        <label class="form-label">Plantilla JEAN (JSON)</label>
+        <input type="file" name="jean_file" class="form-control" accept="application/json">
+      </div>
+
+    </div>
+  </div>
+  <button class="btn btn-primary mt-3">Generar</button>
+  <a href="{{ url_for('logout') }}" class="btn btn-secondary mt-3">Salir</a>
 </form>
-{% if image_url %}
+
+{% if metrics %}
   <hr>
-  <h4>Resultado</h4>
+  <h4>Resultados</h4>
+  <p>Agentes estimados: {{ metrics.total_agents }}</p>
+  <p>Cobertura: {{ '%.1f'|format(metrics.coverage_percentage) }}%</p>
+  <img src="{{ demand_url }}" class="img-fluid" alt="demand">
   <img src="{{ image_url }}" class="img-fluid" alt="schedule">
+  {% if download %}
+  <p class="mt-2"><a class="btn btn-success" href="{{ url_for('download') }}">Descargar Excel</a></p>
+  {% endif %}
 {% endif %}
+<script src="{{ url_for('static', filename='js/generador.js') }}"></script>
 {% endblock %}
