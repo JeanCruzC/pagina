@@ -89,6 +89,18 @@ def emergency_cleanup(threshold=85.0):
     return False
 
 
+def get_smart_start_hours(demand_matrix, max_hours=12):
+    """Return a list of start hours around peak demand."""
+    if demand_matrix is None or demand_matrix.size == 0:
+        return [float(h) for h in range(24)]
+
+    cols = demand_matrix.shape[1]
+    hourly_totals = demand_matrix.sum(axis=0)
+    top = np.argsort(hourly_totals)[-max_hours:]
+    hours = sorted({round(h / cols * 24, 2) for h in top})
+    return hours
+
+
 def score_pattern(pattern, demand_matrix):
     dm = demand_matrix.flatten()
     pat = pattern.astype(int)
