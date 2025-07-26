@@ -4,6 +4,7 @@ import os
 import gc
 import hashlib
 from io import BytesIO
+from flask import session
 from itertools import combinations, permutations
 
 import numpy as np
@@ -455,6 +456,61 @@ def heatmap(matrix: np.ndarray, title: str) -> BytesIO:
     plt.close(fig)
     buf.seek(0)
     return buf
+
+
+def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
+    """Return a 7x24 demand matrix from a DataFrame."""
+    day_col = [c for c in df.columns if "Día" in c][0]
+    demand_col = [c for c in df.columns if "Erlang" in c or "Requeridos" in c][-1]
+    dm = df.pivot_table(index=day_col, values=demand_col,
+                        columns=df.index % 24, aggfunc="first").fillna(0)
+    dm = dm.reindex(range(1, 8)).fillna(0)
+    dm = dm.sort_index()
+    matrix = dm.to_numpy(dtype=int)
+    if matrix.shape[1] != 24:
+        matrix = np.pad(matrix, ((0, 0), (0, 24 - matrix.shape[1])), constant_values=0)
+    return matrix
+
+
+def analyze_demand_matrix(matrix: np.ndarray) -> dict:
+    """Analyze demand returning key statistics."""
+    daily_totals = matrix.sum(axis=1)
+    hourly_totals = matrix.sum(axis=0)
+    analysis = {
+        "matrix": matrix,
+        "total_demand": int(matrix.sum()),
+        "peak_demand": int(matrix.max()) if matrix.size else 0,
+        "peak_day": int(np.argmax(daily_totals)) if daily_totals.size else 0,
+        "peak_hour": int(np.argmax(hourly_totals)) if hourly_totals.size else 0,
+        "daily_totals": daily_totals.tolist(),
+        "hourly_totals": hourly_totals.tolist(),
+    }
+    return analysis
+
+
+def apply_configuration(cfg=None, analysis=None):
+    """Merge defaults and adaptive parameters based on demand analysis."""
+    merged = merge_config(cfg)
+    if analysis and "matrix" in analysis:
+        adaptive = get_adaptive_params(analysis["matrix"], merged["TARGET_COVERAGE"])
+        for key in ["agent_limit_factor", "excess_penalty", "peak_bonus", "critical_bonus"]:
+            if key in adaptive:
+                merged[key] = adaptive[key]
+    return merged
+
+
+def generate_all_heatmaps(assignments, shifts_coverage, demand_matrix):
+    """Return metrics and heatmap images for demand, coverage and difference."""
+    metrics = analyze_results(assignments, shifts_coverage, demand_matrix)
+    demand_img = heatmap(demand_matrix, "Demanda")
+    if metrics:
+        coverage_img = heatmap(metrics["total_coverage"], "Cobertura")
+        diff_img = heatmap(metrics["diff_matrix"], "Diferencia")
+    else:
+        empty = np.zeros_like(demand_matrix)
+        coverage_img = heatmap(empty, "Cobertura")
+        diff_img = heatmap(empty - demand_matrix, "Diferencia")
+    return metrics, {"demand": demand_img, "coverage": coverage_img, "difference": diff_img}
 
 # ---------------------------------------------------------------------------
 # Pattern generation
@@ -985,25 +1041,41 @@ def export_detailed_schedule(assignments, shifts_coverage):
 
 
 def run_complete_optimization(file_stream, config=None):
-    config = merge_config(config)
-    demand_matrix = load_demand_excel(file_stream)
+    """Run the full optimization pipeline and return structured results."""
+    df = pd.read_excel(file_stream)
+    demand_matrix = load_demand_matrix_from_df(df)
+
+    analysis = analyze_demand_matrix(demand_matrix)
+    cfg = apply_configuration(config, analysis)
+
     patterns = {}
     for batch in generate_shifts_coverage_optimized(
         demand_matrix,
-        max_patterns=config.get('max_patterns'),
-        batch_size=config.get('batch_size', 2000),
-        quality_threshold=config.get('quality_threshold', 0),
-        cfg=config,
+        max_patterns=cfg.get("max_patterns"),
+        batch_size=cfg.get("batch_size", 2000),
+        quality_threshold=cfg.get("quality_threshold", 0),
+        cfg=cfg,
     ):
         patterns.update(batch)
-        if config.get('max_patterns') and len(patterns) >= config['max_patterns']:
+        if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
             break
+
     assignments = solve_in_chunks_optimized(
         patterns,
         demand_matrix,
-        base_chunk_size=config.get('base_chunk_size', 10000),
-        cfg=config,
+        base_chunk_size=cfg.get("base_chunk_size", 10000),
+        cfg=cfg,
     )
-    results = analyze_results(assignments, patterns, demand_matrix)
-    excel = export_detailed_schedule(assignments, patterns)
-    return assignments, results, excel
+
+    results, heatmaps = generate_all_heatmaps(assignments, patterns, demand_matrix)
+
+    excel_bytes = export_detailed_schedule(assignments, patterns)
+    if excel_bytes:
+        session['last_excel_result'] = excel_bytes
+
+    return {
+        "analysis": analysis,
+        "results": results,
+        "heatmaps": heatmaps,
+        "assignments": assignments,
+    }
