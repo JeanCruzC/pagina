@@ -53,33 +53,59 @@ def logout():
 @app.route('/generador', methods=['GET', 'POST'])
 @login_required
 def generador():
-    image_url = None
-    demand_url = None
-    metrics = None
-    download = False
     if request.method == 'POST':
         file = request.files.get('excel')
-        if file:
-            dm = scheduler.load_demand_excel(file)
-            patterns = next(scheduler.generate_shifts_coverage_corrected())
-            assigns = scheduler.solve_in_chunks_optimized(patterns, dm)
-            metrics = scheduler.analyze_results(assigns, patterns, dm)
-            schedule = metrics['total_coverage'] if metrics else dm
-            img_io = scheduler.heatmap(schedule, 'Cobertura')
-            d_io = scheduler.heatmap(dm, 'Demanda')
-            path = 'static/result.png'
-            with open('website/' + path, 'wb') as f:
-                f.write(img_io.read())
-            path2 = 'static/demand.png'
-            with open('website/' + path2, 'wb') as f:
-                f.write(d_io.read())
-            image_url = url_for('static', filename='result.png')
-            demand_url = url_for('static', filename='demand.png')
-            excel = scheduler.export_detailed_schedule(assigns, patterns)
-            if excel:
-                app.config['LAST_EXCEL'] = excel
-                download = True
-    return render_template('generador.html', image_url=image_url, demand_url=demand_url, metrics=metrics, download=download)
+        if not file:
+            return {'error': 'No file provided'}, 400
+
+        cfg = {
+            'TIME_SOLVER': int(request.form.get('solver_time', 240)),
+            'TARGET_COVERAGE': float(request.form.get('coverage', 98)),
+            'use_ft': bool(request.form.get('use_ft')),
+            'use_pt': bool(request.form.get('use_pt')),
+            'allow_8h': bool(request.form.get('allow_8h')),
+            'allow_10h8': bool(request.form.get('allow_10h8')),
+            'allow_pt_4h': bool(request.form.get('allow_pt_4h')),
+            'allow_pt_6h': bool(request.form.get('allow_pt_6h')),
+            'allow_pt_5h': bool(request.form.get('allow_pt_5h')),
+            'break_from_start': float(request.form.get('break_from_start', 2.5)),
+            'break_from_end': float(request.form.get('break_from_end', 2.5)),
+            'optimization_profile': request.form.get('profile', 'Equilibrado (Recomendado)'),
+            'agent_limit_factor': request.form.get('agent_limit_factor', type=int),
+            'excess_penalty': request.form.get('excess_penalty', type=float),
+            'peak_bonus': request.form.get('peak_bonus', type=float),
+            'critical_bonus': request.form.get('critical_bonus', type=float),
+        }
+
+        dm = scheduler.load_demand_excel(file)
+        patterns = next(scheduler.generate_shifts_coverage_corrected(cfg=cfg))
+        assigns = scheduler.solve_in_chunks_optimized(patterns, dm, cfg=cfg)
+        metrics = scheduler.analyze_results(assigns, patterns, dm)
+        schedule = metrics['total_coverage'] if metrics else dm
+        img_io = scheduler.heatmap(schedule, 'Cobertura')
+        d_io = scheduler.heatmap(dm, 'Demanda')
+        path = 'static/result.png'
+        with open('website/' + path, 'wb') as f:
+            f.write(img_io.read())
+        path2 = 'static/demand.png'
+        with open('website/' + path2, 'wb') as f:
+            f.write(d_io.read())
+        image_url = url_for('static', filename='result.png')
+        demand_url = url_for('static', filename='demand.png')
+        excel = scheduler.export_detailed_schedule(assigns, patterns)
+        download_url = None
+        if excel:
+            app.config['LAST_EXCEL'] = excel
+            download_url = url_for('download')
+        return {
+            'image_url': image_url,
+            'demand_url': demand_url,
+            'metrics': metrics,
+            'download_url': download_url,
+            'diff_matrix': metrics.get('diff_matrix').tolist() if metrics else None,
+        }
+
+    return render_template('generador.html')
 
 
 @app.route('/download')

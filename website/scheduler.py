@@ -18,24 +18,34 @@ try:
 except Exception:
     PULP_AVAILABLE = False
 
-# Default configuration
-TIME_SOLVER = 240
-TARGET_COVERAGE = 98.0
-agent_limit_factor = 12
-excess_penalty = 2.0
-peak_bonus = 1.5
-critical_bonus = 2.0
-use_ft = True
-use_pt = True
-allow_8h = True
-allow_10h8 = False
-allow_pt_4h = True
-allow_pt_6h = True
-allow_pt_5h = False
-break_from_start = 2.5
-break_from_end = 2.5
-optimization_profile = "Equilibrado (Recomendado)"
-ACTIVE_DAYS = list(range(7))
+# Default configuration values used when no override is supplied
+DEFAULT_CONFIG = {
+    "TIME_SOLVER": 240,
+    "TARGET_COVERAGE": 98.0,
+    "agent_limit_factor": 12,
+    "excess_penalty": 2.0,
+    "peak_bonus": 1.5,
+    "critical_bonus": 2.0,
+    "use_ft": True,
+    "use_pt": True,
+    "allow_8h": True,
+    "allow_10h8": False,
+    "allow_pt_4h": True,
+    "allow_pt_6h": True,
+    "allow_pt_5h": False,
+    "break_from_start": 2.5,
+    "break_from_end": 2.5,
+    "optimization_profile": "Equilibrado (Recomendado)",
+    "ACTIVE_DAYS": list(range(7)),
+}
+
+
+def merge_config(cfg=None):
+    """Return a configuration dictionary overlaying defaults with ``cfg``."""
+    merged = DEFAULT_CONFIG.copy()
+    if cfg:
+        merged.update({k: v for k, v in cfg.items() if v is not None})
+    return merged
 
 
 def _build_pattern(days, durations, start_hour, break_len, break_from_start,
@@ -438,7 +448,10 @@ def heatmap(matrix: np.ndarray, title: str) -> BytesIO:
 # Pattern generation
 # ---------------------------------------------------------------------------
 
-def generate_weekly_pattern(start_hour, duration, working_days, dso_day=None, break_len=1):
+def generate_weekly_pattern(start_hour, duration, working_days, dso_day=None, break_len=1, *, cfg=None):
+    cfg = merge_config(cfg)
+    break_from_start = cfg["break_from_start"]
+    break_from_end = cfg["break_from_end"]
     pattern = np.zeros((7, 24), dtype=np.int8)
     for day in working_days:
         if day != dso_day:
@@ -459,7 +472,10 @@ def generate_weekly_pattern(start_hour, duration, working_days, dso_day=None, br
     return pattern.flatten()
 
 
-def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break_len=1):
+def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break_len=1, *, cfg=None):
+    cfg = merge_config(cfg)
+    break_from_start = cfg["break_from_start"]
+    break_from_end = cfg["break_from_end"]
     pattern = np.zeros((7, 24), dtype=np.int8)
     for day in working_days:
         duration = 8 if day == eight_hour_day else 10
@@ -504,17 +520,27 @@ def generate_weekly_pattern_pt5(start_hour, working_days):
     return pattern.flatten()
 
 
-def generate_shifts_coverage_corrected(*, max_patterns=None, batch_size=None):
+def generate_shifts_coverage_corrected(*, max_patterns=None, batch_size=None, cfg=None):
+    cfg = merge_config(cfg)
+    use_ft = cfg["use_ft"]
+    use_pt = cfg["use_pt"]
+    allow_8h = cfg["allow_8h"]
+    allow_10h8 = cfg["allow_10h8"]
+    allow_pt_4h = cfg["allow_pt_4h"]
+    allow_pt_6h = cfg["allow_pt_6h"]
+    allow_pt_5h = cfg["allow_pt_5h"]
+    active_days = cfg["ACTIVE_DAYS"]
+
     shifts_coverage = {}
     seen_patterns = set()
     step = 0.5
     start_hours = [h for h in np.arange(0, 24, step) if h <= 23.5]
     for start_hour in start_hours:
         if use_ft and allow_8h:
-            for dso_day in ACTIVE_DAYS:
-                working_days = [d for d in ACTIVE_DAYS if d != dso_day][:6]
+            for dso_day in active_days:
+                working_days = [d for d in active_days if d != dso_day][:6]
                 if len(working_days) >= 6:
-                    pattern = generate_weekly_pattern(start_hour, 8, working_days, dso_day)
+                    pattern = generate_weekly_pattern(start_hour, 8, working_days, dso_day, cfg=cfg)
                     key = pattern.tobytes()
                     if key not in seen_patterns:
                         seen_patterns.add(key)
@@ -523,10 +549,23 @@ def generate_shifts_coverage_corrected(*, max_patterns=None, batch_size=None):
                         if batch_size and len(shifts_coverage) >= batch_size:
                             yield shifts_coverage
                             shifts_coverage = {}
+        if use_ft and allow_10h8:
+            for dso_day in active_days:
+                working_days = [d for d in active_days if d != dso_day][:6]
+                if len(working_days) >= 6:
+                    pattern = generate_weekly_pattern_10h8(start_hour, working_days, dso_day, cfg=cfg)
+                    key = pattern.tobytes()
+                    if key not in seen_patterns:
+                        seen_patterns.add(key)
+                        name = f"FT10p8_{start_hour:04.1f}_DSO{dso_day}"
+                        shifts_coverage[name] = pattern
+                        if batch_size and len(shifts_coverage) >= batch_size:
+                            yield shifts_coverage
+                            shifts_coverage = {}
         if use_pt and allow_pt_4h:
             for num_days in [4, 5, 6]:
-                if num_days <= len(ACTIVE_DAYS):
-                    for combo in combinations(ACTIVE_DAYS, num_days):
+                if num_days <= len(active_days):
+                    for combo in combinations(active_days, num_days):
                         pattern = generate_weekly_pattern_simple(start_hour, 4, list(combo))
                         key = pattern.tobytes()
                         if key not in seen_patterns:
@@ -540,10 +579,10 @@ def generate_shifts_coverage_corrected(*, max_patterns=None, batch_size=None):
         yield shifts_coverage
 
 
-def generate_shifts_coverage_optimized(demand_matrix, *, max_patterns=None, batch_size=2000, quality_threshold=0):
+def generate_shifts_coverage_optimized(demand_matrix, *, max_patterns=None, batch_size=2000, quality_threshold=0, cfg=None):
     selected = 0
     seen = set()
-    inner = generate_shifts_coverage_corrected(batch_size=batch_size)
+    inner = generate_shifts_coverage_corrected(batch_size=batch_size, cfg=cfg)
     for raw_batch in inner:
         batch = {}
         for name, pat in raw_batch.items():
@@ -562,7 +601,14 @@ def generate_shifts_coverage_optimized(demand_matrix, *, max_patterns=None, batc
             break
 
 
-def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
+def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=None):
+    cfg = merge_config(cfg)
+    TIME_SOLVER = cfg["TIME_SOLVER"]
+    agent_limit_factor = cfg["agent_limit_factor"]
+    excess_penalty = cfg["excess_penalty"]
+    peak_bonus = cfg["peak_bonus"]
+    critical_bonus = cfg["critical_bonus"]
+    optimization_profile = cfg["optimization_profile"]
     if not PULP_AVAILABLE:
         return {}, "NO_PULP"
     shifts_list = list(shifts_coverage.keys())
@@ -647,21 +693,24 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
     return assignments, method
 
 
-def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix):
+def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None):
     ft_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('FT')}
     pt_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('PT')}
-    ft_assignments = optimize_ft_no_excess(ft_shifts, demand_matrix)
+    ft_assignments = optimize_ft_no_excess(ft_shifts, demand_matrix, cfg=cfg)
     ft_coverage = np.zeros_like(demand_matrix)
     for name, count in ft_assignments.items():
         slots = len(ft_shifts[name]) // 7
         pattern = np.array(ft_shifts[name]).reshape(7, slots)
         ft_coverage += pattern * count
     remaining_demand = np.maximum(0, demand_matrix - ft_coverage)
-    pt_assignments = optimize_pt_complete(pt_shifts, remaining_demand)
+    pt_assignments = optimize_pt_complete(pt_shifts, remaining_demand, cfg=cfg)
     return {**ft_assignments, **pt_assignments}, "FT_NO_EXCESS_THEN_PT"
 
 
-def optimize_ft_no_excess(ft_shifts, demand_matrix):
+def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
+    cfg = merge_config(cfg)
+    agent_limit_factor = cfg["agent_limit_factor"]
+    TIME_SOLVER = cfg["TIME_SOLVER"]
     if not ft_shifts:
         return {}
     prob = pulp.LpProblem("FT_No_Excess", pulp.LpMinimize)
@@ -691,7 +740,12 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix):
     return assignments
 
 
-def optimize_pt_complete(pt_shifts, remaining_demand):
+def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
+    cfg = merge_config(cfg)
+    agent_limit_factor = cfg["agent_limit_factor"]
+    excess_penalty = cfg["excess_penalty"]
+    TIME_SOLVER = cfg["TIME_SOLVER"]
+    optimization_profile = cfg["optimization_profile"]
     if not pt_shifts or remaining_demand.sum() == 0:
         return {}
     prob = pulp.LpProblem("PT_Complete", pulp.LpMinimize)
@@ -726,7 +780,7 @@ def optimize_pt_complete(pt_shifts, remaining_demand):
     return assignments
 
 
-def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000):
+def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, *, cfg=None):
     scored = []
     seen = set()
     for name, pat in shifts_coverage.items():
@@ -745,7 +799,7 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
         remaining = np.maximum(0, demand_matrix - coverage)
         if not np.any(remaining):
             break
-        assigns, _ = optimize_with_precision_targeting(chunk_dict, remaining)
+        assigns, _ = optimize_with_precision_targeting(chunk_dict, remaining, cfg=cfg)
         for n, val in assigns.items():
             assignments_total[n] = assignments_total.get(n, 0) + val
             slots = len(chunk_dict[n]) // 7
@@ -919,7 +973,7 @@ def export_detailed_schedule(assignments, shifts_coverage):
 
 
 def run_complete_optimization(file_stream, config=None):
-    config = config or {}
+    config = merge_config(config)
     demand_matrix = load_demand_excel(file_stream)
     patterns = {}
     for batch in generate_shifts_coverage_optimized(
@@ -927,6 +981,7 @@ def run_complete_optimization(file_stream, config=None):
         max_patterns=config.get('max_patterns'),
         batch_size=config.get('batch_size', 2000),
         quality_threshold=config.get('quality_threshold', 0),
+        cfg=config,
     ):
         patterns.update(batch)
         if config.get('max_patterns') and len(patterns) >= config['max_patterns']:
@@ -935,6 +990,7 @@ def run_complete_optimization(file_stream, config=None):
         patterns,
         demand_matrix,
         base_chunk_size=config.get('base_chunk_size', 10000),
+        cfg=config,
     )
     results = analyze_results(assignments, patterns, demand_matrix)
     excel = export_detailed_schedule(assignments, patterns)
