@@ -98,16 +98,14 @@
   <a href="{{ url_for('logout') }}" class="btn btn-secondary mt-3">Salir</a>
 </form>
 
-{% if metrics %}
+<div id="results" style="display:none">
   <hr>
   <h4>Resultados</h4>
-  <p>Agentes estimados: {{ metrics.total_agents }}</p>
-  <p>Cobertura: {{ '%.1f'|format(metrics.coverage_percentage) }}%</p>
-  <img src="{{ demand_url }}" class="img-fluid" alt="demand">
-  <img src="{{ image_url }}" class="img-fluid" alt="schedule">
-  {% if download %}
-  <p class="mt-2"><a class="btn btn-success" href="{{ url_for('download') }}">Descargar Excel</a></p>
-  {% endif %}
-{% endif %}
+  <p id="agents"></p>
+  <p id="coverage"></p>
+  <img id="demand_img" class="img-fluid" alt="demand">
+  <img id="result_img" class="img-fluid" alt="schedule">
+  <p class="mt-2" id="download_link" style="display:none"><a class="btn btn-success" id="excel_link" href="#">Descargar Excel</a></p>
+</div>
 <script src="{{ url_for('static', filename='js/generador.js') }}"></script>
 {% endblock %}

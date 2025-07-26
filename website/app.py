@@ -2,6 +2,8 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from functools import wraps
 from . import scheduler
 import io
+import json
+import base64
 
 app = Flask(__name__)
 app.secret_key = "change-me"
@@ -53,39 +55,62 @@ def logout():
 @app.route('/generador', methods=['GET', 'POST'])
 @login_required
 def generador():
-    image_url = None
-    demand_url = None
-    metrics = None
-    download = False
     if request.method == 'POST':
         file = request.files.get('excel')
-        if file:
-            dm = scheduler.load_demand_excel(file)
-            patterns = next(scheduler.generate_shifts_coverage_corrected())
-            assigns = scheduler.solve_in_chunks_optimized(patterns, dm)
-            metrics = scheduler.analyze_results(assigns, patterns, dm)
-            schedule = metrics['total_coverage'] if metrics else dm
-            img_io = scheduler.heatmap(schedule, 'Cobertura')
-            d_io = scheduler.heatmap(dm, 'Demanda')
-            path = 'static/result.png'
-            with open('website/' + path, 'wb') as f:
-                f.write(img_io.read())
-            path2 = 'static/demand.png'
-            with open('website/' + path2, 'wb') as f:
-                f.write(d_io.read())
-            image_url = url_for('static', filename='result.png')
-            demand_url = url_for('static', filename='demand.png')
-            excel = scheduler.export_detailed_schedule(assigns, patterns)
-            if excel:
-                app.config['LAST_EXCEL'] = excel
-                download = True
-    return render_template('generador.html', image_url=image_url, demand_url=demand_url, metrics=metrics, download=download)
+        if not file:
+            return {"error": "missing file"}, 400
+
+        cfg = {
+            "max_iter": int(request.form.get("iterations", 30)),
+            "solver_time": int(request.form.get("solver_time", 240)),
+            "target_coverage": float(request.form.get("coverage", 98)),
+            "use_ft": bool(request.form.get("use_ft")),
+            "use_pt": bool(request.form.get("use_pt")),
+            "allow_8h": bool(request.form.get("allow_8h")),
+            "allow_10h8": bool(request.form.get("allow_10h8")),
+            "allow_pt_4h": bool(request.form.get("allow_pt_4h")),
+            "allow_pt_6h": bool(request.form.get("allow_pt_6h")),
+            "allow_pt_5h": bool(request.form.get("allow_pt_5h")),
+            "break_from_start": float(request.form.get("break_from_start", 2.5)),
+            "break_from_end": float(request.form.get("break_from_end", 2.5)),
+            "profile": request.form.get("profile"),
+        }
+        if "agent_limit_factor" in request.form:
+            cfg["agent_limit_factor"] = float(request.form.get("agent_limit_factor", 0))
+        if "excess_penalty" in request.form:
+            cfg["excess_penalty"] = float(request.form.get("excess_penalty", 0.5))
+        if "peak_bonus" in request.form:
+            cfg["peak_bonus"] = float(request.form.get("peak_bonus", 1.5))
+        if "critical_bonus" in request.form:
+            cfg["critical_bonus"] = float(request.form.get("critical_bonus", 2.0))
+
+        jean_file = request.files.get("jean_file")
+        if jean_file and jean_file.filename:
+            try:
+                cfg["jean_template"] = json.load(jean_file)
+            except Exception:
+                cfg["jean_template"] = None
+
+        result = scheduler.run_complete_optimization(file, cfg)
+        session['last_excel_result'] = result.get('excel_bytes')
+
+        cov_b64 = base64.b64encode(result.get('coverage_image', b"")).decode('utf-8')
+        dem_b64 = base64.b64encode(result.get('demand_image', b"")).decode('utf-8')
+
+        return {
+            "metrics": result.get("metrics"),
+            "coverage_image": cov_b64,
+            "demand_image": dem_b64,
+            "excel_url": url_for('download_excel'),
+        }
+
+    return render_template('generador.html')
 
 
-@app.route('/download')
+@app.route('/download_excel')
 @login_required
-def download():
-    data = app.config.get('LAST_EXCEL')
+def download_excel():
+    data = session.get('last_excel_result')
     if not data:
         return redirect(url_for('generador'))
     return send_file(io.BytesIO(data), download_name='horario.xlsx', as_attachment=True)

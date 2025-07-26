@@ -157,3 +157,38 @@ def save_execution_result(demand_matrix, params, coverage, total_agents, executi
     save_learning_data(data)
     return True
 
+
+def run_complete_optimization(file_stream, config):
+    """Run the simplified optimization workflow.
+
+    Parameters
+    ----------
+    file_stream: file-like
+        Excel file uploaded by the user.
+    config: dict
+        Dictionary with all configuration fields from the UI. The current
+        implementation only uses this parameter for future extensions.
+
+    Returns
+    -------
+    dict
+        Mapping containing the optimization metrics, heatmap images and the
+        generated Excel bytes.
+    """
+    demand_matrix = load_demand_excel(file_stream)
+    patterns = next(generate_shifts_coverage_corrected())
+    assignments = solve_in_chunks_optimized(patterns, demand_matrix)
+    metrics = analyze_results(assignments, patterns, demand_matrix)
+    schedule = metrics["total_coverage"] if metrics else demand_matrix
+
+    cov_img = heatmap(schedule, "Cobertura").getvalue()
+    dem_img = heatmap(demand_matrix, "Demanda").getvalue()
+    excel_bytes = export_detailed_schedule(assignments, patterns)
+
+    return {
+        "metrics": metrics,
+        "coverage_image": cov_img,
+        "demand_image": dem_img,
+        "excel_bytes": excel_bytes,
+    }
+
