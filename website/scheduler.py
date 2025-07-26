@@ -25,12 +25,13 @@ except Exception:
 
 # Default configuration values used when no override is supplied
 DEFAULT_CONFIG = {
-    "TIME_SOLVER": 240,
-    "TARGET_COVERAGE": 98.0,
-    "agent_limit_factor": 12,
-    "excess_penalty": 2.0,
+    "TIME_SOLVER": 60,
+    "TARGET_COVERAGE": 90.0,
+    "agent_limit_factor": 15,
+    "excess_penalty": 1.0,
     "peak_bonus": 1.5,
     "critical_bonus": 2.0,
+    "iterations": 5,
     "use_ft": True,
     "use_pt": True,
     "allow_8h": True,
