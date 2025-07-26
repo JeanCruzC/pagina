@@ -456,6 +456,187 @@ def heatmap(matrix: np.ndarray, title: str) -> BytesIO:
     buf.seek(0)
     return buf
 
+
+def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
+    """Return a 7x24 demand matrix from ``df``.
+
+    The dataframe is expected to contain day and hour columns along with a
+    demand column.  The exact column names may vary slightly so the lookup is
+    performed using partial matches.
+    """
+    day_col = next((c for c in df.columns if "día" in c.lower() or "dia" in c.lower()), None)
+    hour_col = next((c for c in df.columns if "hora" in c.lower()), None)
+    demand_col = next(
+        (c for c in df.columns if "erlang" in c.lower() or "requer" in c.lower()),
+        None,
+    )
+    if day_col is None or hour_col is None or demand_col is None:
+        raise ValueError("DataFrame missing required columns")
+    piv = (
+        df.pivot_table(index=day_col, columns=hour_col, values=demand_col, aggfunc="first")
+        .fillna(0)
+    )
+    piv = piv.reindex(range(1, 8)).fillna(0).sort_index()
+    piv = piv.reindex(columns=range(24)).fillna(0)
+    return piv.to_numpy(dtype=float)
+
+
+def analyze_demand_matrix(matrix: np.ndarray) -> dict:
+    """Return basic metrics from a demand matrix."""
+    daily_demand = matrix.sum(axis=1)
+    hourly_demand = matrix.sum(axis=0)
+    active_days = [d for d in range(7) if daily_demand[d] > 0]
+    inactive_days = [d for d in range(7) if daily_demand[d] == 0]
+    working_days = len(active_days)
+    active_hours = np.where(hourly_demand > 0)[0]
+    first_hour = int(active_hours.min()) if active_hours.size else 8
+    last_hour = int(active_hours.max()) if active_hours.size else 20
+    operating_hours = last_hour - first_hour + 1
+    peak_demand = float(matrix.max()) if matrix.size else 0.0
+    avg_demand = float(matrix[active_days].mean()) if active_days else 0.0
+    daily_totals = matrix.sum(axis=1)
+    hourly_totals = matrix.sum(axis=0)
+    critical_days = (
+        np.argsort(daily_totals)[-2:] if daily_totals.size > 1 else [int(np.argmax(daily_totals))]
+    )
+    peak_threshold = (
+        np.percentile(hourly_totals[hourly_totals > 0], 75)
+        if np.any(hourly_totals > 0)
+        else 0
+    )
+    peak_hours = np.where(hourly_totals >= peak_threshold)[0]
+    return {
+        "daily_demand": daily_demand,
+        "hourly_demand": hourly_demand,
+        "active_days": active_days,
+        "inactive_days": inactive_days,
+        "working_days": working_days,
+        "first_hour": first_hour,
+        "last_hour": last_hour,
+        "operating_hours": operating_hours,
+        "peak_demand": peak_demand,
+        "average_demand": avg_demand,
+        "critical_days": critical_days,
+        "peak_hours": peak_hours,
+    }
+
+
+def create_heatmap(matrix, title, cmap="RdYlBu_r"):
+    """Return a matplotlib figure with ``matrix`` visualised as a heatmap."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+    im = ax.imshow(matrix, cmap=cmap, aspect="auto")
+    ax.set_xticks(range(24))
+    ax.set_xticklabels([f"{h:02d}" for h in range(24)])
+    ax.set_yticks(range(7))
+    ax.set_yticklabels([
+        "Lunes",
+        "Martes",
+        "Miércoles",
+        "Jueves",
+        "Viernes",
+        "Sábado",
+        "Domingo",
+    ])
+    for i in range(7):
+        for j in range(24):
+            ax.text(j, i, f"{matrix[i, j]:.0f}", ha="center", va="center", color="black", fontsize=8)
+    ax.set_title(title)
+    ax.set_xlabel("Hora del día")
+    ax.set_ylabel("Día de la semana")
+    plt.colorbar(im, ax=ax)
+    return fig
+
+
+def generate_all_heatmaps(demand, coverage=None, diff=None) -> dict:
+    """Generate heatmaps for demand, coverage and difference matrices."""
+    maps = {"demand": create_heatmap(demand, "Demanda por Hora y Día", "Reds")}
+    if coverage is not None:
+        maps["coverage"] = create_heatmap(coverage, "Cobertura por Hora y Día", "Blues")
+    if diff is not None:
+        maps["difference"] = create_heatmap(diff, "Diferencias por Hora y Día", "RdBu")
+    return maps
+
+
+PROFILES = {
+    "Equilibrado (Recomendado)": {
+        "agent_limit_factor": 12,
+        "excess_penalty": 2.0,
+        "peak_bonus": 1.5,
+        "critical_bonus": 2.0,
+    },
+    "Conservador": {
+        "agent_limit_factor": 30,
+        "excess_penalty": 0.5,
+        "peak_bonus": 1.0,
+        "critical_bonus": 1.2,
+    },
+    "Agresivo": {
+        "agent_limit_factor": 15,
+        "excess_penalty": 0.05,
+        "peak_bonus": 1.5,
+        "critical_bonus": 2.0,
+    },
+    "Máxima Cobertura": {
+        "agent_limit_factor": 7,
+        "excess_penalty": 0.005,
+        "peak_bonus": 3.0,
+        "critical_bonus": 4.0,
+    },
+    "Mínimo Costo": {
+        "agent_limit_factor": 35,
+        "excess_penalty": 0.8,
+        "peak_bonus": 0.8,
+        "critical_bonus": 1.0,
+    },
+    "100% Cobertura Eficiente": {
+        "agent_limit_factor": 6,
+        "excess_penalty": 0.01,
+        "peak_bonus": 3.5,
+        "critical_bonus": 4.5,
+    },
+    "100% Cobertura Total": {
+        "agent_limit_factor": 5,
+        "excess_penalty": 0.001,
+        "peak_bonus": 4.0,
+        "critical_bonus": 5.0,
+    },
+    "Cobertura Perfecta": {
+        "agent_limit_factor": 8,
+        "excess_penalty": 0.01,
+        "peak_bonus": 3.0,
+        "critical_bonus": 4.0,
+    },
+    "100% Exacto": {
+        "agent_limit_factor": 6,
+        "excess_penalty": 0.005,
+        "peak_bonus": 4.0,
+        "critical_bonus": 5.0,
+    },
+    "JEAN": {
+        "agent_limit_factor": 30,
+        "excess_penalty": 5.0,
+        "peak_bonus": 2.0,
+        "critical_bonus": 2.5,
+    },
+    "Aprendizaje Adaptativo": {
+        "agent_limit_factor": 8,
+        "excess_penalty": 0.01,
+        "peak_bonus": 3.0,
+        "critical_bonus": 4.0,
+    },
+}
+
+
+def apply_configuration(cfg=None):
+    """Apply an optimization profile over ``cfg`` and return the result."""
+    cfg = merge_config(cfg)
+    profile = cfg.get("optimization_profile")
+    profile_params = PROFILES.get(profile)
+    if profile_params:
+        for key, val in profile_params.items():
+            cfg.setdefault(key, val)
+    return cfg
+
 # ---------------------------------------------------------------------------
 # Pattern generation
 # ---------------------------------------------------------------------------
