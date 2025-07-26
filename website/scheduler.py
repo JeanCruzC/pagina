@@ -1,4 +1,5 @@
 import json
+import time
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -156,4 +157,84 @@ def save_execution_result(demand_matrix, params, coverage, total_agents, executi
     })
     save_learning_data(data)
     return True
+
+
+def run_complete_optimization(file_stream, *, config: dict | None = None,
+                              max_patterns: int | None = None,
+                              batch_size: int = 2000):
+    """Execute the entire optimization workflow.
+
+    Parameters
+    ----------
+    file_stream:
+        Excel file-like object containing the demand matrix.
+    config:
+        Optional dictionary with configuration parameters. The values are merged
+        with those returned by :func:`get_adaptive_params`.
+    max_patterns:
+        Limit for the number of generated shift patterns.
+    batch_size:
+        Number of patterns per batch.
+
+    Returns
+    -------
+    dict
+        A dictionary with the assignments, metrics, heatmaps, generated Excel
+        data and the execution time.
+    """
+
+    if config is None:
+        config = {}
+
+    start_time = time.time()
+
+    # Load demand and basic analysis
+    demand_matrix = load_demand_excel(file_stream)
+    analysis = {
+        "daily_demand": demand_matrix.sum(axis=1).tolist(),
+        "hourly_demand": demand_matrix.sum(axis=0).tolist(),
+    }
+
+    # Apply adaptive parameters and merge with provided configuration
+    params = get_adaptive_params(demand_matrix, config.get("target_coverage", 98))
+    params.update(config)
+
+    # Generate shift patterns
+    shifts_coverage = {}
+    for batch in generate_shifts_coverage_optimized(
+            demand_matrix,
+            max_patterns=max_patterns,
+            batch_size=batch_size):
+        shifts_coverage.update(batch)
+
+    # Solve assignments
+    assignments = solve_in_chunks_optimized(
+        shifts_coverage,
+        demand_matrix,
+        base_chunk_size=params.get("chunk_size", 10000),
+    )
+
+    # Analyze results and produce visualisations
+    metrics = analyze_results(assignments, shifts_coverage, demand_matrix)
+    demand_img = heatmap(demand_matrix, "Demanda")
+    coverage_img = heatmap(
+        metrics["total_coverage"] if metrics else demand_matrix,
+        "Cobertura",
+    )
+
+    # Export schedule
+    excel_data = export_detailed_schedule(assignments, shifts_coverage)
+
+    exec_time = time.time() - start_time
+
+    return {
+        "assignments": assignments,
+        "metrics": metrics,
+        "analysis": analysis,
+        "demand_heatmap": demand_img,
+        "coverage_heatmap": coverage_img,
+        "excel": excel_data,
+        "execution_time": exec_time,
+        "params": params,
+    }
 
