@@ -91,7 +91,11 @@ if (form) {
     }
     const data = new FormData(form);
     try {
-      const res = await fetch('/generador', { method: 'POST', body: data });
+      const res = await fetch('/generador', {
+        method: 'POST',
+        body: data,
+        headers: { 'Accept': 'application/json' }
+      });
       let json;
       try {
         json = await res.json();

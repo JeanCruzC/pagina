@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
 from functools import wraps
 from . import scheduler
 import io
@@ -15,6 +15,8 @@ def login_required(f):
     @wraps(f)
     def wrapped(*args, **kwargs):
         if not session.get('user'):
+            if 'application/json' in request.headers.get('Accept', ''):
+                return jsonify({'error': 'Unauthorized'}), 401
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return wrapped
