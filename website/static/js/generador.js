@@ -34,62 +34,33 @@ function toggleCustomParams() {
   jean.style.display = val === 'JEAN Personalizado' ? 'block' : 'none';
 }
 
-/* Format a 7x24 matrix as an HTML table. */
-function formatDemandAnalysis(matrix) {
-  if (!Array.isArray(matrix)) return '';
-  const table = document.createElement('table');
-  table.className = 'table table-sm table-bordered';
-  matrix.forEach(row => {
-    const tr = document.createElement('tr');
-    row.forEach(cell => {
-      const td = document.createElement('td');
-      td.textContent = cell;
-      tr.appendChild(td);
-    });
-    table.appendChild(tr);
-  });
-  return table.outerHTML;
-}
-
 /* Render the results section using the JSON returned by the server. */
 function displayResults(data) {
-  let container = document.getElementById('results');
-  if (!container) {
-    container = document.createElement('div');
-    container.id = 'results';
-    document.getElementById('genForm').after(container);
-  }
-  container.innerHTML = '';
-
-  if (data.metrics) {
-    const m = data.metrics;
-    container.insertAdjacentHTML('beforeend',
-      `<h4>Resultados</h4>
-       <p>Agentes estimados: ${m.total_agents}</p>
-       <p>Cobertura: ${m.coverage_percentage.toFixed(1)}%</p>`);
+  const metrics = document.getElementById('metrics');
+  if (data.metrics && metrics) {
+    document.getElementById('m_agents').textContent = data.metrics.total_agents;
+    document.getElementById('m_cov').textContent = data.metrics.coverage_percentage.toFixed(1) + '%';
+    document.getElementById('m_over').textContent = data.metrics.overstaffing;
+    document.getElementById('m_under').textContent = data.metrics.understaffing;
+    metrics.style.display = 'flex';
   }
 
-  if (data.demand_url) {
-    const img = document.createElement('img');
-    img.src = data.demand_url;
-    img.className = 'img-fluid';
-    container.appendChild(img);
+  if (data.heatmaps) {
+    if (data.heatmaps.demand) {
+      document.getElementById('hm-demand').src = 'data:image/png;base64,' + data.heatmaps.demand;
+    }
+    if (data.heatmaps.coverage) {
+      document.getElementById('hm-coverage').src = 'data:image/png;base64,' + data.heatmaps.coverage;
+    }
+    if (data.heatmaps.difference) {
+      document.getElementById('hm-diff').src = 'data:image/png;base64,' + data.heatmaps.difference;
+    }
   }
 
-  if (data.image_url) {
-    const img = document.createElement('img');
-    img.src = data.image_url;
-    img.className = 'img-fluid';
-    container.appendChild(img);
-  }
-
-  if (data.diff_matrix) {
-    container.insertAdjacentHTML('beforeend', formatDemandAnalysis(data.diff_matrix));
-  }
-
-  if (data.download_url) {
-    container.insertAdjacentHTML('beforeend',
-      `<p class="mt-2"><a class="btn btn-success" href="${data.download_url}">Descargar Excel</a></p>`);
+  const dl = document.getElementById('downloadBtn');
+  if (dl && data.download_url) {
+    dl.href = data.download_url;
+    dl.style.display = 'inline-block';
   }
 }
 
@@ -109,7 +80,7 @@ document.getElementById('pt').addEventListener('change', togglePTOptions);
 
 /* Intercept form submission and send via fetch. */
 const form = document.getElementById('genForm');
-const progressContainer = document.getElementById('progress-container');
+const progressContainer = document.getElementById('progress');
 const progressBar = document.getElementById('progressBar');
 if (form) {
   form.addEventListener('submit', async (ev) => {
