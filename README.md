@@ -172,3 +172,15 @@ After installing the dependencies, run the test suite with:
 ```bash
 PYTHONPATH=. pytest -q
 ```
+
+## Legacy Scheduler Reference
+
+The full original logic that generated work schedules prior to the simplified
+`website/scheduler.py` module is preserved in the repository.  It can be found at
+
+```
+generador_turnos_2025_cnx_BACKUP_F_FIRST_P_LAST.py
+```
+
+Developers can consult this file when implementing new features in
+`website/scheduler.py` or when porting more advanced algorithms.
