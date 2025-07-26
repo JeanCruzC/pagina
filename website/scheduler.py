@@ -25,13 +25,17 @@ except Exception:
 
 # Default configuration values used when no override is supplied
 DEFAULT_CONFIG = {
-    "TIME_SOLVER": 60,
-    "TARGET_COVERAGE": 90.0,
-    "agent_limit_factor": 15,
-    "excess_penalty": 1.0,
+    # Streamlit legacy defaults from ``legacy/app1.py``
+    "TIME_SOLVER": 240,
+    "TARGET_COVERAGE": 98.0,
+    "agent_limit_factor": 12,
+    "excess_penalty": 2.0,
     "peak_bonus": 1.5,
     "critical_bonus": 2.0,
-    "iterations": 5,
+    "iterations": 30,
+    "max_patterns": None,
+    "batch_size": 2000,
+    "quality_threshold": 0,
     "use_ft": True,
     "use_pt": True,
     "allow_8h": True,
@@ -1013,7 +1017,19 @@ def generate_shifts_coverage_corrected(*, max_patterns=None, batch_size=None, cf
         yield shifts_coverage
 
 
-def generate_shifts_coverage_optimized(demand_matrix, *, max_patterns=None, batch_size=2000, quality_threshold=0, cfg=None):
+def generate_shifts_coverage_optimized(
+    demand_matrix,
+    *,
+    max_patterns=None,
+    batch_size=2000,
+    quality_threshold=0,
+    cfg=None,
+):
+    """Yield scored pattern batches.
+
+    Logic mirrors ``generate_shifts_coverage_optimized`` in ``legacy/app1.py``
+    but omits any Streamlit UI elements.
+    """
     selected = 0
     seen = set()
     inner = generate_shifts_coverage_corrected(batch_size=batch_size, cfg=cfg)
@@ -1031,11 +1047,17 @@ def generate_shifts_coverage_optimized(demand_matrix, *, max_patterns=None, batc
                     break
         if batch:
             yield batch
+            gc.collect()
         if max_patterns is not None and selected >= max_patterns:
             break
 
 
 def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=None):
+    """Precision solver with greedy fallback.
+
+    This implementation follows the logic of ``optimize_with_precision_targeting``
+    in ``legacy/app1.py`` but removes all Streamlit UI calls.
+    """
     cfg = merge_config(cfg)
     TIME_SOLVER = cfg["TIME_SOLVER"]
     agent_limit_factor = cfg["agent_limit_factor"]
@@ -1044,7 +1066,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
     critical_bonus = cfg["critical_bonus"]
     optimization_profile = cfg["optimization_profile"]
     if not PULP_AVAILABLE:
-        return {}, "NO_PULP"
+        return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg)
     shifts_list = list(shifts_coverage.keys())
     if not shifts_list:
         return {}, "NO_SHIFTS"
@@ -1115,16 +1137,17 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
             prob += day_coverage >= day_demand * 0.85
     solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER, gapRel=0.02, threads=4, presolve=1, cuts=1)
     prob.solve(solver)
+
     assignments = {}
     if prob.status == pulp.LpStatusOptimal:
         for s in shifts_list:
             val = int(shift_vars[s].varValue or 0)
             if val > 0:
                 assignments[s] = val
-        method = "PRECISION_TARGETING"
-    else:
-        method = str(prob.status)
-    return assignments, method
+        return assignments, "PRECISION_TARGETING"
+
+    # Fallback to greedy solver when CBC fails
+    return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg)
 
 
 def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None):
@@ -1214,7 +1237,93 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
     return assignments
 
 
+def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=None):
+    """Greedy fallback used when linear programming fails.
+
+    Ported from ``legacy/app1.py`` for simplicity.
+    """
+    cfg = merge_config(cfg)
+    agent_limit_factor = cfg["agent_limit_factor"]
+    excess_penalty = cfg["excess_penalty"]
+    peak_bonus = cfg["peak_bonus"]
+    critical_bonus = cfg["critical_bonus"]
+
+    shifts_list = list(shifts_coverage.keys())
+    assignments = {}
+    coverage = np.zeros_like(demand_matrix)
+    max_agents = max(50, int(demand_matrix.sum() / agent_limit_factor))
+
+    daily_totals = demand_matrix.sum(axis=1)
+    hourly_totals = demand_matrix.sum(axis=0)
+    critical_days = (
+        np.argsort(daily_totals)[-2:]
+        if daily_totals.size > 1
+        else [int(np.argmax(daily_totals))]
+    )
+    peak_hours = (
+        np.where(hourly_totals >= np.percentile(hourly_totals[hourly_totals > 0], 75))[0]
+        if np.any(hourly_totals > 0)
+        else []
+    )
+
+    for _ in range(max_agents):
+        best_shift = None
+        best_score = -float("inf")
+
+        for name in shifts_list:
+            slots = len(shifts_coverage[name]) // 7
+            pattern = np.array(shifts_coverage[name]).reshape(7, slots)
+            new_cov = coverage + pattern
+
+            current_def = np.maximum(0, demand_matrix - coverage)
+            new_def = np.maximum(0, demand_matrix - new_cov)
+            deficit_reduction = np.sum(current_def - new_def)
+
+            current_excess = np.maximum(0, coverage - demand_matrix)
+            new_excess = np.maximum(0, new_cov - demand_matrix)
+
+            smart_penalty = 0
+            for d in range(7):
+                for h in range(demand_matrix.shape[1]):
+                    if demand_matrix[d, h] == 0 and new_excess[d, h] > current_excess[d, h]:
+                        smart_penalty += 1000
+                    elif demand_matrix[d, h] <= 2:
+                        smart_penalty += (new_excess[d, h] - current_excess[d, h]) * excess_penalty * 10
+                    else:
+                        smart_penalty += (new_excess[d, h] - current_excess[d, h]) * excess_penalty
+
+            crit_bonus = 0
+            for cd in critical_days:
+                if cd < 7:
+                    crit_bonus += np.sum(current_def[cd] - new_def[cd]) * critical_bonus * 2
+
+            peak_bonus_score = 0
+            for h in peak_hours:
+                if h < demand_matrix.shape[1]:
+                    peak_bonus_score += np.sum(current_def[:, h] - new_def[:, h]) * peak_bonus * 2
+
+            score = deficit_reduction * 100 + crit_bonus + peak_bonus_score - smart_penalty
+            if score > best_score:
+                best_score = score
+                best_shift = name
+                best_pattern = pattern
+
+        if best_shift is None or best_score <= 1.0:
+            break
+
+        assignments[best_shift] = assignments.get(best_shift, 0) + 1
+        coverage += best_pattern
+        if not np.any(np.maximum(0, demand_matrix - coverage)):
+            break
+
+    return assignments, "GREEDY_FALLBACK"
+
+
 def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, *, cfg=None):
+    """Solve batches sorted by score.
+
+    Based on ``solve_in_chunks_optimized`` from ``legacy/app1.py``.
+    """
     scored = []
     seen = set()
     for name, pat in shifts_coverage.items():
@@ -1407,7 +1516,10 @@ def export_detailed_schedule(assignments, shifts_coverage):
 
 
 def run_complete_optimization(file_stream, config=None):
-    """Run the full optimization pipeline and return serialized results."""
+    """Run the full optimization pipeline and return serialized results.
+
+    The logic mirrors the interactive workflow in ``legacy/app1.py``.
+    """
     cfg = apply_configuration(config)
     df = pd.read_excel(file_stream)
     demand_matrix = load_demand_matrix_from_df(df)
