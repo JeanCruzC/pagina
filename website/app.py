@@ -87,27 +87,9 @@ def generador():
             except Exception:
                 flash('Plantilla JEAN inválida')
 
-        demand_matrix = scheduler.load_demand_excel(excel)
-        excel.seek(0)
-        assigns, metrics, excel_bytes = scheduler.run_complete_optimization(excel, config=cfg)
-
-        coverage = metrics['total_coverage'] if metrics else demand_matrix
-        cov_io = scheduler.heatmap(coverage, 'Cobertura')
-        dem_io = scheduler.heatmap(demand_matrix, 'Demanda')
-        with open('website/static/result.png', 'wb') as f:
-            f.write(cov_io.read())
-        with open('website/static/demand.png', 'wb') as f:
-            f.write(dem_io.read())
-
-        session['last_excel_result'] = base64.b64encode(excel_bytes).decode('utf-8') if excel_bytes else None
-
-        return {
-            'image_url': url_for('static', filename='result.png'),
-            'demand_url': url_for('static', filename='demand.png'),
-            'excel_url': url_for('download_excel') if excel_bytes else None,
-            'metrics': metrics,
-            'diff_matrix': metrics.get('diff_matrix').tolist() if metrics else None,
-        }
+        result = scheduler.run_complete_optimization(excel, config=cfg)
+        result["download_url"] = url_for("download_excel") if session.get("last_excel_result") else None
+        return result
 
     return render_template('generador.html')
 

@@ -6,6 +6,9 @@ import hashlib
 from io import BytesIO
 from itertools import combinations, permutations
 
+from flask import session
+import base64
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -637,6 +640,224 @@ def apply_configuration(cfg=None):
             cfg.setdefault(key, val)
     return cfg
 
+
+def create_demand_signature(demand_matrix: np.ndarray) -> str:
+    """Return a short hash representing the demand pattern."""
+    normalized = demand_matrix / (demand_matrix.max() + 1e-8)
+    return hashlib.md5(normalized.tobytes()).hexdigest()[:16]
+
+
+def load_learning_history() -> dict:
+    """Load adaptive learning history from disk if available."""
+    try:
+        if os.path.exists("learning_history.json"):
+            with open("learning_history.json", "r") as fh:
+                return json.load(fh)
+    except Exception:
+        pass
+    return {}
+
+
+def save_learning_history(history: dict) -> None:
+    """Persist adaptive learning history to disk."""
+    try:
+        with open("learning_history.json", "w") as fh:
+            json.dump(history, fh, indent=2)
+    except Exception:
+        pass
+
+
+def get_adaptive_parameters(demand_signature: str, learning_history: dict) -> dict:
+    """Return learned parameters for ``demand_signature`` or defaults."""
+    if demand_signature in learning_history:
+        learned = learning_history[demand_signature]
+        best = min(learned.get("runs", []), key=lambda x: x.get("score", 0))
+        return {
+            "agent_limit_factor": best["params"]["agent_limit_factor"],
+            "excess_penalty": best["params"]["excess_penalty"],
+            "peak_bonus": best["params"]["peak_bonus"],
+            "critical_bonus": best["params"]["critical_bonus"],
+        }
+    return {
+        "agent_limit_factor": 22,
+        "excess_penalty": 0.5,
+        "peak_bonus": 1.5,
+        "critical_bonus": 2.0,
+    }
+
+
+def update_learning_history(demand_signature: str, params: dict, results: dict, history: dict) -> dict:
+    """Update ``history`` with new execution ``results`` for ``demand_signature``."""
+    if demand_signature not in history:
+        history[demand_signature] = {"runs": []}
+
+    score = results["understaffing"] + results["overstaffing"] * 0.3
+    history[demand_signature]["runs"].append(
+        {
+            "params": params,
+            "score": score,
+            "total_agents": results["total_agents"],
+            "coverage": results["coverage_percentage"],
+            "timestamp": time.time(),
+        }
+    )
+    history[demand_signature]["runs"] = history[demand_signature]["runs"][-10:]
+    return history
+
+
+def get_optimal_break_time(start_hour: float, shift_duration: int, day: int, demand_day: np.ndarray,
+                           *, cfg=None) -> float:
+    """Return the best break time for the given day based on demand."""
+    cfg = merge_config(cfg)
+    break_earliest = start_hour + cfg["break_from_start"]
+    break_latest = start_hour + shift_duration - cfg["break_from_end"]
+    if break_latest <= break_earliest:
+        return break_earliest
+    options = []
+    current = break_earliest
+    while current <= break_latest:
+        options.append(current)
+        current += 0.5
+    best = break_earliest
+    min_impact = float("inf")
+    for opt in options:
+        hour = int(opt) % 24
+        if hour < len(demand_day):
+            impact = demand_day[hour]
+            if impact < min_impact:
+                min_impact = impact
+                best = opt
+    return best
+
+
+def generate_shift_patterns(demand_matrix=None, *, keep_percentage=0.3, peak_bonus=1.5, critical_bonus=2.0, cfg=None):
+    """Return an exhaustive set of patterns with multiple break options."""
+    cfg = merge_config(cfg)
+    use_ft = cfg["use_ft"]
+    use_pt = cfg["use_pt"]
+    allow_8h = cfg["allow_8h"]
+    allow_10h8 = cfg["allow_10h8"]
+    allow_pt_4h = cfg["allow_pt_4h"]
+    allow_pt_6h = cfg["allow_pt_6h"]
+    allow_pt_5h = cfg["allow_pt_5h"]
+    active_days = cfg["ACTIVE_DAYS"]
+
+    first_hour = 6
+    last_hour = 22
+    if demand_matrix is not None:
+        analysis = analyze_demand_matrix(demand_matrix)
+        first_hour = analysis["first_hour"]
+        last_hour = analysis["last_hour"]
+
+    shifts_coverage = {}
+    start_hours = np.arange(max(6, first_hour), min(last_hour - 2, 20), 0.5)
+
+    if use_ft and allow_8h:
+        for start_hour in start_hours:
+            for working_combo in combinations(active_days, min(6, len(active_days))):
+                non_working = [d for d in active_days if d not in working_combo]
+                for dso_day in non_working + [None]:
+                    for brk in get_valid_break_times(start_hour, 8, cfg=cfg):
+                        pattern = generate_weekly_pattern_with_break(start_hour, 8, list(working_combo), dso_day, brk, cfg=cfg)
+                        suffix = f"_DSO{dso_day}" if dso_day is not None else ""
+                        shifts_coverage[f"FT8_{start_hour:04.1f}_DAYS{''.join(map(str,working_combo))}_BRK{brk:04.1f}{suffix}"] = pattern
+
+    if use_pt:
+        if allow_pt_4h:
+            for start_hour in start_hours:
+                for num_days in [4, 5, 6]:
+                    if num_days <= len(active_days):
+                        for combo in combinations(active_days, num_days):
+                            pattern = generate_weekly_pattern_simple(start_hour, 4, list(combo))
+                            shifts_coverage[f"PT4_{start_hour:04.1f}_DAYS{''.join(map(str,combo))}"] = pattern
+        if allow_pt_6h:
+            for start_hour in start_hours[::2]:
+                for num_days in [4]:
+                    if num_days <= len(active_days):
+                        for combo in combinations(active_days, num_days):
+                            pattern = generate_weekly_pattern_simple(start_hour, 6, list(combo))
+                            shifts_coverage[f"PT6_{start_hour:04.1f}_DAYS{''.join(map(str,combo))}"] = pattern
+        if allow_pt_5h:
+            for start_hour in start_hours[::2]:
+                for num_days in [5]:
+                    if num_days <= len(active_days):
+                        for combo in combinations(active_days, num_days):
+                            pattern = generate_weekly_pattern_simple(start_hour, 5, list(combo))
+                            shifts_coverage[f"PT5_{start_hour:04.1f}_DAYS{''.join(map(str,combo))}"] = pattern
+
+    if demand_matrix is not None:
+        shifts_coverage = score_and_filter_patterns(
+            shifts_coverage,
+            demand_matrix,
+            keep_percentage=keep_percentage,
+            peak_bonus=peak_bonus,
+            critical_bonus=critical_bonus,
+        )
+    return shifts_coverage
+
+
+def get_valid_break_times(start_hour: float, duration: int, *, cfg=None) -> list:
+    """Return a list of possible break start times for a shift."""
+    cfg = merge_config(cfg)
+    earliest = start_hour + cfg["break_from_start"]
+    latest = start_hour + duration - cfg["break_from_end"] - 1
+    valid = []
+    current = earliest
+    while current <= latest:
+        if current % 0.5 == 0:
+            valid.append(current)
+        current += 0.5
+    return valid[:7]
+
+
+def generate_weekly_pattern_with_break(start_hour: float, duration: int, working_days: list, dso_day: int | None,
+                                        break_start: float, break_len: int = 1, *, cfg=None) -> np.ndarray:
+    """Generate a weekly pattern placing the break at ``break_start``."""
+    cfg = merge_config(cfg)
+    pattern = np.zeros((7, 24), dtype=np.int8)
+    for day in working_days:
+        if day == dso_day:
+            continue
+        for h in range(duration):
+            t = start_hour + h
+            d_off, idx = divmod(int(t), 24)
+            pattern[(day + d_off) % 7, idx] = 1
+        for b in range(int(break_len)):
+            t = break_start + b
+            d_off, idx = divmod(int(t), 24)
+            pattern[(day + d_off) % 7, idx] = 0
+    return pattern.flatten()
+
+
+def generate_weekly_pattern_advanced(start_hour: float, duration: int, working_days: list, break_position: float, *, cfg=None) -> np.ndarray:
+    """Generate a weekly pattern with a break at ``break_position`` percentage of the shift."""
+    cfg = merge_config(cfg)
+    pattern = np.zeros((7, 24), dtype=np.int8)
+    for day in working_days:
+        for h in range(duration):
+            hour_idx = int(start_hour + h) % 24
+            if hour_idx < 24:
+                pattern[day, hour_idx] = 1
+        brk_offset = int(duration * break_position)
+        brk_hour = int(start_hour + brk_offset) % 24
+        if (
+            brk_hour >= int(start_hour + cfg["break_from_start"])
+            and brk_hour <= int(start_hour + duration - cfg["break_from_end"])
+            and brk_hour < 24
+        ):
+            pattern[day, brk_hour] = 0
+    return pattern.flatten()
+
+
+def evaluate_solution_quality(coverage_matrix: np.ndarray, demand_matrix: np.ndarray) -> float:
+    """Return a quality score for a coverage matrix (lower is better)."""
+    total_demand = demand_matrix.sum()
+    total_coverage = np.minimum(coverage_matrix, demand_matrix).sum()
+    coverage_pct = (total_coverage / total_demand) * 100 if total_demand > 0 else 0
+    excess = np.maximum(0, coverage_matrix - demand_matrix).sum()
+    efficiency = total_coverage / (total_coverage + excess) if (total_coverage + excess) > 0 else 0
+    return (100 - coverage_pct) + (excess * 0.1) + ((1 - efficiency) * 50)
+
 # ---------------------------------------------------------------------------
 # Pattern generation
 # ---------------------------------------------------------------------------
@@ -1166,25 +1387,56 @@ def export_detailed_schedule(assignments, shifts_coverage):
 
 
 def run_complete_optimization(file_stream, config=None):
-    config = merge_config(config)
-    demand_matrix = load_demand_excel(file_stream)
+    """Run the full optimization pipeline and return serialized results."""
+    cfg = apply_configuration(config)
+    df = pd.read_excel(file_stream)
+    demand_matrix = load_demand_matrix_from_df(df)
+    analysis = analyze_demand_matrix(demand_matrix)
+
     patterns = {}
     for batch in generate_shifts_coverage_optimized(
         demand_matrix,
-        max_patterns=config.get('max_patterns'),
-        batch_size=config.get('batch_size', 2000),
-        quality_threshold=config.get('quality_threshold', 0),
-        cfg=config,
+        max_patterns=cfg.get("max_patterns"),
+        batch_size=cfg.get("batch_size", 2000),
+        quality_threshold=cfg.get("quality_threshold", 0),
+        cfg=cfg,
     ):
         patterns.update(batch)
-        if config.get('max_patterns') and len(patterns) >= config['max_patterns']:
+        if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
             break
+
     assignments = solve_in_chunks_optimized(
         patterns,
         demand_matrix,
-        base_chunk_size=config.get('base_chunk_size', 10000),
-        cfg=config,
+        base_chunk_size=cfg.get("base_chunk_size", 10000),
+        cfg=cfg,
     )
-    results = analyze_results(assignments, patterns, demand_matrix)
-    excel = export_detailed_schedule(assignments, patterns)
-    return assignments, results, excel
+
+    metrics = analyze_results(assignments, patterns, demand_matrix)
+    excel_bytes = export_detailed_schedule(assignments, patterns)
+    session["last_excel_result"] = (
+        base64.b64encode(excel_bytes).decode("utf-8") if excel_bytes else None
+    )
+
+    heatmaps = {}
+    if metrics:
+        maps = generate_all_heatmaps(
+            demand_matrix,
+            metrics.get("total_coverage"),
+            metrics.get("diff_matrix"),
+        )
+    else:
+        maps = generate_all_heatmaps(demand_matrix)
+    for key, fig in maps.items():
+        buf = BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight")
+        plt.close(fig)
+        buf.seek(0)
+        heatmaps[key] = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    return {
+        "analysis": analysis,
+        "assignments": assignments,
+        "metrics": metrics,
+        "heatmaps": heatmaps,
+    }
