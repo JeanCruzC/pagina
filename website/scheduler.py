@@ -1434,9 +1434,19 @@ def run_complete_optimization(file_stream, config=None):
         buf.seek(0)
         heatmaps[key] = base64.b64encode(buf.getvalue()).decode("utf-8")
 
+    def _convert(obj):
+        """Recursively convert numpy arrays within ``obj`` to Python lists."""
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, dict):
+            return {k: _convert(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_convert(v) for v in obj]
+        return obj
+
     return {
-        "analysis": analysis,
+        "analysis": _convert(analysis),
         "assignments": assignments,
-        "metrics": metrics,
+        "metrics": _convert(metrics),
         "heatmaps": heatmaps,
     }
