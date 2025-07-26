@@ -463,27 +463,44 @@ def heatmap(matrix: np.ndarray, title: str) -> BytesIO:
 
 
 def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
-    """Return a 7x24 demand matrix from ``df``.
+    """Return a 7x24 demand matrix from an Ntech formatted dataframe."""
 
-    The dataframe is expected to contain day and hour columns along with a
-    demand column.  The exact column names may vary slightly so the lookup is
-    performed using partial matches.
-    """
-    day_col = next((c for c in df.columns if "día" in c.lower() or "dia" in c.lower()), None)
-    hour_col = next((c for c in df.columns if "hora" in c.lower()), None)
-    demand_col = next(
-        (c for c in df.columns if "erlang" in c.lower() or "requer" in c.lower()),
-        None,
-    )
-    if day_col is None or hour_col is None or demand_col is None:
-        raise ValueError("DataFrame missing required columns")
-    piv = (
-        df.pivot_table(index=day_col, columns=hour_col, values=demand_col, aggfunc="first")
-        .fillna(0)
-    )
-    piv = piv.reindex(range(1, 8)).fillna(0).sort_index()
-    piv = piv.reindex(columns=range(24)).fillna(0)
-    return piv.to_numpy(dtype=float)
+    demand_matrix = np.zeros((7, 24), dtype=float)
+
+    day_col = "Día"
+    time_col = "Horario"
+    demand_col = "Suma de Agentes Requeridos Erlang"
+
+    if day_col not in df.columns or time_col not in df.columns or demand_col not in df.columns:
+        for col in df.columns:
+            if "día" in col.lower() or "dia" in col.lower():
+                day_col = col
+            elif "horario" in col.lower():
+                time_col = col
+            elif "erlang" in col.lower() or "requeridos" in col.lower():
+                demand_col = col
+
+    for _, row in df.iterrows():
+        try:
+            day = int(row[day_col])
+            if not (1 <= day <= 7):
+                continue
+            day_idx = day - 1
+
+            horario = str(row[time_col])
+            if ":" in horario:
+                hour = int(horario.split(":")[0])
+            else:
+                hour = int(float(horario))
+            if not (0 <= hour <= 23):
+                continue
+
+            demanda = float(row[demand_col])
+            demand_matrix[day_idx, hour] = demanda
+        except (ValueError, TypeError, IndexError):
+            continue
+
+    return demand_matrix
 
 
 def analyze_demand_matrix(matrix: np.ndarray) -> dict:
