@@ -36,24 +36,36 @@ function toggleCustomParams() {
 
 /* Render the results section using the JSON returned by the server. */
 function displayResults(data) {
+  console.log('📊 Mostrando resultados:', data);
+  
   const metrics = document.getElementById('metrics');
   if (data.metrics && metrics) {
-    document.getElementById('m_agents').textContent = data.metrics.total_agents;
-    document.getElementById('m_cov').textContent = data.metrics.coverage_percentage.toFixed(1) + '%';
-    document.getElementById('m_over').textContent = data.metrics.overstaffing;
-    document.getElementById('m_under').textContent = data.metrics.understaffing;
+    const totalAgents = document.getElementById('m_agents');
+    const coverage = document.getElementById('m_cov');
+    const overstaffing = document.getElementById('m_over');
+    const understaffing = document.getElementById('m_under');
+    
+    if (totalAgents) totalAgents.textContent = data.metrics.total_agents;
+    if (coverage) coverage.textContent = data.metrics.coverage_percentage.toFixed(1) + '%';
+    if (overstaffing) overstaffing.textContent = data.metrics.overstaffing;
+    if (understaffing) understaffing.textContent = data.metrics.understaffing;
+    
     metrics.style.display = 'flex';
   }
 
   if (data.heatmaps) {
-    if (data.heatmaps.demand) {
-      document.getElementById('hm-demand').src = 'data:image/png;base64,' + data.heatmaps.demand;
+    const demandImg = document.getElementById('hm-demand');
+    const coverageImg = document.getElementById('hm-coverage');
+    const diffImg = document.getElementById('hm-diff');
+    
+    if (data.heatmaps.demand && demandImg) {
+      demandImg.src = 'data:image/png;base64,' + data.heatmaps.demand;
     }
-    if (data.heatmaps.coverage) {
-      document.getElementById('hm-coverage').src = 'data:image/png;base64,' + data.heatmaps.coverage;
+    if (data.heatmaps.coverage && coverageImg) {
+      coverageImg.src = 'data:image/png;base64,' + data.heatmaps.coverage;
     }
-    if (data.heatmaps.difference) {
-      document.getElementById('hm-diff').src = 'data:image/png;base64,' + data.heatmaps.difference;
+    if (data.heatmaps.difference && diffImg) {
+      diffImg.src = 'data:image/png;base64,' + data.heatmaps.difference;
     }
   }
 
@@ -62,62 +74,127 @@ function displayResults(data) {
     dl.href = data.download_url;
     dl.style.display = 'inline-block';
   }
+  
+  alert('✅ ¡Optimización completada exitosamente!');
 }
 
-/* Event bindings */
-updateSliderValue('iterations', 'it_val');
-updateSliderValue('solver_time', 'time_val');
-updateSliderValue('coverage', 'cov_val');
-updateSliderValue('break_from_start', 'bstart_val');
-updateSliderValue('break_from_end', 'bend_val');
-toggleFTOptions();
-togglePTOptions();
-toggleCustomParams();
+/* Show error message */
+function showError(message) {
+  console.error('❌ Error:', message);
+  alert('❌ Error: ' + message);
+}
 
-document.getElementById('profile').addEventListener('change', toggleCustomParams);
-document.getElementById('ft').addEventListener('change', toggleFTOptions);
-document.getElementById('pt').addEventListener('change', togglePTOptions);
-
-/* Intercept form submission and send via fetch. */
-const form = document.getElementById('genForm');
-const progressContainer = document.getElementById('progress');
-const progressBar = document.getElementById('progressBar');
-if (form) {
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    if (progressContainer && progressBar) {
+/* Show loading state */
+function showLoading(show) {
+  const progressContainer = document.getElementById('progress');
+  const progressBar = document.getElementById('progressBar');
+  const generateBtn = document.querySelector('button[type="submit"]');
+  
+  if (progressContainer && progressBar) {
+    if (show) {
       progressContainer.style.display = 'block';
       progressBar.style.width = '100%';
-    }
-    const data = new FormData(form);
-    try {
-      const res = await fetch('/generador', {
-        method: 'POST',
-        body: data,
-        headers: { 'Accept': 'application/json' }
-      });
-      let json;
-      try {
-        json = await res.json();
-      } catch (err) {
-        console.error('JSON parse error:', err);
-        alert('Error: ' + err);
-        return;
-      }
-      if (!res.ok) {
-        console.error('Server error:', json);
-        alert(json.error || 'Error');
-        return;
-      }
-      displayResults(json);
-    } catch (err) {
-      console.error(err);
-      alert('Error: ' + err);
-    }
-    if (progressContainer && progressBar) {
+    } else {
       progressBar.style.width = '0%';
       progressContainer.style.display = 'none';
     }
-  });
+  }
+  
+  if (generateBtn) {
+    generateBtn.disabled = show;
+    generateBtn.textContent = show ? 'Procesando...' : 'Generar';
+  }
 }
 
+/* Event bindings - Wait for DOM to load */
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('🚀 Inicializando Generador de Horarios...');
+  
+  // Verificar que todos los elementos existen
+  const form = document.getElementById('genForm');
+  const submitBtn = document.querySelector('button[type="submit"]');
+  
+  if (!form) {
+    console.error('❌ No se encontró el formulario con ID "genForm"');
+    return;
+  }
+  
+  if (!submitBtn) {
+    console.error('❌ No se encontró el botón de envío');
+    return;
+  }
+  
+  // Initialize sliders
+  updateSliderValue('iterations', 'it_val');
+  updateSliderValue('solver_time', 'time_val');
+  updateSliderValue('coverage', 'cov_val');
+  updateSliderValue('break_from_start', 'bstart_val');
+  updateSliderValue('break_from_end', 'bend_val');
+  
+  // Initialize toggles
+  toggleFTOptions();
+  togglePTOptions();
+  toggleCustomParams();
+
+  // Add event listeners
+  const profileSelect = document.getElementById('profile');
+  const ftCheckbox = document.getElementById('ft');
+  const ptCheckbox = document.getElementById('pt');
+  
+  if (profileSelect) {
+    profileSelect.addEventListener('change', toggleCustomParams);
+  }
+  if (ftCheckbox) {
+    ftCheckbox.addEventListener('change', toggleFTOptions);
+  }
+  if (ptCheckbox) {
+    ptCheckbox.addEventListener('change', togglePTOptions);
+  }
+
+  // Agregar evento al formulario
+  form.addEventListener('submit', async function(ev) {
+    ev.preventDefault();
+    console.log('🚀 Formulario enviado');
+    
+    // Verificar archivo
+    const fileInput = document.querySelector('input[type="file"][name="excel"]');
+    if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+      showError('Por favor selecciona un archivo Excel');
+      return;
+    }
+    
+    console.log('📁 Archivo:', fileInput.files[0].name);
+    showLoading(true);
+    
+    const formData = new FormData(form);
+    
+    try {
+      console.log('📡 Enviando petición al servidor...');
+      const response = await fetch('/generador', {
+        method: 'POST',
+        body: formData,
+        headers: { 'Accept': 'application/json' }
+      });
+      
+      console.log('✅ Respuesta recibida:', response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Error del servidor');
+      }
+      
+      const data = await response.json();
+      console.log('📊 Datos recibidos exitosamente');
+      
+      displayResults(data);
+      
+    } catch (error) {
+      console.error('❌ Error:', error);
+      showError('Error: ' + error.message);
+    } finally {
+      showLoading(false);
+    }
+  });
+  
+  console.log('✅ Generador de Horarios inicializado correctamente');
+});
