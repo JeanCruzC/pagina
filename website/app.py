@@ -94,6 +94,8 @@ def generador():
 
             print(f"\u2705 [DEBUG] Archivo recibido: {excel.filename}")
 
+            print("🔄 [DEBUG] Construyendo configuración...")
+
             cfg = {
                 'TIME_SOLVER': request.form.get('solver_time', type=int),
                 'TARGET_COVERAGE': request.form.get('coverage', type=float),
@@ -114,6 +116,9 @@ def generador():
                 'iterations': request.form.get('iterations', type=int),
             }
 
+            print(f"✅ [DEBUG] Configuración creada: {cfg}")
+            print("🚀 [DEBUG] Llamando scheduler.run_complete_optimization...")
+
             jean_template = request.files.get('jean_file')
             if jean_template and jean_template.filename:
                 try:
@@ -121,8 +126,24 @@ def generador():
                 except Exception:
                     flash('Plantilla JEAN inválida')
 
-            result = scheduler.run_complete_optimization(excel, config=cfg)
+            try:
+                result = scheduler.run_complete_optimization(excel, config=cfg)
+                print(f"✅ [DEBUG] Scheduler completado exitosamente")
+                print(f"✅ [DEBUG] Tipo de resultado: {type(result)}")
+                print(f"✅ [DEBUG] Keys en resultado: {list(result.keys()) if isinstance(result, dict) else 'No es dict'}")
+            except Exception as e:
+                print(f"❌ [ERROR] EXCEPCIÓN EN SCHEDULER: {str(e)}")
+                import traceback
+                print("❌ [ERROR] STACK TRACE COMPLETO:")
+                traceback.print_exc()
+                return {"error": f"Error en optimización: {str(e)}"}, 500
+
+            print("🎯 [DEBUG] Agregando download_url...")
             result["download_url"] = url_for("download_excel") if session.get("last_excel_result") else None
+
+            print("📤 [DEBUG] Enviando respuesta al frontend...")
+            print(f"📤 [DEBUG] Tamaño de respuesta: {len(str(result))} caracteres")
+
             return result
 
         except Exception as e:
