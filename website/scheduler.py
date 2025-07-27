@@ -60,6 +60,14 @@ def merge_config(cfg=None):
 
 def _build_pattern(days, durations, start_hour, break_len, break_from_start,
                    break_from_end, slot_factor=1):
+    """Construct a weekly pattern array.
+
+    ``days`` and ``durations`` must align. A break of ``break_len`` hours is
+    placed between ``break_from_start`` and ``break_from_end`` from the shift
+    start. ``slot_factor`` controls the number of slots per hour.
+
+    Returns a flattened :class:`numpy.ndarray` of shape ``7 * slots_per_day``.
+    """
     slots_per_day = 24 * slot_factor
     pattern = np.zeros((7, slots_per_day), dtype=np.int8)
     for day, dur in zip(days, durations):
@@ -82,6 +90,7 @@ def _build_pattern(days, durations, start_hour, break_len, break_from_start,
 
 
 def memory_limit_patterns(slots_per_day):
+    """Return the max number of patterns that fit in memory."""
     if slots_per_day <= 0:
         return 0
     available = psutil.virtual_memory().available
@@ -90,10 +99,12 @@ def memory_limit_patterns(slots_per_day):
 
 
 def monitor_memory_usage():
+    """Return current memory usage percentage."""
     return psutil.virtual_memory().percent
 
 
 def adaptive_chunk_size(base=5000):
+    """Adjust chunk size based on memory usage."""
     usage = monitor_memory_usage()
     if usage > 80:
         return max(1000, base // 4)
@@ -103,6 +114,7 @@ def adaptive_chunk_size(base=5000):
 
 
 def emergency_cleanup(threshold=85.0):
+    """Trigger ``gc.collect`` if usage exceeds ``threshold``."""
     if monitor_memory_usage() >= threshold:
         gc.collect()
         return True
@@ -122,6 +134,7 @@ def get_smart_start_hours(demand_matrix, max_hours=12):
 
 
 def score_pattern(pattern, demand_matrix):
+    """Return the total coverage achieved by ``pattern`` against demand."""
     dm = demand_matrix.flatten()
     pat = pattern.astype(int)
     lim = min(len(dm), len(pat))
@@ -129,6 +142,7 @@ def score_pattern(pattern, demand_matrix):
 
 
 def _resize_matrix(matrix, target_cols):
+    """Resize ``matrix`` to ``target_cols`` via repeat or max pooling."""
     if matrix.shape[1] == target_cols:
         return matrix
     if matrix.shape[1] < target_cols:
@@ -141,6 +155,7 @@ def _resize_matrix(matrix, target_cols):
 def score_and_filter_patterns(patterns, demand_matrix, *, keep_percentage=0.3,
                               peak_bonus=1.5, critical_bonus=2.0,
                               efficiency_bonus=1.0):
+    """Score patterns against demand and keep the best ones."""
     if demand_matrix is None or not patterns:
         return patterns
     dm = np.asarray(demand_matrix, dtype=float)
@@ -184,6 +199,7 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
                          keep_percentage=0.3, peak_bonus=1.5,
                          critical_bonus=2.0, efficiency_bonus=1.0,
                          max_patterns_per_shift=None, smart_start_hours=False):
+    """Load shift patterns from ``cfg`` and return them as a dict."""
     if isinstance(cfg, str):
         with open(cfg, "r") as fh:
             data = json.load(fh)
@@ -292,6 +308,7 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
 
 
 def load_learning_data():
+    """Load optimization learning data from disk if available."""
     try:
         if os.path.exists("optimization_learning.json"):
             with open("optimization_learning.json", "r") as f:
@@ -302,6 +319,7 @@ def load_learning_data():
 
 
 def save_learning_data(data):
+    """Persist optimization learning data to disk."""
     try:
         with open("optimization_learning.json", "w") as f:
             json.dump(data, f, indent=2)
@@ -310,6 +328,7 @@ def save_learning_data(data):
 
 
 def get_adaptive_params(demand_matrix, target_coverage):
+    """Return tuned parameters based on previous executions."""
     learning_data = load_learning_data()
     input_hash = hashlib.md5(str(demand_matrix).encode()).hexdigest()[:12]
     total_demand = demand_matrix.sum()
@@ -385,6 +404,7 @@ def get_adaptive_params(demand_matrix, target_coverage):
 
 
 def save_execution_result(demand_matrix, params, coverage, total_agents, execution_time):
+    """Record an execution summary in the learning file."""
     learning_data = load_learning_data()
     input_hash = hashlib.md5(str(demand_matrix).encode()).hexdigest()[:12]
     efficiency_score = coverage / max(1, total_agents * 0.1)
@@ -442,6 +462,7 @@ def save_execution_result(demand_matrix, params, coverage, total_agents, executi
 # ---------------------------------------------------------------------------
 
 def load_demand_excel(file_stream) -> np.ndarray:
+    """Parse an Excel file exported from Ntech and return a matrix."""
     df = pd.read_excel(file_stream)
     day_col = [c for c in df.columns if "Día" in c][0]
     demand_col = [c for c in df.columns if "Erlang" in c or "Requeridos" in c][-1]
@@ -455,6 +476,7 @@ def load_demand_excel(file_stream) -> np.ndarray:
 
 
 def heatmap(matrix: np.ndarray, title: str) -> BytesIO:
+    """Return an image buffer with ``matrix`` rendered as a heatmap."""
     fig, ax = plt.subplots(figsize=(10, 4))
     sns.heatmap(matrix, ax=ax, cmap="viridis", cbar=False)
     ax.set_title(title)
@@ -887,6 +909,7 @@ def evaluate_solution_quality(coverage_matrix: np.ndarray, demand_matrix: np.nda
 # ---------------------------------------------------------------------------
 
 def generate_weekly_pattern(start_hour, duration, working_days, dso_day=None, break_len=1, *, cfg=None):
+    """Return a weekly pattern with a single break per day."""
     cfg = merge_config(cfg)
     break_from_start = cfg["break_from_start"]
     break_from_end = cfg["break_from_end"]
@@ -911,6 +934,7 @@ def generate_weekly_pattern(start_hour, duration, working_days, dso_day=None, br
 
 
 def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break_len=1, *, cfg=None):
+    """Generate a 10h pattern with one 8h day."""
     cfg = merge_config(cfg)
     break_from_start = cfg["break_from_start"]
     break_from_end = cfg["break_from_end"]
@@ -935,6 +959,7 @@ def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break
 
 
 def generate_weekly_pattern_simple(start_hour, duration, working_days):
+    """Simple pattern without breaks."""
     pattern = np.zeros((7, 24), dtype=np.int8)
     for day in working_days:
         for h in range(duration):
@@ -945,6 +970,7 @@ def generate_weekly_pattern_simple(start_hour, duration, working_days):
 
 
 def generate_weekly_pattern_pt5(start_hour, working_days):
+    """Five 5h days with the last reduced to 4h."""
     pattern = np.zeros((7, 24), dtype=np.int8)
     if not working_days:
         return pattern.flatten()
@@ -959,6 +985,7 @@ def generate_weekly_pattern_pt5(start_hour, working_days):
 
 
 def generate_shifts_coverage_corrected(*, max_patterns=None, batch_size=None, cfg=None):
+    """Yield raw patterns respecting configuration flags."""
     cfg = merge_config(cfg)
     use_ft = cfg["use_ft"]
     use_pt = cfg["use_pt"]
@@ -1151,6 +1178,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
 
 
 def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None):
+    """Optimize full-time first and fill gaps with part-time."""
     ft_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('FT')}
     pt_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('PT')}
     ft_assignments = optimize_ft_no_excess(ft_shifts, demand_matrix, cfg=cfg)
@@ -1165,6 +1193,7 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None):
 
 
 def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
+    """Linear program focusing on full-time coverage only."""
     cfg = merge_config(cfg)
     agent_limit_factor = cfg["agent_limit_factor"]
     TIME_SOLVER = cfg["TIME_SOLVER"]
@@ -1198,6 +1227,7 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
 
 
 def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
+    """Solve for part-time assignments covering ``remaining_demand``."""
     cfg = merge_config(cfg)
     agent_limit_factor = cfg["agent_limit_factor"]
     excess_penalty = cfg["excess_penalty"]
@@ -1356,6 +1386,7 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
 
 
 def analyze_results(assignments, shifts_coverage, demand_matrix):
+    """Compute coverage metrics from solved assignments."""
     if not assignments:
         return None
     slots_per_day = len(next(iter(shifts_coverage.values()))) // 7 if shifts_coverage else 24
@@ -1392,6 +1423,7 @@ def analyze_results(assignments, shifts_coverage, demand_matrix):
 
 
 def _extract_start_hour(name: str) -> float:
+    """Best-effort extraction of the start hour from a shift name."""
     for part in name.split('_'):
         if '.' in part and part.replace('.', '').isdigit():
             try:
@@ -1402,6 +1434,7 @@ def _extract_start_hour(name: str) -> float:
 
 
 def export_detailed_schedule(assignments, shifts_coverage):
+    """Return an Excel workbook detailing the generated schedule."""
     if not assignments:
         return None
     detailed_data = []
