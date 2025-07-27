@@ -1373,7 +1373,9 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
         remaining = np.maximum(0, demand_matrix - coverage)
         if not np.any(remaining):
             break
+        print("\U0001F3AF [OPTIMIZER] Llamando optimize_with_precision_targeting...")
         assigns, _ = optimize_with_precision_targeting(chunk_dict, remaining, cfg=cfg)
+        print("\u2705 [OPTIMIZER] optimize_with_precision_targeting completada")
         for n, val in assigns.items():
             assignments_total[n] = assignments_total.get(n, 0) + val
             slots = len(chunk_dict[n]) // 7
@@ -1584,12 +1586,57 @@ def run_complete_optimization(file_stream, config=None):
         print("\u2705 [SCHEDULER] Patrones generados")
 
         print("\u26A1 [SCHEDULER] Iniciando optimización...")
+        print("\u26A1 [SCHEDULER] Iniciando optimización...")
+
+        # DEBUG GRANULAR - PASO A PASO:
+        print(f"\ud83d\udd0d [OPTIMIZER] Número de patrones: {len(patterns) if 'patterns' in locals() else 'UNKNOWN'}")
+        print(f"\ud83d\udd0d [OPTIMIZER] Tamaño demanda: {demand_matrix.shape if 'demand_matrix' in locals() else 'UNKNOWN'}")
+        print(f"\ud83d\udd0d [OPTIMIZER] Suma demanda: {demand_matrix.sum() if 'demand_matrix' in locals() else 'UNKNOWN'}")
+
+        # DETECTAR QUÉ TIPO DE OPTIMIZACIÓN SE ESTÁ EJECUTANDO:
+        import sys
+        print(f"\ud83d\udd0d [OPTIMIZER] Memoria disponible: {sys.getsizeof(patterns)/1024/1024:.1f}MB")
+
+        # SI EXISTE VARIABLE prob (PuLP):
+        if 'prob' in locals():
+            print("\ud83e\udde0 [OPTIMIZER] Detectado problema PuLP")
+            print(f"\ud83d\udd0d [OPTIMIZER] Variables en problema: {prob.numVariables() if hasattr(prob, 'numVariables') else 'UNKNOWN'}")
+            print(f"\ud83d\udd0d [OPTIMIZER] Restricciones: {prob.numConstraints() if hasattr(prob, 'numConstraints') else 'UNKNOWN'}")
+
+            print("\u23f3 [OPTIMIZER] Ejecutando PuLP con timeout...")
+            import time
+            solver_start = time.time()
+
+            # EJECUTAR CON TIMEOUT FORZADO
+            try:
+                status = prob.solve(pulp.PULP_CBC_CMD(msg=1, timeLimit=60, threads=1))
+                solver_end = time.time()
+                print(f"\u2705 [OPTIMIZER] PuLP terminó: {status} en {solver_end - solver_start:.1f}s")
+            except Exception as e:
+                print(f"\u274c [OPTIMIZER] PuLP falló: {str(e)}")
+                raise e
+
+        # SI NO HAY PuLP, buscar optimización greedy/iterativa:
+        else:
+            print("\ud83d\udd04 [OPTIMIZER] Buscando optimización greedy/iterativa...")
+
+            # BUSCAR BUCLES QUE PUEDEN SER INFINITOS:
+            if 'MAX_ITER' in locals() or 'max_iterations' in locals():
+                max_iter = locals().get('MAX_ITER', locals().get('max_iterations', 'UNKNOWN'))
+                print(f"\ud83d\udd0d [OPTIMIZER] Iteraciones máximas configuradas: {max_iter}")
+
+            # DETECTAR SI HAY BUCLES WHILE:
+            print("\ud83d\udd0d [OPTIMIZER] Iniciando bucle de optimización...")
+            iteration_count = 0
+            # [AQUÍ TU CÓDIGO DE OPTIMIZACIÓN SEGUIRÁ]
+        print("\U0001F3AF [OPTIMIZER] Llamando solve_in_chunks_optimized...")
         assignments = solve_in_chunks_optimized(
             patterns,
             demand_matrix,
             base_chunk_size=cfg.get("base_chunk_size", 10000),
             cfg=cfg,
         )
+        print("\u2705 [OPTIMIZER] solve_in_chunks_optimized completada")
         print("\u2705 [SCHEDULER] Optimización completada")
 
         metrics = analyze_results(assignments, patterns, demand_matrix)
