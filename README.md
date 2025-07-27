@@ -12,7 +12,13 @@ This project creates optimized work schedules using Flask.
 
    The list includes the `pulp` package used for solving the optimization problem.
 
-2. Launch the Flask application:
+2. Set the `SECRET_KEY` environment variable used to sign Flask sessions:
+   ```bash
+   export SECRET_KEY="replace-me"
+   ```
+   If this variable is omitted the application falls back to an insecure default and prints a warning.
+
+3. Launch the Flask application:
    ```bash
    flask --app website.app run
    ```
@@ -20,8 +26,8 @@ This project creates optimized work schedules using Flask.
    When prompted on /generador upload the demand Excel file.
 
 
-3. Choose the **JEAN** profile from the sidebar to minimise the sum of excess and deficit while keeping coverage near 100%.
-4. Select **JEAN Personalizado** to choose the working days, hours per day and break placement. All other solver parameters use the JEAN profile automatically.
+4. Choose the **JEAN** profile from the sidebar to minimise the sum of excess and deficit while keeping coverage near 100%.
+5. Select **JEAN Personalizado** to choose the working days, hours per day and break placement. All other solver parameters use the JEAN profile automatically.
 
 ## Excel Input
 
