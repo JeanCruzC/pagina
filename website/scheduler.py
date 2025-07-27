@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import json
 import time
 import os
@@ -1583,25 +1584,24 @@ def run_complete_optimization(file_stream, config=None):
             patterns.update(batch)
             if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
                 break
-        print("\u2705 [SCHEDULER] Patrones generados")
+        print("[SCHEDULER] Patrones generados")
 
-        print("\u26A1 [SCHEDULER] Iniciando optimización...")
-        print("\u26A1 [SCHEDULER] Iniciando optimización...")
+        print("[SCHEDULER] Iniciando optimizacion...")
 
         # DEBUG GRANULAR - PASO A PASO:
-        print(f"\ud83d\udd0d [OPTIMIZER] Número de patrones: {len(patterns) if 'patterns' in locals() else 'UNKNOWN'}")
-        print(f"\ud83d\udd0d [OPTIMIZER] Tamaño demanda: {demand_matrix.shape if 'demand_matrix' in locals() else 'UNKNOWN'}")
-        print(f"\ud83d\udd0d [OPTIMIZER] Suma demanda: {demand_matrix.sum() if 'demand_matrix' in locals() else 'UNKNOWN'}")
+        print("[OPTIMIZER] Numero de patrones:", len(patterns) if 'patterns' in locals() else 'UNKNOWN')
+        print("[OPTIMIZER] Tama\u00f1o demanda:", demand_matrix.shape if 'demand_matrix' in locals() else 'UNKNOWN')
+        print("[OPTIMIZER] Suma demanda:", demand_matrix.sum() if 'demand_matrix' in locals() else 'UNKNOWN')
 
         # DETECTAR QUÉ TIPO DE OPTIMIZACIÓN SE ESTÁ EJECUTANDO:
         import sys
-        print(f"\ud83d\udd0d [OPTIMIZER] Memoria disponible: {sys.getsizeof(patterns)/1024/1024:.1f}MB")
+        print("[OPTIMIZER] Memoria disponible:", sys.getsizeof(patterns)/1024/1024, "MB")
 
         # SI EXISTE VARIABLE prob (PuLP):
         if 'prob' in locals():
-            print("\ud83e\udde0 [OPTIMIZER] Detectado problema PuLP")
-            print(f"\ud83d\udd0d [OPTIMIZER] Variables en problema: {prob.numVariables() if hasattr(prob, 'numVariables') else 'UNKNOWN'}")
-            print(f"\ud83d\udd0d [OPTIMIZER] Restricciones: {prob.numConstraints() if hasattr(prob, 'numConstraints') else 'UNKNOWN'}")
+            print("[OPTIMIZER] Detectado problema PuLP")
+            print("[OPTIMIZER] Variables en problema:", prob.numVariables() if hasattr(prob, 'numVariables') else 'UNKNOWN')
+            print("[OPTIMIZER] Restricciones:", prob.numConstraints() if hasattr(prob, 'numConstraints') else 'UNKNOWN')
 
             print("\u23f3 [OPTIMIZER] Ejecutando PuLP con timeout...")
             import time
@@ -1618,15 +1618,15 @@ def run_complete_optimization(file_stream, config=None):
 
         # SI NO HAY PuLP, buscar optimización greedy/iterativa:
         else:
-            print("\ud83d\udd04 [OPTIMIZER] Buscando optimización greedy/iterativa...")
+            print("[OPTIMIZER] Buscando optimizacion greedy/iterativa...")
 
             # BUSCAR BUCLES QUE PUEDEN SER INFINITOS:
             if 'MAX_ITER' in locals() or 'max_iterations' in locals():
                 max_iter = locals().get('MAX_ITER', locals().get('max_iterations', 'UNKNOWN'))
-                print(f"\ud83d\udd0d [OPTIMIZER] Iteraciones máximas configuradas: {max_iter}")
+                print("[OPTIMIZER] Iteraciones maximas configuradas:", max_iter)
 
             # DETECTAR SI HAY BUCLES WHILE:
-            print("\ud83d\udd0d [OPTIMIZER] Iniciando bucle de optimización...")
+            print("[OPTIMIZER] Iniciando bucle de optimizacion...")
             iteration_count = 0
             # [AQUÍ TU CÓDIGO DE OPTIMIZACIÓN SEGUIRÁ]
         print("\U0001F3AF [OPTIMIZER] Llamando solve_in_chunks_optimized...")
