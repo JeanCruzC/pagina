@@ -6,6 +6,10 @@ import json
 import base64
 import os
 import warnings
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 secret = os.getenv("SECRET_KEY")
@@ -21,16 +25,16 @@ def login_required(f):
     @wraps(f)
     def wrapped(*args, **kwargs):
         user = session.get('user')
-        print(f"\U0001F50D [AUTH] User: {user}, Method: {request.method}")
+        logger.debug(f"\U0001F50D [AUTH] User: {user}, Method: {request.method}")
 
         if not user:
             if 'application/json' in request.headers.get('Accept', ''):
-                print("\u274C [AUTH] No user, returning JSON error")
+                logger.info("\u274C [AUTH] No user, returning JSON error")
                 return jsonify({'error': 'Unauthorized'}), 401
-            print("\u274C [AUTH] No user, redirecting to login")
+            logger.info("\u274C [AUTH] No user, redirecting to login")
             return redirect(url_for('login'))
 
-        print("\u2705 [AUTH] User authorized, proceeding")
+        logger.debug("\u2705 [AUTH] User authorized, proceeding")
         return f(*args, **kwargs)
     return wrapped
 
@@ -76,25 +80,25 @@ def generador():
         response.headers.add('Access-Control-Allow-Headers', "*")
         response.headers.add('Access-Control-Allow-Methods', "*")
         return response
-    print(f"\U0001F50D [DEBUG] Request method: {request.method}")
-    print(f"\U0001F50D [DEBUG] Content-Type: {request.content_type}")
-    print(f"\U0001F50D [DEBUG] Files: {list(request.files.keys())}")
-    print(f"\U0001F50D [DEBUG] Form: {list(request.form.keys())}")
-    print(f"\U0001F50D [DEBUG] User session: {session.get('user', 'NO_USER')}")
+    logger.debug(f"\U0001F50D [DEBUG] Request method: {request.method}")
+    logger.debug(f"\U0001F50D [DEBUG] Content-Type: {request.content_type}")
+    logger.debug(f"\U0001F50D [DEBUG] Files: {list(request.files.keys())}")
+    logger.debug(f"\U0001F50D [DEBUG] Form: {list(request.form.keys())}")
+    logger.debug(f"\U0001F50D [DEBUG] User session: {session.get('user', 'NO_USER')}")
 
     if request.method == 'POST':
         try:
-            print("\u2705 [DEBUG] Entrando a lógica POST")
-            print("\U0001F680 [DEBUG] Iniciando procesamiento POST")
+            logger.debug("\u2705 [DEBUG] Entrando a lógica POST")
+            logger.debug("\U0001F680 [DEBUG] Iniciando procesamiento POST")
 
             excel = request.files.get('excel')
             if not excel:
-                print("\u274C [ERROR] No se recibió archivo")
+                logger.error("\u274C [ERROR] No se recibió archivo")
                 return {'error': 'No file provided'}, 400
 
-            print(f"\u2705 [DEBUG] Archivo recibido: {excel.filename}")
+            logger.debug(f"\u2705 [DEBUG] Archivo recibido: {excel.filename}")
 
-            print("🔄 [DEBUG] Construyendo configuración...")
+            logger.debug("🔄 [DEBUG] Construyendo configuración...")
 
             cfg = {
                 'TIME_SOLVER': request.form.get('solver_time', type=int),
@@ -116,8 +120,8 @@ def generador():
                 'iterations': request.form.get('iterations', type=int),
             }
 
-            print(f"✅ [DEBUG] Configuración creada: {cfg}")
-            print("🚀 [DEBUG] Llamando scheduler.run_complete_optimization...")
+            logger.debug(f"✅ [DEBUG] Configuración creada: {cfg}")
+            logger.debug("🚀 [DEBUG] Llamando scheduler.run_complete_optimization...")
 
             jean_template = request.files.get('jean_file')
             if jean_template and jean_template.filename:
@@ -128,28 +132,23 @@ def generador():
 
             try:
                 result = scheduler.run_complete_optimization(excel, config=cfg)
-                print(f"✅ [DEBUG] Scheduler completado exitosamente")
-                print(f"✅ [DEBUG] Tipo de resultado: {type(result)}")
-                print(f"✅ [DEBUG] Keys en resultado: {list(result.keys()) if isinstance(result, dict) else 'No es dict'}")
+                logger.debug("✅ [DEBUG] Scheduler completado exitosamente")
+                logger.debug(f"✅ [DEBUG] Tipo de resultado: {type(result)}")
+                logger.debug(f"✅ [DEBUG] Keys en resultado: {list(result.keys()) if isinstance(result, dict) else 'No es dict'}")
             except Exception as e:
-                print(f"❌ [ERROR] EXCEPCIÓN EN SCHEDULER: {str(e)}")
-                import traceback
-                print("❌ [ERROR] STACK TRACE COMPLETO:")
-                traceback.print_exc()
+                logger.exception(f"❌ [ERROR] EXCEPCIÓN EN SCHEDULER: {str(e)}")
                 return {"error": f"Error en optimización: {str(e)}"}, 500
 
-            print("🎯 [DEBUG] Agregando download_url...")
+            logger.debug("🎯 [DEBUG] Agregando download_url...")
             result["download_url"] = url_for("download_excel") if session.get("last_excel_result") else None
 
-            print("📤 [DEBUG] Enviando respuesta al frontend...")
-            print(f"📤 [DEBUG] Tamaño de respuesta: {len(str(result))} caracteres")
+            logger.debug("📤 [DEBUG] Enviando respuesta al frontend...")
+            logger.debug(f"📤 [DEBUG] Tamaño de respuesta: {len(str(result))} caracteres")
 
             return result
 
         except Exception as e:
-            print(f"\u274C [ERROR] Exception en POST: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            logger.exception(f"\u274C [ERROR] Exception en POST: {str(e)}")
             code = 400 if isinstance(e, ValueError) else 500
             return {"error": f'Server error: {str(e)}'}, code
 
