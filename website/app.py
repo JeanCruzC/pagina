@@ -141,6 +141,17 @@ def generador():
                 print(f"✅ [DEBUG] Scheduler completado exitosamente")
                 print(f"✅ [DEBUG] Tipo de resultado: {type(result)}")
                 print(f"✅ [DEBUG] Keys en resultado: {list(result.keys()) if isinstance(result, dict) else 'No es dict'}")
+                print("📊 [DEBUG] Verificando librerías...")
+                try:
+                    import pulp
+                    print(f"✅ PuLP disponible: {pulp.__version__}")
+                except Exception:
+                    print("❌ PuLP no disponible")
+                try:
+                    import numpy as np
+                    print(f"✅ NumPy: {np.__version__}")
+                except Exception:
+                    print("❌ NumPy no disponible")
             except Exception as e:
                 print(f"❌ [ERROR] EXCEPCIÓN EN SCHEDULER: {str(e)}")
                 import traceback

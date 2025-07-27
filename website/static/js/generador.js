@@ -151,8 +151,8 @@ function initGenerator() {
     ptCheckbox.addEventListener('change', togglePTOptions);
   }
 
-  // Timeout configurado via data-timeout o valor por defecto (120s)
-  const DEFAULT_REQUEST_TIMEOUT_MS = 120000;
+  // Timeout configurado via data-timeout o valor por defecto (240s)
+  const DEFAULT_REQUEST_TIMEOUT_MS = 240000;
   const requestTimeout = parseInt(form.dataset.timeout || DEFAULT_REQUEST_TIMEOUT_MS, 10);
 
   // Agregar evento al formulario

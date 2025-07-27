@@ -26,7 +26,7 @@ This project creates optimized work schedules using Flask.
    When prompted on /generador upload the demand Excel file.
 
 
-4. The generator request times out after **120 s** by default. To use a different value set the `data-timeout` attribute (milliseconds) on the `<form id="genForm">` element in `generador.html`.
+4. The generator request times out after **240 s** by default. To use a different value set the `data-timeout` attribute (milliseconds) on the `<form id="genForm">` element in `generador.html`.
 5. Choose the **JEAN** profile from the sidebar to minimise the sum of excess and deficit while keeping coverage near 100%.
 6. Select **JEAN Personalizado** to choose the working days, hours per day and break placement. All other solver parameters use the JEAN profile automatically.
 
