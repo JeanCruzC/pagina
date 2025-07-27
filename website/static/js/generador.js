@@ -154,6 +154,7 @@ function initGenerator() {
   // Agregar evento al formulario
   form.addEventListener('submit', async function(ev) {
     ev.preventDefault();
+    ev.stopPropagation();
     console.log('🚀 Formulario enviado');
     
     // Verificar archivo
@@ -163,18 +164,27 @@ function initGenerator() {
       return;
     }
     
-    console.log('📁 Archivo:', fileInput.files[0].name);
+    console.log('📁 Archivo válido:', fileInput.files[0].name);
     showLoading(true);
-    
+
     const formData = new FormData(form);
-    
+    console.log('🔍 Verificando FormData...');
+    for (const [key, value] of formData.entries()) {
+      console.log(`${key}:`, value instanceof File ? value.name : value);
+    }
+
     try {
       console.log('📡 Enviando petición al servidor...');
-      const response = await fetch('/generador', {
-        method: 'POST',
-        body: formData,
-        headers: { 'Accept': 'application/json' }
-      });
+      const response = await Promise.race([
+        fetch('/generador', {
+          method: 'POST',
+          body: formData,
+          headers: { 'Accept': 'application/json' }
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout')), 30000)
+        )
+      ]);
       
       console.log('✅ Respuesta recibida:', response.status);
       
@@ -191,13 +201,15 @@ function initGenerator() {
       } catch (err) {
         console.error('❌ Error mostrando resultados:', err);
         showError('Error: ' + err.message);
-      } finally {
-        showLoading(false);
       }
 
     } catch (error) {
-      console.error('❌ Error:', error);
-      showError('Error: ' + error.message);
+      console.error('❌ Error completo:', error);
+      if (error.stack) {
+        console.error('❌ Stack trace:', error.stack);
+      }
+      showError('Error de conexión: ' + error.message);
+    } finally {
       showLoading(false);
     }
   });
