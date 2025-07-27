@@ -8,6 +8,7 @@ from itertools import combinations, permutations
 
 from flask import session
 import base64
+import tempfile
 
 import numpy as np
 import pandas as pd
@@ -1546,9 +1547,14 @@ def run_complete_optimization(file_stream, config=None):
 
     metrics = analyze_results(assignments, patterns, demand_matrix)
     excel_bytes = export_detailed_schedule(assignments, patterns)
-    session["last_excel_result"] = (
-        base64.b64encode(excel_bytes).decode("utf-8") if excel_bytes else None
-    )
+    if excel_bytes:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+        tmp.write(excel_bytes)
+        tmp.flush()
+        tmp.close()
+        session["last_excel_file"] = tmp.name
+    else:
+        session["last_excel_file"] = None
 
     heatmaps = {}
     if metrics:

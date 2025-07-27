@@ -1,9 +1,19 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify, make_response
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    session,
+    flash,
+    send_file,
+    jsonify,
+    make_response,
+    after_this_request,
+)
 from functools import wraps
 from . import scheduler
-import io
 import json
-import base64
 import os
 import warnings
 
@@ -139,7 +149,7 @@ def generador():
                 return {"error": f"Error en optimización: {str(e)}"}, 500
 
             print("🎯 [DEBUG] Agregando download_url...")
-            result["download_url"] = url_for("download_excel") if session.get("last_excel_result") else None
+            result["download_url"] = url_for("download_excel") if session.get("last_excel_file") else None
 
             print("📤 [DEBUG] Enviando respuesta al frontend...")
             print(f"📤 [DEBUG] Tamaño de respuesta: {len(str(result))} caracteres")
@@ -159,9 +169,19 @@ def generador():
 @app.route('/download_excel')
 @login_required
 def download_excel():
-    data_b64 = session.get('last_excel_result')
-    if not data_b64:
+    file_path = session.get('last_excel_file')
+    if not file_path or not os.path.exists(file_path):
         flash('No hay archivo para descargar.')
+        session.pop('last_excel_file', None)
         return redirect(url_for('generador'))
-    data = base64.b64decode(data_b64)
-    return send_file(io.BytesIO(data), download_name='horario.xlsx', as_attachment=True)
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+        session.pop('last_excel_file', None)
+        return response
+
+    return send_file(file_path, download_name='horario.xlsx', as_attachment=True)
