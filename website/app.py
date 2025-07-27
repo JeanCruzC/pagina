@@ -4,9 +4,15 @@ from . import scheduler
 import io
 import json
 import base64
+import os
+import warnings
 
 app = Flask(__name__)
-app.secret_key = "change-me"
+secret = os.getenv("SECRET_KEY")
+if not secret:
+    warnings.warn("SECRET_KEY environment variable not set, using insecure default")
+    secret = "change-me"
+app.secret_key = secret
 
 users = {}
 
