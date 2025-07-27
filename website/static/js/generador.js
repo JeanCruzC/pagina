@@ -185,13 +185,19 @@ document.addEventListener('DOMContentLoaded', function() {
       
       const data = await response.json();
       console.log('📊 Datos recibidos exitosamente');
-      
-      displayResults(data);
-      
+
+      try {
+        displayResults(data);
+      } catch (err) {
+        console.error('❌ Error mostrando resultados:', err);
+        showError('Error: ' + err.message);
+      } finally {
+        showLoading(false);
+      }
+
     } catch (error) {
       console.error('❌ Error:', error);
       showError('Error: ' + error.message);
-    } finally {
       showLoading(false);
     }
   });
