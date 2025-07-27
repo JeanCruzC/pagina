@@ -107,7 +107,7 @@ function showLoading(show) {
 }
 
 /* Event bindings - Wait for DOM to load */
-document.addEventListener('DOMContentLoaded', function() {
+function initGenerator() {
   console.log('🚀 Inicializando Generador de Horarios...');
   
   // Verificar que todos los elementos existen
@@ -197,4 +197,10 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   
   console.log('✅ Generador de Horarios inicializado correctamente');
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initGenerator);
+} else {
+  initGenerator();
+}
