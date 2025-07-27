@@ -151,6 +151,10 @@ function initGenerator() {
     ptCheckbox.addEventListener('change', togglePTOptions);
   }
 
+  // Timeout configurado via data-timeout o valor por defecto (120s)
+  const DEFAULT_REQUEST_TIMEOUT_MS = 120000;
+  const requestTimeout = parseInt(form.dataset.timeout || DEFAULT_REQUEST_TIMEOUT_MS, 10);
+
   // Agregar evento al formulario
   form.addEventListener('submit', async function(ev) {
     ev.preventDefault();
@@ -182,7 +186,7 @@ function initGenerator() {
           headers: { 'Accept': 'application/json' }
         }),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Timeout')), 30000)
+          setTimeout(() => reject(new Error('Timeout')), requestTimeout)
         )
       ]);
       
