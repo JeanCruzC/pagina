@@ -1554,70 +1554,94 @@ def run_complete_optimization(file_stream, config=None):
 
     The logic mirrors the interactive workflow in ``legacy/app1.py``.
     """
-    cfg = apply_configuration(config)
-    df = pd.read_excel(file_stream)
-    demand_matrix = load_demand_matrix_from_df(df)
-    analysis = analyze_demand_matrix(demand_matrix)
+    print("\U0001F50D [SCHEDULER] Iniciando run_complete_optimization")
+    print(f"\U0001F50D [SCHEDULER] Config recibido: {config}")
 
-    patterns = {}
-    for batch in generate_shifts_coverage_optimized(
-        demand_matrix,
-        max_patterns=cfg.get("max_patterns"),
-        batch_size=cfg.get("batch_size", 2000),
-        quality_threshold=cfg.get("quality_threshold", 0),
-        cfg=cfg,
-    ):
-        patterns.update(batch)
-        if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
-            break
+    try:
+        cfg = apply_configuration(config)
 
-    assignments = solve_in_chunks_optimized(
-        patterns,
-        demand_matrix,
-        base_chunk_size=cfg.get("base_chunk_size", 10000),
-        cfg=cfg,
-    )
+        print("\U0001F4D6 [SCHEDULER] Leyendo archivo Excel...")
+        df = pd.read_excel(file_stream)
+        print("\u2705 [SCHEDULER] Archivo Excel leído correctamente")
 
-    metrics = analyze_results(assignments, patterns, demand_matrix)
-    excel_bytes = export_detailed_schedule(assignments, patterns)
-    if excel_bytes:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-        tmp.write(excel_bytes)
-        tmp.flush()
-        tmp.close()
-        session["last_excel_file"] = tmp.name
-    else:
-        session["last_excel_file"] = None
+        print("\U0001F4CA [SCHEDULER] Procesando matriz de demanda...")
+        demand_matrix = load_demand_matrix_from_df(df)
+        analysis = analyze_demand_matrix(demand_matrix)
+        print("\u2705 [SCHEDULER] Matriz de demanda procesada")
 
-    heatmaps = {}
-    if metrics:
-        maps = generate_all_heatmaps(
+        print("\U0001F501 [SCHEDULER] Generando patrones de turnos...")
+        patterns = {}
+        for batch in generate_shifts_coverage_optimized(
             demand_matrix,
-            metrics.get("total_coverage"),
-            metrics.get("diff_matrix"),
+            max_patterns=cfg.get("max_patterns"),
+            batch_size=cfg.get("batch_size", 2000),
+            quality_threshold=cfg.get("quality_threshold", 0),
+            cfg=cfg,
+        ):
+            patterns.update(batch)
+            if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
+                break
+        print("\u2705 [SCHEDULER] Patrones generados")
+
+        print("\u26A1 [SCHEDULER] Iniciando optimización...")
+        assignments = solve_in_chunks_optimized(
+            patterns,
+            demand_matrix,
+            base_chunk_size=cfg.get("base_chunk_size", 10000),
+            cfg=cfg,
         )
-    else:
-        maps = generate_all_heatmaps(demand_matrix)
-    for key, fig in maps.items():
-        buf = BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight")
-        plt.close(fig)
-        buf.seek(0)
-        heatmaps[key] = base64.b64encode(buf.getvalue()).decode("utf-8")
+        print("\u2705 [SCHEDULER] Optimización completada")
 
-    def _convert(obj):
-        """Recursively convert numpy arrays within ``obj`` to Python lists."""
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if isinstance(obj, dict):
-            return {k: _convert(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [_convert(v) for v in obj]
-        return obj
+        metrics = analyze_results(assignments, patterns, demand_matrix)
+        excel_bytes = export_detailed_schedule(assignments, patterns)
+        if excel_bytes:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+            tmp.write(excel_bytes)
+            tmp.flush()
+            tmp.close()
+            session["last_excel_file"] = tmp.name
+        else:
+            session["last_excel_file"] = None
 
-    return {
-        "analysis": _convert(analysis),
-        "assignments": assignments,
-        "metrics": _convert(metrics),
-        "heatmaps": heatmaps,
-    }
+        heatmaps = {}
+        if metrics:
+            maps = generate_all_heatmaps(
+                demand_matrix,
+                metrics.get("total_coverage"),
+                metrics.get("diff_matrix"),
+            )
+        else:
+            maps = generate_all_heatmaps(demand_matrix)
+        for key, fig in maps.items():
+            buf = BytesIO()
+            fig.savefig(buf, format="png", bbox_inches="tight")
+            plt.close(fig)
+            buf.seek(0)
+            heatmaps[key] = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+        print("\U0001F4E4 [SCHEDULER] Preparando resultados...")
+
+        def _convert(obj):
+            """Recursively convert numpy arrays within ``obj`` to Python lists."""
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            if isinstance(obj, dict):
+                return {k: _convert(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_convert(v) for v in obj]
+            return obj
+
+        result = {
+            "analysis": _convert(analysis),
+            "assignments": assignments,
+            "metrics": _convert(metrics),
+            "heatmaps": heatmaps,
+        }
+        print("\u2705 [SCHEDULER] Resultados preparados - RETORNANDO")
+        return result
+
+    except Exception as e:
+        print(f"\u274C [SCHEDULER] ERROR CRÍTICO: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise e
