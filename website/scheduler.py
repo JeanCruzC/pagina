@@ -1087,6 +1087,10 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
     This implementation follows the logic of ``optimize_with_precision_targeting``
     in ``legacy/app1.py`` but removes all Streamlit UI calls.
     """
+    print("[PRECISION] Iniciando optimize_with_precision_targeting")
+    print(f"[PRECISION] Numero de turnos: {len(shifts_coverage)}")
+    print(f"[PRECISION] Demanda total: {demand_matrix.sum()}")
+
     cfg = merge_config(cfg)
     TIME_SOLVER = cfg["TIME_SOLVER"]
     agent_limit_factor = cfg["agent_limit_factor"]
@@ -1094,89 +1098,175 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
     peak_bonus = cfg["peak_bonus"]
     critical_bonus = cfg["critical_bonus"]
     optimization_profile = cfg["optimization_profile"]
+
     if not PULP_AVAILABLE:
+        print("[PRECISION] PuLP no disponible, usando greedy")
         return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg)
-    shifts_list = list(shifts_coverage.keys())
-    if not shifts_list:
-        return {}, "NO_SHIFTS"
-    prob = pulp.LpProblem("Precision_Scheduling", pulp.LpMinimize)
-    total_demand = demand_matrix.sum()
-    peak_demand = demand_matrix.max()
-    max_per_shift = max(15, int(total_demand / max(1, len(shifts_list) / 10)))
-    shift_vars = {s: pulp.LpVariable(f"shift_{s}", 0, max_per_shift, pulp.LpInteger) for s in shifts_list}
-    deficit_vars = {}
-    excess_vars = {}
-    hours = demand_matrix.shape[1]
-    for d in range(7):
-        for h in range(hours):
-            deficit_vars[(d, h)] = pulp.LpVariable(f"deficit_{d}_{h}", 0, None)
-            excess_vars[(d, h)] = pulp.LpVariable(f"excess_{d}_{h}", 0, None)
-    daily_totals = demand_matrix.sum(axis=1)
-    hourly_totals = demand_matrix.sum(axis=0)
-    critical_days = np.argsort(daily_totals)[-2:] if len(daily_totals) > 1 else [np.argmax(daily_totals)]
-    peak_hours = np.where(hourly_totals >= np.percentile(hourly_totals[hourly_totals > 0], 80))[0]
-    total_deficit = pulp.lpSum(deficit_vars.values())
-    total_agents = pulp.lpSum(shift_vars.values())
-    smart_excess_penalty = 0
-    for d in range(7):
-        for h in range(hours):
-            demand_val = demand_matrix[d, h]
-            if demand_val == 0:
-                smart_excess_penalty += excess_vars[(d, h)] * 50000
-            elif demand_val <= 2:
-                smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 100)
-            elif demand_val <= 5:
-                smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 20)
-            else:
-                smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 5)
-    precision_bonus = 0
-    for cd in critical_days:
-        if cd < 7:
-            day_multiplier = min(5.0, daily_totals[cd] / max(1, daily_totals.mean()))
+
+    try:
+        shifts_list = list(shifts_coverage.keys())
+        if not shifts_list:
+            print("[PRECISION] No hay turnos disponibles")
+            return {}, "NO_SHIFTS"
+
+        print("[PRECISION] Creando problema PuLP...")
+        prob = pulp.LpProblem("Precision_Scheduling", pulp.LpMinimize)
+        print("[PRECISION] Problema PuLP creado")
+
+        total_demand = demand_matrix.sum()
+        peak_demand = demand_matrix.max()
+        max_per_shift = max(15, int(total_demand / max(1, len(shifts_list) / 10)))
+
+        print(f"[PRECISION] Limite por turno: {max_per_shift}")
+        print("[PRECISION] Creando variables...")
+
+        shift_vars = {}
+        for i, shift in enumerate(shifts_list):
+            if i % 500 == 0:
+                print(f"[PRECISION] Variables creadas: {i}/{len(shifts_list)}")
+            shift_vars[shift] = pulp.LpVariable(f"shift_{shift}", 0, max_per_shift, pulp.LpInteger)
+
+        print("[PRECISION] Variables creadas completamente")
+        print("[PRECISION] Creando variables de deficit/exceso...")
+
+        deficit_vars = {}
+        excess_vars = {}
+        hours = demand_matrix.shape[1]
+        for day in range(7):
+            for hour in range(hours):
+                deficit_vars[(day, hour)] = pulp.LpVariable(f"deficit_{day}_{hour}", 0, None)
+                excess_vars[(day, hour)] = pulp.LpVariable(f"excess_{day}_{hour}", 0, None)
+
+        print("[PRECISION] Variables de deficit/exceso creadas")
+        print("[PRECISION] Definiendo funcion objetivo...")
+
+        total_deficit = pulp.lpSum([deficit_vars[(day, hour)] for day in range(7) for hour in range(hours)])
+        total_agents = pulp.lpSum([shift_vars[shift] for shift in shifts_list])
+
+        prob += (total_deficit * 100000 + total_agents * 0.01)
+
+        print("[PRECISION] Funcion objetivo definida")
+        print("[PRECISION] Agregando restricciones de cobertura...")
+
+        restriction_count = 0
+        for day in range(7):
+            for hour in range(hours):
+                coverage = pulp.lpSum([
+                    shift_vars[shift] * shifts_coverage[shift][day * hours + hour]
+                    for shift in shifts_list
+                ])
+                demand = demand_matrix[day, hour]
+
+                prob += coverage + deficit_vars[(day, hour)] >= demand
+                prob += coverage - excess_vars[(day, hour)] <= demand
+                restriction_count += 2
+
+                if restriction_count % 100 == 0:
+                    print(f"[PRECISION] Restricciones agregadas: {restriction_count}")
+
+        print(f"[PRECISION] Total restricciones: {restriction_count}")
+        print("[PRECISION] Configurando solver...")
+
+        solver = pulp.PULP_CBC_CMD(
+            msg=1,
+            timeLimit=30,
+            gapRel=0.1,
+            threads=1,
+            presolve=1,
+            cuts=0,
+        )
+
+        print("[PRECISION] Ejecutando solver PuLP...")
+        prob.solve(solver)
+        print(f"[PRECISION] Solver terminado con status: {prob.status}")
+
+        daily_totals = demand_matrix.sum(axis=1)
+        hourly_totals = demand_matrix.sum(axis=0)
+        critical_days = np.argsort(daily_totals)[-2:] if len(daily_totals) > 1 else [np.argmax(daily_totals)]
+        peak_hours = np.where(hourly_totals >= np.percentile(hourly_totals[hourly_totals > 0], 80))[0]
+        total_agents = pulp.lpSum(shift_vars.values())
+        smart_excess_penalty = 0
+        for d in range(7):
             for h in range(hours):
-                if demand_matrix[cd, h] > 0:
-                    precision_bonus -= deficit_vars[(cd, h)] * (critical_bonus * 100 * day_multiplier)
-    for h in peak_hours:
-        if h < hours:
-            hour_multiplier = min(3.0, hourly_totals[h] / max(1, hourly_totals.mean()))
-            for d in range(7):
-                if demand_matrix[d, h] > 0:
-                    precision_bonus -= deficit_vars[(d, h)] * (peak_bonus * 50 * hour_multiplier)
-    prob += (total_deficit * 100000 + smart_excess_penalty + total_agents * 0.01 + precision_bonus)
-    for d in range(7):
-        for h in range(hours):
-            coverage = pulp.lpSum(shift_vars[s] * shifts_coverage[s][d * hours + h] for s in shifts_list)
-            demand = demand_matrix[d, h]
-            prob += coverage + deficit_vars[(d, h)] >= demand
-            prob += coverage - excess_vars[(d, h)] <= demand
-            if demand == 0:
-                prob += coverage <= 1
-    if optimization_profile in ("JEAN", "JEAN Personalizado"):
-        dynamic_limit = max(int(total_demand / max(1, agent_limit_factor)), int(peak_demand * 1.1))
-    else:
-        dynamic_limit = max(int(total_demand / max(1, agent_limit_factor - 2)), int(peak_demand * 2))
-    prob += total_agents <= dynamic_limit
-    total_excess = pulp.lpSum(excess_vars.values())
-    prob += total_excess <= total_demand * 0.10
-    for d in range(7):
-        day_demand = demand_matrix[d].sum()
-        if day_demand > 0:
-            day_coverage = pulp.lpSum(shift_vars[s] * np.sum(np.array(shifts_coverage[s]).reshape(7, hours)[d]) for s in shifts_list)
-            prob += day_coverage <= day_demand * 1.15
-            prob += day_coverage >= day_demand * 0.85
-    solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER, gapRel=0.02, threads=4, presolve=1, cuts=1)
-    prob.solve(solver)
+                demand_val = demand_matrix[d, h]
+                if demand_val == 0:
+                    smart_excess_penalty += excess_vars[(d, h)] * 50000
+                elif demand_val <= 2:
+                    smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 100)
+                elif demand_val <= 5:
+                    smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 20)
+                else:
+                    smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 5)
 
-    assignments = {}
-    if prob.status == pulp.LpStatusOptimal:
-        for s in shifts_list:
-            val = int(shift_vars[s].varValue or 0)
-            if val > 0:
-                assignments[s] = val
-        return assignments, "PRECISION_TARGETING"
+        precision_bonus = 0
+        for cd in critical_days:
+            if cd < 7:
+                day_multiplier = min(5.0, daily_totals[cd] / max(1, daily_totals.mean()))
+                for h in range(hours):
+                    if demand_matrix[cd, h] > 0:
+                        precision_bonus -= deficit_vars[(cd, h)] * (critical_bonus * 100 * day_multiplier)
+        for h in peak_hours:
+            if h < hours:
+                hour_multiplier = min(3.0, hourly_totals[h] / max(1, hourly_totals.mean()))
+                for d in range(7):
+                    if demand_matrix[d, h] > 0:
+                        precision_bonus -= deficit_vars[(d, h)] * (peak_bonus * 50 * hour_multiplier)
 
-    # Fallback to greedy solver when CBC fails
-    return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg)
+        prob += (
+            total_deficit * 100000
+            + smart_excess_penalty
+            + total_agents * 0.01
+            + precision_bonus
+        )
+
+        for d in range(7):
+            for h in range(hours):
+                coverage = pulp.lpSum(
+                    shift_vars[s] * shifts_coverage[s][d * hours + h] for s in shifts_list
+                )
+                demand = demand_matrix[d, h]
+                prob += coverage + deficit_vars[(d, h)] >= demand
+                prob += coverage - excess_vars[(d, h)] <= demand
+                if demand == 0:
+                    prob += coverage <= 1
+
+        if optimization_profile in ("JEAN", "JEAN Personalizado"):
+            dynamic_limit = max(
+                int(total_demand / max(1, agent_limit_factor)), int(peak_demand * 1.1)
+            )
+        else:
+            dynamic_limit = max(
+                int(total_demand / max(1, agent_limit_factor - 2)), int(peak_demand * 2)
+            )
+        prob += total_agents <= dynamic_limit
+        total_excess = pulp.lpSum(excess_vars.values())
+        prob += total_excess <= total_demand * 0.10
+        for d in range(7):
+            day_demand = demand_matrix[d].sum()
+            if day_demand > 0:
+                day_coverage = pulp.lpSum(
+                    shift_vars[s]
+                    * np.sum(np.array(shifts_coverage[s]).reshape(7, hours)[d])
+                    for s in shifts_list
+                )
+                prob += day_coverage <= day_demand * 1.15
+                prob += day_coverage >= day_demand * 0.85
+
+        assignments = {}
+        if prob.status == pulp.LpStatusOptimal:
+            for s in shifts_list:
+                val = int(shift_vars[s].varValue or 0)
+                if val > 0:
+                    assignments[s] = val
+            return assignments, "PRECISION_TARGETING"
+
+        return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg)
+
+    except Exception as e:  # pragma: no cover - debug only
+        print(f"[PRECISION] ERROR: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {}, "ERROR"
 
 
 def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None):
