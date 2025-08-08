@@ -165,7 +165,7 @@ def generador():
             print("📤 [DEBUG] Enviando respuesta al frontend...")
             print(f"📤 [DEBUG] Tamaño de respuesta: {len(str(result))} caracteres")
 
-            return result
+            return render_template('resultados.html', resultado=result)
 
         except Exception as e:
             print(f"\u274C [ERROR] Exception en POST: {str(e)}")
