@@ -1,32 +1,37 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="card">
+<div class="card mx-auto" style="max-width: 700px;">
   <div class="card-body">
-    <form id="generatorForm" method="post" enctype="multipart/form-data">
-      <div class="mb-3">
-        <label for="excel" class="form-label">Archivo Excel</label>
-        <input type="file" class="form-control" id="excel" name="excel" accept=".xlsx" required>
+    <h4 class="card-title text-center fw-bold mb-4">Generador de Horarios</h4>
+    <form id="generatorForm" method="post" enctype="multipart/form-data" aria-label="Generador de horarios">
+      <div class="row g-3 mb-3">
+        <div class="col-md-6">
+          <label for="excel" class="form-label">Archivo Excel</label>
+          <input type="file" class="form-control" id="excel" name="excel" accept=".xlsx" required>
+        </div>
+        <div class="col-md-6">
+          <div class="form-floating">
+            <select class="form-select" id="profile" name="profile" aria-label="Perfil de optimización">
+              <option>Equilibrado (Recomendado)</option>
+              <option>Conservador</option>
+              <option>Agresivo</option>
+              <option>Máxima Cobertura</option>
+              <option>Mínimo Costo</option>
+              <option>100% Cobertura Eficiente</option>
+              <option>100% Cobertura Total</option>
+              <option>Cobertura Perfecta</option>
+              <option>100% Exacto</option>
+              <option>JEAN</option>
+              <option>JEAN Personalizado</option>
+              <option>Personalizado</option>
+              <option>Aprendizaje Adaptativo</option>
+            </select>
+            <label for="profile">Perfil de optimización</label>
+          </div>
+        </div>
       </div>
-      <div class="mb-3">
-        <label for="profile" class="form-label">Perfil de optimización</label>
-        <select class="form-select" id="profile" name="profile">
-          <option>Equilibrado (Recomendado)</option>
-          <option>Conservador</option>
-          <option>Agresivo</option>
-          <option>Máxima Cobertura</option>
-          <option>Mínimo Costo</option>
-          <option>100% Cobertura Eficiente</option>
-          <option>100% Cobertura Total</option>
-          <option>Cobertura Perfecta</option>
-          <option>100% Exacto</option>
-          <option>JEAN</option>
-          <option>JEAN Personalizado</option>
-          <option>Personalizado</option>
-          <option>Aprendizaje Adaptativo</option>
-        </select>
-      </div>
-      <button class="btn btn-primary d-flex align-items-center gap-2" type="submit" id="generateBtn">
-        <i class="bi bi-play-fill"></i>
+      <button class="btn btn-primary d-inline-flex align-items-center gap-2" type="submit" id="generateBtn" aria-label="Generar">
+        <i class="bi bi-play-circle"></i>
         <span class="btn-text">Generar</span>
         <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
       </button>
@@ -34,11 +39,11 @@
   </div>
 </div>
 
-<div class="progress d-none mt-3" id="progressContainer">
-  <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"></div>
+<div class="progress d-none mt-3" id="progressContainer" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+  <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
 </div>
 
-<div class="toast align-items-center text-bg-warning border-0 position-fixed bottom-0 end-0 m-3" id="timeoutToast" role="alert" aria-live="assertive" aria-atomic="true">
+<div class="toast text-bg-warning border-0 position-fixed bottom-0 end-0 m-3" id="timeoutToast" role="alert" aria-live="assertive" aria-atomic="true">
   <div class="d-flex">
     <div class="toast-body">
       La generación está tardando más de lo esperado.

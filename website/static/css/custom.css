@@ -10,29 +10,46 @@ html[data-bs-theme="dark"] body {
   color: #f8f9fa;
 }
 
-.btn-primary {
-  background-image: linear-gradient(45deg, #0d6efd, #6610f2);
-  border: none;
-}
-
-.btn-primary:hover {
-  background-image: linear-gradient(45deg, #0b5ed7, #5a0ecf);
-}
-
 .card {
-  border-radius: 0.5rem;
-  box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.05);
+  border-radius: 1rem;
+  box-shadow: 0 0.75rem 1.5rem rgba(0,0,0,0.05);
 }
 
 html[data-bs-theme="dark"] .card {
   background-color: #343a40;
 }
 
-.toast {
-  border-radius: 0.5rem;
+.btn-primary {
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  border: none;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #4f46e5, #4338ca);
+}
+
+.sidebar .list-group-item {
+  border: none;
+}
+
+.sidebar .list-group-item:hover {
+  background-color: #e9ecef;
+}
+
+html[data-bs-theme="dark"] .sidebar {
+  background-color: #2b3035;
+}
+
+html[data-bs-theme="dark"] .sidebar .list-group-item:hover {
+  background-color: #343a40;
 }
 
 .list-group-item.active {
-  background-color: #0d6efd;
-  border-color: #0d6efd;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  border: none;
+  color: #fff;
+}
+
+.toast {
+  border-radius: 0.5rem;
 }
