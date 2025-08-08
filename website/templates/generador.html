@@ -3,7 +3,7 @@
 <div class="card mx-auto" style="max-width: 700px;">
   <div class="card-body">
     <h4 class="card-title text-center fw-bold mb-4">Generador de Horarios</h4>
-    <form id="generatorForm" method="post" enctype="multipart/form-data" aria-label="Generador de horarios">
+    <form id="genForm" method="post" enctype="multipart/form-data" aria-label="Generador de horarios">
       <div class="row g-3 mb-3">
         <div class="col-md-6">
           <label for="excel" class="form-label">Archivo Excel</label>
@@ -30,10 +30,9 @@
           </div>
         </div>
       </div>
-      <button class="btn btn-primary d-inline-flex align-items-center gap-2" type="submit" id="generateBtn" aria-label="Generar">
-        <i class="bi bi-play-circle"></i>
-        <span class="btn-text">Generar</span>
-        <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+      <button type="submit" id="btnGenerar" class="btn btn-primary d-inline-flex align-items-center gap-2">
+        <i class="bi bi-play-circle" aria-hidden="true"></i> <span>Generar</span>
+        <span id="spinner" class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
       </button>
     </form>
   </div>
@@ -43,7 +42,7 @@
   <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%"></div>
 </div>
 
-<div class="toast text-bg-warning border-0 position-fixed bottom-0 end-0 m-3" id="timeoutToast" role="alert" aria-live="assertive" aria-atomic="true">
+<div class="toast text-bg-warning border-0 position-fixed bottom-0 end-0 m-3" id="warningToast" role="alert" aria-live="assertive" aria-atomic="true">
   <div class="d-flex">
     <div class="toast-body">
       La generación está tardando más de lo esperado.
