@@ -15,22 +15,28 @@
   <nav class="navbar navbar-expand-lg bg-body-tertiary fixed-top">
     <div class="container-fluid">
       <a class="navbar-brand d-flex align-items-center" href="/">
-        <i class="bi bi-calendar-check me-2"></i>
+        <i class="bi bi-calendar-check me-2" aria-hidden="true"></i>
         <span class="fs-5 fw-semibold">Schedules</span>
       </a>
       <div class="d-flex align-items-center ms-auto">
-        <button class="btn btn-outline-secondary me-3" id="themeToggle" aria-label="Cambiar tema">
-          <i class="bi bi-moon"></i>
+        <button class="btn btn-outline-secondary me-3" id="themeToggle" aria-label="Cambiar tema" type="button">
+          <i class="bi bi-moon" aria-hidden="true"></i>
         </button>
         <div class="dropdown">
-          <button class="btn btn-link p-0 text-decoration-none dropdown-toggle d-flex align-items-center" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Usuario">
-            <img src="https://via.placeholder.com/32" class="rounded-circle me-2" alt="avatar">
-            <span>Jean</span>
-          </button>
+          {% set avatar = session.get('avatar_url') %}
+          {% set username = session.get('user', 'Invitado') %}
+          <a href="#" class="d-flex align-items-center text-decoration-none" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            {% if avatar %}
+              <img src="{{ avatar }}" class="rounded-circle me-2" alt="avatar" width="32" height="32">
+            {% else %}
+              <i class="bi bi-person-circle fs-4 me-2" aria-hidden="true"></i>
+            {% endif %}
+            <span>{{ username }} ▾</span>
+          </a>
           <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="#">Perfil</a></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="#">Salir</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('logout') }}">Salir</a></li>
           </ul>
         </div>
       </div>
@@ -39,14 +45,14 @@
   <div class="d-flex">
     <aside class="sidebar d-flex flex-column flex-shrink-0 p-3 bg-light" style="width: 240px; margin-top:56px;">
       <div class="list-group list-group-flush">
-        <a href="{{ url_for('generador') }}" class="list-group-item list-group-item-action d-flex align-items-center {% if request.endpoint == 'generador' %}active{% endif %}">
-          <i class="bi bi-sliders me-2"></i> Generador
+        <a href="{{ url_for('generador') }}" class="list-group-item list-group-item-action d-flex align-items-center {% if request.endpoint == 'generador' %}active bg-primary text-white{% endif %}" {% if request.endpoint == 'generador' %}aria-current="true"{% endif %}>
+          <i class="bi bi-sliders me-2" aria-hidden="true"></i> Generador
         </a>
         <a href="#" class="list-group-item list-group-item-action d-flex align-items-center">
-          <i class="bi bi-graph-up me-2"></i> Resultados
+          <i class="bi bi-graph-up me-2" aria-hidden="true"></i> Resultados
         </a>
         <a href="#" class="list-group-item list-group-item-action d-flex align-items-center">
-          <i class="bi bi-gear me-2"></i> Configuración
+          <i class="bi bi-gear me-2" aria-hidden="true"></i> Configuración
         </a>
       </div>
     </aside>
