@@ -1441,6 +1441,28 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
     return assignments, "GREEDY_FALLBACK"
 
 
+def solve_with_pulp(shifts_coverage, demand_matrix, *, cfg=None):
+    """Solve the optimization problem using PuLP when available.
+
+    Returns a tuple ``(assignments, coverage_matrix, status, total_agents)``.
+    """
+    assignments, status = optimize_with_precision_targeting(
+        shifts_coverage, demand_matrix, cfg=cfg
+    )
+    slots_per_day = (
+        len(next(iter(shifts_coverage.values()))) // 7
+        if shifts_coverage
+        else demand_matrix.shape[1]
+    )
+    coverage_matrix = np.zeros((7, slots_per_day), dtype=np.int16)
+    total_agents = 0
+    for shift_name, count in assignments.items():
+        pattern_matrix = np.array(shifts_coverage[shift_name]).reshape(7, slots_per_day)
+        coverage_matrix += pattern_matrix * count
+        total_agents += count
+    return assignments, coverage_matrix, status, total_agents
+
+
 def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, *, cfg=None):
     """Solve batches sorted by score.
 
@@ -1479,25 +1501,30 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
     return assignments_total
 
 
-def analyze_results(assignments, shifts_coverage, demand_matrix):
-    """Compute coverage metrics from solved assignments."""
+def analyze_results(assignments, shifts_coverage, demand_matrix, coverage_matrix=None):
+    """Compute coverage metrics from solved assignments.
+
+    If ``coverage_matrix`` is provided, it is used directly instead of
+    recomputing coverage from ``assignments``.
+    """
     if not assignments:
         return None
-    slots_per_day = len(next(iter(shifts_coverage.values()))) // 7 if shifts_coverage else 24
-    total_coverage = np.zeros((7, slots_per_day), dtype=np.int16)
-    total_agents = 0
-    ft_agents = 0
-    pt_agents = 0
-    for shift_name, count in assignments.items():
-        weekly_pattern = shifts_coverage[shift_name]
-        slots_per_day = len(weekly_pattern) // 7
-        pattern_matrix = np.array(weekly_pattern).reshape(7, slots_per_day)
-        total_coverage += pattern_matrix * count
-        total_agents += count
-        if shift_name.startswith('FT'):
-            ft_agents += count
-        else:
-            pt_agents += count
+    slots_per_day = (
+        coverage_matrix.shape[1]
+        if coverage_matrix is not None
+        else len(next(iter(shifts_coverage.values()))) // 7 if shifts_coverage else 24
+    )
+    if coverage_matrix is None:
+        total_coverage = np.zeros((7, slots_per_day), dtype=np.int16)
+        for shift_name, count in assignments.items():
+            weekly_pattern = shifts_coverage[shift_name]
+            pattern_matrix = np.array(weekly_pattern).reshape(7, slots_per_day)
+            total_coverage += pattern_matrix * count
+    else:
+        total_coverage = coverage_matrix
+    total_agents = sum(assignments.values())
+    ft_agents = sum(count for name, count in assignments.items() if name.startswith('FT'))
+    pt_agents = total_agents - ft_agents
     total_demand = demand_matrix.sum()
     total_covered = np.minimum(total_coverage, demand_matrix).sum()
     coverage_percentage = (total_covered / total_demand) * 100 if total_demand > 0 else 0
@@ -1677,59 +1704,28 @@ def run_complete_optimization(file_stream, config=None):
         print("[SCHEDULER] Patrones generados")
 
         print("[SCHEDULER] Iniciando optimizacion...")
+        print(f"[OPTIMIZER] PULP_AVAILABLE: {PULP_AVAILABLE}")
 
-        # DEBUG GRANULAR - PASO A PASO:
-        print("[OPTIMIZER] Numero de patrones:", len(patterns) if 'patterns' in locals() else 'UNKNOWN')
-        print("[OPTIMIZER] Tama\u00f1o demanda:", demand_matrix.shape if 'demand_matrix' in locals() else 'UNKNOWN')
-        print("[OPTIMIZER] Suma demanda:", demand_matrix.sum() if 'demand_matrix' in locals() else 'UNKNOWN')
-
-        # DETECTAR QUÉ TIPO DE OPTIMIZACIÓN SE ESTÁ EJECUTANDO:
-        import sys
-        print("[OPTIMIZER] Memoria disponible:", sys.getsizeof(patterns)/1024/1024, "MB")
-
-        # SI EXISTE VARIABLE prob (PuLP):
-        if 'prob' in locals():
-            print("[OPTIMIZER] Detectado problema PuLP")
-            print("[OPTIMIZER] Variables en problema:", prob.numVariables() if hasattr(prob, 'numVariables') else 'UNKNOWN')
-            print("[OPTIMIZER] Restricciones:", prob.numConstraints() if hasattr(prob, 'numConstraints') else 'UNKNOWN')
-
-            print("\u23f3 [OPTIMIZER] Ejecutando PuLP con timeout...")
-            import time
-            solver_start = time.time()
-
-            # EJECUTAR CON TIMEOUT FORZADO
-            try:
-                status = prob.solve(pulp.PULP_CBC_CMD(msg=1, timeLimit=60, threads=1))
-                solver_end = time.time()
-                print(f"\u2705 [OPTIMIZER] PuLP terminó: {status} en {solver_end - solver_start:.1f}s")
-            except Exception as e:
-                print(f"\u274c [OPTIMIZER] PuLP falló: {str(e)}")
-                raise e
-
-        # SI NO HAY PuLP, buscar optimización greedy/iterativa:
+        coverage_matrix = None
+        if PULP_AVAILABLE:
+            assignments, coverage_matrix, status, total_agents = solve_with_pulp(
+                patterns, demand_matrix, cfg=cfg
+            )
+            print(f"[OPTIMIZER] status: {status}")
+            print(f"[OPTIMIZER] total_agents: {total_agents}")
         else:
-            print("[OPTIMIZER] Buscando optimizacion greedy/iterativa...")
+            assignments = solve_in_chunks_optimized(
+                patterns,
+                demand_matrix,
+                base_chunk_size=cfg.get("base_chunk_size", 10000),
+                cfg=cfg,
+            )
+            print("[OPTIMIZER] solve_in_chunks_optimized completada")
 
-            # BUSCAR BUCLES QUE PUEDEN SER INFINITOS:
-            if 'MAX_ITER' in locals() or 'max_iterations' in locals():
-                max_iter = locals().get('MAX_ITER', locals().get('max_iterations', 'UNKNOWN'))
-                print("[OPTIMIZER] Iteraciones maximas configuradas:", max_iter)
-
-            # DETECTAR SI HAY BUCLES WHILE:
-            print("[OPTIMIZER] Iniciando bucle de optimizacion...")
-            iteration_count = 0
-            # [AQUÍ TU CÓDIGO DE OPTIMIZACIÓN SEGUIRÁ]
-        print("\U0001F3AF [OPTIMIZER] Llamando solve_in_chunks_optimized...")
-        assignments = solve_in_chunks_optimized(
-            patterns,
-            demand_matrix,
-            base_chunk_size=cfg.get("base_chunk_size", 10000),
-            cfg=cfg,
-        )
-        print("\u2705 [OPTIMIZER] solve_in_chunks_optimized completada")
         print("\u2705 [SCHEDULER] Optimización completada")
 
-        metrics = analyze_results(assignments, patterns, demand_matrix)
+        metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
+        coverage_matrix = metrics.get("total_coverage")
         excel_bytes = export_detailed_schedule(assignments, patterns)
         if excel_bytes:
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
@@ -1744,7 +1740,7 @@ def run_complete_optimization(file_stream, config=None):
         if metrics:
             maps = generate_all_heatmaps(
                 demand_matrix,
-                metrics.get("total_coverage"),
+                coverage_matrix,
                 metrics.get("diff_matrix"),
             )
         else:
