@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const toastEl = document.getElementById('timeoutToast');
   const themeToggle = document.getElementById('themeToggle');
   const htmlEl = document.documentElement;
+  const TIMEOUT_MS = 30000;
   let toast;
 
   if (toastEl) {
@@ -25,30 +26,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (form) {
     form.addEventListener('submit', () => {
-      const btn = form.querySelector('button[type="submit"]');
-      const spinner = btn ? btn.querySelector('.spinner-border') : null;
-      const btnText = btn ? btn.querySelector('.btn-text') : null;
-      const btnIcon = btn ? btn.querySelector('.bi') : null;
+      const btn = document.getElementById('generateBtn');
+      const spinner = btn.querySelector('.spinner-border');
+      const btnText = btn.querySelector('.btn-text');
+      const btnIcon = btn.querySelector('.bi');
 
-      if (btn) {
-        btn.disabled = true;
-      }
-      if (btnText) {
-        btnText.classList.add('d-none');
-      }
-      if (btnIcon) {
-        btnIcon.classList.add('d-none');
-      }
-      if (spinner) {
-        spinner.classList.remove('d-none');
-      }
+      btn.disabled = true;
+      btnText.classList.add('d-none');
+      btnIcon.classList.add('d-none');
+      spinner.classList.remove('d-none');
 
       if (progress) {
         progress.classList.remove('d-none');
       }
 
       if (toast) {
-        setTimeout(() => toast.show(), 30000);
+        setTimeout(() => toast.show(), TIMEOUT_MS);
       }
     });
   }
