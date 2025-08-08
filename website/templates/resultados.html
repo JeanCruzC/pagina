@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container">
+  <div class="row g-4">
+    <div class="col-md-6">
+      <div class="card">
+        <div class="card-header">Análisis</div>
+        <div class="card-body">
+          <pre class="mb-0">{{ resultado.analysis | tojson(indent=2) }}</pre>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      {% if resultado.metrics %}
+      <div class="card">
+        <div class="card-header">Métricas</div>
+        <div class="card-body">
+          <pre class="mb-0">{{ resultado.metrics | tojson(indent=2) }}</pre>
+        </div>
+      </div>
+      {% else %}
+      <div class="alert alert-warning" role="alert">
+        No hay métricas disponibles.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
