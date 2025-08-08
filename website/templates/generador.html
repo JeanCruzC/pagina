@@ -1,127 +1,50 @@
 {% extends 'base.html' %}
 {% block content %}
-<style>
-  #sidebar {background:#f8f8f8;padding:15px;border-radius:8px;}
-  #progress {display:none;}
-  .metric-card{min-width:120px;}
-  .tab-pane img{max-width:100%;height:auto;}
-</style>
-<h2 class="mb-4">Generador de Horarios</h2>
-<form method="post" enctype="multipart/form-data" id="genForm" data-timeout="240000">
-  <div class="row">
-    <aside class="col-md-3" id="sidebar">
+<div class="card">
+  <div class="card-body">
+    <form id="generatorForm" method="post" enctype="multipart/form-data">
       <div class="mb-3">
-        <label class="form-label">Archivo de demanda</label>
-        <input type="file" name="excel" class="form-control" accept=".xlsx" required>
+        <label for="excel" class="form-label">Archivo Excel</label>
+        <input type="file" class="form-control" id="excel" name="excel" accept=".xlsx" required>
       </div>
-      <label class="form-label">Iteraciones: <span id="it_val">30</span></label>
-      <input type="range" class="form-range" min="10" max="100" value="30" name="iterations" id="iterations">
-      <label class="form-label">Tiempo solver (s): <span id="time_val">240</span></label>
-      <input type="range" class="form-range" min="60" max="600" step="30" value="240" name="solver_time" id="solver_time">
-      <label class="form-label">Cobertura objetivo (%): <span id="cov_val">98</span></label>
-      <input type="range" class="form-range" min="95" max="100" value="98" name="coverage" id="coverage">
-      <div class="form-check">
-        <input class="form-check-input" type="checkbox" value="1" id="ft" name="use_ft" checked>
-        <label class="form-check-label" for="ft">Full Time</label>
-      </div>
-      <div id="ft_opts" class="ms-3 mt-2">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" value="1" name="allow_8h" checked id="allow_8h">
-          <label class="form-check-label" for="allow_8h">8 horas</label>
-        </div>
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" value="1" name="allow_10h8" id="allow_10h8">
-          <label class="form-check-label" for="allow_10h8">10h + 8h</label>
-        </div>
-      </div>
-      <div class="form-check mt-2">
-        <input class="form-check-input" type="checkbox" value="1" id="pt" name="use_pt" checked>
-        <label class="form-check-label" for="pt">Part Time</label>
-      </div>
-      <div id="pt_opts" class="ms-3 mt-2">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" value="1" name="allow_pt_4h" checked id="allow_pt_4h">
-          <label class="form-check-label" for="allow_pt_4h">PT 4h</label>
-        </div>
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" value="1" name="allow_pt_6h" checked id="allow_pt_6h">
-          <label class="form-check-label" for="allow_pt_6h">PT 6h</label>
-        </div>
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" value="1" name="allow_pt_5h" id="allow_pt_5h">
-          <label class="form-check-label" for="allow_pt_5h">PT 5h</label>
-        </div>
-      </div>
-      <label class="form-label mt-3">Break desde inicio (h): <span id="bstart_val">2.5</span></label>
-      <input type="range" class="form-range" min="1" max="5" step="0.5" value="2.5" name="break_from_start" id="break_from_start">
-      <label class="form-label">Break antes del fin (h): <span id="bend_val">2.5</span></label>
-      <input type="range" class="form-range" min="1" max="5" step="0.5" value="2.5" name="break_from_end" id="break_from_end">
-      <label class="form-label mt-3">Perfil de optimización</label>
-      <select class="form-select" name="profile" id="profile">
-        <option>Equilibrado (Recomendado)</option>
-        <option>Conservador</option>
-        <option>Agresivo</option>
-        <option>Máxima Cobertura</option>
-        <option>Mínimo Costo</option>
-        <option>100% Cobertura Eficiente</option>
-        <option>100% Cobertura Total</option>
-        <option>Cobertura Perfecta</option>
-        <option>100% Exacto</option>
-        <option>JEAN</option>
-        <option>JEAN Personalizado</option>
-        <option>Personalizado</option>
-        <option>Aprendizaje Adaptativo</option>
-      </select>
-      <div id="personalizado" class="mt-2" style="display:none">
-        <label class="form-label">Factor límite agentes</label>
-        <input type="number" step="1" min="5" max="35" value="25" class="form-control" name="agent_limit_factor">
-        <label class="form-label">Penalización exceso</label>
-        <input type="number" step="0.1" value="0.5" class="form-control" name="excess_penalty">
-        <label class="form-label">Bonificación pico</label>
-        <input type="number" step="0.1" value="1.5" class="form-control" name="peak_bonus">
-        <label class="form-label">Bonificación crítica</label>
-        <input type="number" step="0.1" value="2.0" class="form-control" name="critical_bonus">
-      </div>
-      <div id="jean" class="mt-2" style="display:none">
-        <label class="form-label">Plantilla JEAN (JSON)</label>
-        <input type="file" name="jean_file" class="form-control" accept="application/json">
-      </div>
-    </aside>
-    <section class="col-md-9">
       <div class="mb-3">
-        <button class="btn btn-primary" type="submit">Generar</button>
-        <a href="{{ url_for('logout') }}" class="btn btn-secondary">Salir</a>
+        <label for="profile" class="form-label">Perfil de optimización</label>
+        <select class="form-select" id="profile" name="profile">
+          <option>Equilibrado (Recomendado)</option>
+          <option>Conservador</option>
+          <option>Agresivo</option>
+          <option>Máxima Cobertura</option>
+          <option>Mínimo Costo</option>
+          <option>100% Cobertura Eficiente</option>
+          <option>100% Cobertura Total</option>
+          <option>Cobertura Perfecta</option>
+          <option>100% Exacto</option>
+          <option>JEAN</option>
+          <option>JEAN Personalizado</option>
+          <option>Personalizado</option>
+          <option>Aprendizaje Adaptativo</option>
+        </select>
       </div>
-      <div id="progress" class="progress mb-3">
-        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" style="width:0%"></div>
-      </div>
-      <div id="metrics" class="row g-2 mb-3" style="display:none">
-        <div class="col">
-          <div class="card metric-card text-center"><div class="card-body p-2"><div class="fs-4" id="m_agents">0</div><small class="text-muted">Agentes</small></div></div>
-        </div>
-        <div class="col">
-          <div class="card metric-card text-center"><div class="card-body p-2"><div class="fs-4" id="m_cov">0%</div><small class="text-muted">Cobertura</small></div></div>
-        </div>
-        <div class="col">
-          <div class="card metric-card text-center"><div class="card-body p-2"><div class="fs-4" id="m_over">0</div><small class="text-muted">Exceso</small></div></div>
-        </div>
-        <div class="col">
-          <div class="card metric-card text-center"><div class="card-body p-2"><div class="fs-4" id="m_under">0</div><small class="text-muted">Déficit</small></div></div>
-        </div>
-      </div>
-      <ul class="nav nav-tabs" id="hm-tabs" role="tablist">
-        <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-demand" type="button" role="tab">Demanda</button></li>
-        <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-coverage" type="button" role="tab">Cobertura</button></li>
-        <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-diff" type="button" role="tab">Diferencia</button></li>
-      </ul>
-      <div class="tab-content border border-top-0 p-2" id="heatmaps">
-        <div class="tab-pane fade show active" id="tab-demand" role="tabpanel"><img id="hm-demand"></div>
-        <div class="tab-pane fade" id="tab-coverage" role="tabpanel"><img id="hm-coverage"></div>
-        <div class="tab-pane fade" id="tab-diff" role="tabpanel"><img id="hm-diff"></div>
-      </div>
-      <a href="{{ url_for('download_excel') }}" class="btn btn-success mt-3" id="downloadBtn" style="display:none">Descargar Excel</a>
-    </section>
+      <button class="btn btn-primary" type="submit">
+        <i class="bi bi-play-fill"></i> Generar
+      </button>
+    </form>
   </div>
-</form>
-<script src="{{ url_for('static', filename='js/generador.js') }}"></script>
+</div>
+
+<div class="progress d-none mt-3" id="progressContainer">
+  <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"></div>
+</div>
+
+<div class="toast align-items-center text-bg-warning border-0" id="timeoutToast" role="alert" aria-live="assertive" aria-atomic="true">
+  <div class="d-flex">
+    <div class="toast-body">
+      La generación está tardando más de lo esperado.
+    </div>
+    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
 {% endblock %}
+
