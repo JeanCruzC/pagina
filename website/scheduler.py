@@ -20,7 +20,8 @@ import seaborn as sns
 import psutil
 
 try:
-    import pulp
+    import pulp as pl
+    pulp = pl
     PULP_AVAILABLE = True
 except Exception:
     PULP_AVAILABLE = False
@@ -1441,6 +1442,86 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
             break
 
     return assignments, "GREEDY_FALLBACK"
+
+
+def solve_with_pulp(demand_matrix, patterns, cfg=None):
+    """Solve assignment problem using PuLP.
+
+    Parameters
+    ----------
+    demand_matrix : numpy.ndarray
+        Required coverage for each day/hour.
+    patterns : dict[str, numpy.ndarray]
+        Mapping of shift name to a flattened weekly pattern.
+    cfg : dict, optional
+        Configuration overrides.
+
+    Returns
+    -------
+    assignments : dict
+        Number of agents assigned to each pattern.
+    coverage : numpy.ndarray
+        Coverage achieved for each day/hour.
+    total_agents : int
+        Sum of all assigned agents.
+    status : str
+        Solver status reported by PuLP.
+    """
+    if not PULP_AVAILABLE:
+        raise RuntimeError("PuLP is not available")
+
+    cfg = merge_config(cfg)
+    hours = demand_matrix.shape[1]
+    shifts = list(patterns.keys())
+
+    prob = pl.LpProblem("schedule_with_pulp", pl.LpMinimize)
+    max_per_shift = int(demand_matrix.max() * cfg["agent_limit_factor"])
+
+    shift_vars = {
+        s: pl.LpVariable(f"shift_{i}", lowBound=0, upBound=max_per_shift, cat=pl.LpInteger)
+        for i, s in enumerate(shifts)
+    }
+    deficit = {
+        (d, h): pl.LpVariable(f"def_{d}_{h}", lowBound=0, cat=pl.LpContinuous)
+        for d in range(7)
+        for h in range(hours)
+    }
+    excess = {
+        (d, h): pl.LpVariable(f"exc_{d}_{h}", lowBound=0, cat=pl.LpContinuous)
+        for d in range(7)
+        for h in range(hours)
+    }
+
+    total_agents = pl.lpSum(shift_vars.values())
+    total_deficit = pl.lpSum(deficit.values())
+    total_excess = pl.lpSum(excess.values())
+    prob += total_agents + 1000 * total_deficit + cfg["excess_penalty"] * total_excess
+
+    for d in range(7):
+        for h in range(hours):
+            coverage_expr = pl.lpSum(
+                shift_vars[s] * patterns[s][d * hours + h] for s in shifts
+            )
+            demand = demand_matrix[d, h]
+            prob += coverage_expr + deficit[(d, h)] >= demand
+            prob += coverage_expr - excess[(d, h)] <= demand
+
+    solver = pl.PULP_CBC_CMD(msg=0, timeLimit=cfg["TIME_SOLVER"])
+    status = prob.solve(solver)
+
+    assignments = {
+        s: int(pl.value(v))
+        for s, v in shift_vars.items()
+        if pl.value(v) and pl.value(v) > 0.5
+    }
+
+    coverage = np.zeros_like(demand_matrix, dtype=float)
+    for s, count in assignments.items():
+        coverage += patterns[s].reshape(7, hours) * count
+
+    total_agents_val = int(sum(assignments.values()))
+    solver_status = pl.LpStatus.get(prob.status, str(prob.status))
+    return assignments, coverage, total_agents_val, solver_status
 
 
 def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, *, cfg=None):
