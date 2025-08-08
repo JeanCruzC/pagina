@@ -25,6 +25,8 @@ try:
 except Exception:
     PULP_AVAILABLE = False
 
+print(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
+
 # Default configuration values used when no override is supplied
 DEFAULT_CONFIG = {
     # Streamlit legacy defaults from ``legacy/app1.py``
