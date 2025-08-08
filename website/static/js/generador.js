@@ -88,8 +88,7 @@ function showError(message) {
 function showLoading(show) {
   const progressContainer = document.getElementById('progress');
   const progressBar = document.getElementById('progressBar');
-  const generateBtn = document.querySelector('button[type="submit"]');
-  
+
   if (progressContainer && progressBar) {
     if (show) {
       progressContainer.style.display = 'block';
@@ -99,11 +98,7 @@ function showLoading(show) {
       progressContainer.style.display = 'none';
     }
   }
-  
-  if (generateBtn) {
-    generateBtn.disabled = show;
-    generateBtn.textContent = show ? 'Procesando...' : 'Generar';
-  }
+  document.dispatchEvent(new CustomEvent('generator:loading', { detail: show }));
 }
 
 /* Event bindings - Wait for DOM to load */
