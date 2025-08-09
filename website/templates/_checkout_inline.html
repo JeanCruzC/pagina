@@ -54,15 +54,31 @@
 {# SDK y botón de suscripción #}
 <script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription&components=buttons{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
 <script>
+  console.log('PLAN', '{{ paypal_plan_id }}');
   paypal.Buttons({
     style:{ layout:'vertical', color:'blue', shape:'rect', label:'subscribe' },
     createSubscription: function(data, actions){
       return actions.subscription.create({ plan_id: '{{ paypal_plan_id }}' }); // <- tu plan (P-...)
     },
-    onApprove: function(data, actions){
-      window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(data.subscriptionID);
-      // Fallback si no se desea una página de éxito dedicada:
-      // window.location.href = "{{ url_for('landing') }}?sub=" + encodeURIComponent(data.subscriptionID);
+    onApprove: function(data){
+      fetch('/api/paypal/subscription-activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription_id: data.subscriptionID })
+      })
+      .then(res => {
+        if(!res.ok) throw new Error('activation failed');
+        return res.json();
+      })
+      .then(() => {
+        window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(data.subscriptionID);
+        // Fallback si no se desea una página de éxito dedicada:
+        // window.location.href = "{{ url_for('landing') }}?sub=" + encodeURIComponent(data.subscriptionID);
+      })
+      .catch(err => {
+        console.error(err);
+        alert('Hubo un problema activando la suscripción.');
+      });
     },
     onError: function(err){
       console.error(err);

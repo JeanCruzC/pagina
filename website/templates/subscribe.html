@@ -67,7 +67,7 @@
 {% if paypal_plan_id %}
 <script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription&disable-funding=card,credit,venmo{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
 <script>
-const sessionUser = {{ (session.get('user') or '') | tojson }};
+console.log('PLAN', '{{ paypal_plan_id }}');
 paypal.Buttons({
   style:{ layout:'vertical', shape:'rect', label:'subscribe', color:'blue', tagline:false },
   createSubscription:(data, actions)=> actions.subscription.create({ plan_id: "{{ paypal_plan_id }}" }),
@@ -75,7 +75,7 @@ paypal.Buttons({
     fetch('/api/paypal/subscription-activate', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({subscriptionID:data.subscriptionID, email:sessionUser})
+      body: JSON.stringify({ subscription_id: data.subscriptionID })
     })
     .then(res=>{
       if(!res.ok) throw new Error('activation failed');
