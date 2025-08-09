@@ -45,6 +45,12 @@ PAYPAL_BASE_URL = (
     else "https://api-m.sandbox.paypal.com"
 )
 
+# Available one-time payment plans (USD values)
+PLANS = {
+    "basic": 10.0,
+    "pro": 20.0,
+}
+
 SMTP_SERVER = os.getenv("SMTP_SERVER")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
 SMTP_EMAIL = os.getenv("SMTP_EMAIL")
@@ -385,3 +391,91 @@ def configuracion():
 @login_required
 def perfil():
     return redirect(url_for('configuracion'))
+
+
+@app.route('/contacto', methods=['GET', 'POST'])
+def contacto():
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        plan = request.form.get('plan')
+        if email:
+            session['pending_email'] = email
+        if plan == 'subscribe':
+            return redirect(url_for('subscribe'))
+        if plan in PLANS:
+            return redirect(url_for('checkout', plan=plan))
+    return render_template('contacto.html')
+
+
+@app.route('/checkout/<plan>')
+def checkout(plan):
+    if plan not in PLANS:
+        flash('Plan inválido')
+        return redirect(url_for('contacto'))
+    session['pending_plan'] = plan
+    amount = PLANS[plan]
+    return render_template('checkout.html', plan=plan, amount=amount)
+
+
+@app.route('/subscribe')
+def subscribe():
+    return render_template('subscribe.html')
+
+
+@app.route('/api/paypal/subscription-activate', methods=['POST'])
+def paypal_subscription_activate():
+    data = request.get_json(silent=True) or {}
+    sub_id = data.get('subscriptionID')
+    email = (data.get('email') or session.get('pending_email', '')).strip().lower()
+    if not sub_id or not email:
+        return jsonify({'error': 'missing data'}), 400
+    try:
+        sub = paypal_get_subscription(sub_id)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    if sub.get('status') != 'ACTIVE':
+        return jsonify({'error': 'subscription not active'}), 400
+    add_to_allowlist(email)
+    send_admin_email('Nueva suscripción', f'{email} activó la suscripción {sub_id}')
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/api/paypal/create-order', methods=['POST'])
+def paypal_create_order_endpoint():
+    data = request.get_json(silent=True) or {}
+    plan = data.get('plan') or session.get('pending_plan')
+    if plan not in PLANS:
+        return jsonify({'error': 'invalid plan'}), 400
+    try:
+        order = paypal_create_order(PLANS[plan])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    order_id = order.get('id')
+    if not order_id:
+        return jsonify({'error': 'invalid response from PayPal'}), 400
+    return jsonify({'orderID': order_id})
+
+
+@app.route('/api/paypal/capture-order', methods=['POST'])
+def paypal_capture_order_endpoint():
+    data = request.get_json(silent=True) or {}
+    order_id = data.get('orderID')
+    email = (data.get('email') or session.get('pending_email', '')).strip().lower()
+    if not order_id or not email:
+        return jsonify({'error': 'missing data'}), 400
+    try:
+        capture = paypal_capture_order(order_id)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+    status = capture.get('status')
+    if status != 'COMPLETED':
+        try:
+            status = capture['purchase_units'][0]['payments']['captures'][0]['status']
+        except Exception:
+            status = None
+        if status != 'COMPLETED':
+            return jsonify({'error': 'payment not completed'}), 400
+    payer_email = capture.get('payer', {}).get('email_address', email)
+    add_to_allowlist(payer_email)
+    send_admin_email('Nuevo pago', f'{payer_email} completó el pago {order_id}')
+    return jsonify({'status': 'ok'})
