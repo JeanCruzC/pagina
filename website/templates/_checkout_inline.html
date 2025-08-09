@@ -52,22 +52,31 @@
 
 {% if paypal_plan_id %}
 {# SDK y botón de suscripción #}
-<script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription&components=buttons{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
+<script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription&disable-funding=card,credit,venmo{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
 <script>
+  const sessionUser = {{ (session.get('user') or '') | tojson }};
   paypal.Buttons({
-    style:{ layout:'vertical', color:'blue', shape:'rect', label:'subscribe' },
-    createSubscription: function(data, actions){
-      return actions.subscription.create({ plan_id: '{{ paypal_plan_id }}' }); // <- tu plan (P-...)
+    style: { layout: 'vertical', color: 'blue', shape: 'rect', label: 'subscribe', tagline: false },
+    createSubscription: (data, actions) => actions.subscription.create({ plan_id: '{{ paypal_plan_id }}' }),
+    onApprove: (data) => {
+      fetch('/api/paypal/subscription-activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriptionID: data.subscriptionID, email: sessionUser })
+      })
+        .then(res => {
+          if (!res.ok) throw new Error('activation failed');
+          return res.json();
+        })
+        .then(() => {
+          window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(data.subscriptionID);
+        })
+        .catch(err => {
+          console.error(err);
+          alert('Error con PayPal');
+        });
     },
-    onApprove: function(data, actions){
-      window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(data.subscriptionID);
-      // Fallback si no se desea una página de éxito dedicada:
-      // window.location.href = "{{ url_for('landing') }}?sub=" + encodeURIComponent(data.subscriptionID);
-    },
-    onError: function(err){
-      console.error(err);
-      alert('Hubo un problema iniciando la suscripción.');
-    }
+    onError: (err) => { console.error(err); alert('Error con PayPal'); }
   }).render('#paypal-button-pro');
 </script>
 {% endif %}
