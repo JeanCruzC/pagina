@@ -249,9 +249,16 @@ def _on(name: str) -> bool:
     return v is not None and str(v).lower() in {'on', '1', 'true', 'yes'}
 
 
-@app.route('/', methods=['GET'])
+@app.route('/')
 def landing():
-    return render_template('landing.html', title='Schedules', year=datetime.now().year)
+    return render_template(
+        'landing.html',
+        title='Schedules',
+        paypal_client_id=PAYPAL_CLIENT_ID,
+        paypal_plan_id=PAYPAL_SUB_PLAN_ID,
+        paypal_env=PAYPAL_ENV,
+        year=datetime.now().year,
+    )
 
 
 @app.route('/app', methods=['GET'])
@@ -277,7 +284,7 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        user_email = request.form['username']
+        user_email = request.form['email']
         pw = request.form['password']
         if users.get(user_email) == pw:
             if not is_allowed(user_email):
