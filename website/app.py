@@ -275,7 +275,7 @@ def app_entry():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        users[request.form['username']] = request.form['password']
+        users[request.form['email']] = request.form['password']
         flash('Usuario creado. Ingrese ahora.')
         return redirect(url_for('login'))
     return render_template('register.html')
@@ -284,13 +284,13 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        user_email = request.form['email']
+        email = request.form['email']
         pw = request.form['password']
-        if users.get(user_email) == pw:
-            if not is_allowed(user_email):
+        if users.get(email) == pw:
+            if not is_allowed(email):
                 flash('Correo no autorizado')
                 return render_template('login.html')
-            session['user'] = user_email
+            session['user'] = email
             return redirect(url_for('generador'))
         flash('Credenciales invalidas')
     return render_template('login.html')
