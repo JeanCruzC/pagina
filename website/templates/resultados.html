@@ -1,29 +1,120 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="container">
-  <div class="row g-4">
-    <div class="col-md-6">
-      <div class="card">
-        <div class="card-header">Análisis</div>
-        <div class="card-body">
-          <pre class="mb-0">{{ resultado.analysis | tojson(indent=2) }}</pre>
+<div class="container-xxl py-4">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h2 class="mb-0 fw-bold">Resultados</h2>
+    {% if resultado.download_url %}
+      <a class="btn btn-success" href="{{ resultado.download_url }}">Descargar Excel</a>
+    {% endif %}
+  </div>
+
+  <!-- KPIs -->
+  {% if resultado.metrics %}
+  <div class="row g-3 mb-4 text-center">
+    <div class="col-6 col-md-2">
+      <div class="card card-body">
+        <div class="small text-muted">Total Agentes</div>
+        <div class="h3 mb-0">{{ resultado.metrics.total_agents or 0 }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="card card-body">
+        <div class="small text-muted">Full Time</div>
+        <div class="h3 mb-0">{{ resultado.metrics.ft_agents or 0 }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="card card-body">
+        <div class="small text-muted">Part Time</div>
+        <div class="h3 mb-0">{{ resultado.metrics.pt_agents or 0 }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card card-body">
+        <div class="small text-muted">Cobertura Real</div>
+        <div class="h3 mb-0">
+          {% if resultado.metrics.coverage_percentage is not none %}
+            {{ '%.1f'|format(resultado.metrics.coverage_percentage) }}%
+          {% else %}
+            0%
+          {% endif %}
         </div>
       </div>
     </div>
-    <div class="col-md-6">
-      {% if resultado.metrics %}
-      <div class="card">
-        <div class="card-header">Métricas</div>
-        <div class="card-body">
-          <pre class="mb-0">{{ resultado.metrics | tojson(indent=2) }}</pre>
-        </div>
+    <div class="col-6 col-md-1">
+      <div class="card card-body">
+        <div class="small text-muted">Exceso</div>
+        <div class="h5 mb-0">{{ resultado.metrics.overstaffing or 0 }}</div>
       </div>
-      {% else %}
-      <div class="alert alert-warning" role="alert">
-        No hay métricas disponibles.
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="card card-body">
+        <div class="small text-muted">Déficit</div>
+        <div class="h5 mb-0">{{ resultado.metrics.understaffing or 0 }}</div>
       </div>
-      {% endif %}
     </div>
   </div>
+  {% endif %}
+
+  <!-- Config efectiva (para auditar paridad) -->
+  {% if resultado.effective_config %}
+  <details class="mb-4">
+    <summary>Config efectiva</summary>
+    <pre class="mb-0">{{ resultado.effective_config | tojson(indent=2) }}</pre>
+  </details>
+  {% endif %}
+
+  <!-- Heatmaps -->
+  <div class="row g-4 mb-4">
+    {% if resultado.heatmaps and resultado.heatmaps.demand %}
+    <div class="col-md-6">
+      <div class="card">
+        <div class="card-header">Demanda requerida</div>
+        <img class="card-img-bottom" alt="Demanda" src="data:image/png;base64,{{ resultado.heatmaps.demand }}">
+      </div>
+    </div>
+    {% endif %}
+
+    {% if resultado.heatmaps and resultado.heatmaps.coverage %}
+    <div class="col-md-6">
+      <div class="card">
+        <div class="card-header">Cobertura asignada</div>
+        <img class="card-img-bottom" alt="Cobertura" src="data:image/png;base64,{{ resultado.heatmaps.coverage }}">
+      </div>
+    </div>
+    {% endif %}
+
+    {% if resultado.heatmaps and resultado.heatmaps.difference %}
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header">Diferencias (Cobertura - Demanda)</div>
+        <img class="card-img-bottom" alt="Diferencias" src="data:image/png;base64,{{ resultado.heatmaps.difference }}">
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Asignaciones -->
+  {% if resultado.assignments %}
+  <div class="card mb-4">
+    <div class="card-header">Turnos asignados</div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Turno</th><th class="text-end">Agentes</th></tr></thead>
+        <tbody>
+          {% for k, v in resultado.assignments | dictsort(by='value', reverse=true) %}
+            <tr><td>{{ k }}</td><td class="text-end">{{ v }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not (resultado.metrics or resultado.heatmaps or resultado.assignments) %}
+  <div class="alert alert-warning">No hay resultados para mostrar.</div>
+  {% endif %}
+
 </div>
 {% endblock %}
