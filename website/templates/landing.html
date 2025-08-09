@@ -41,7 +41,7 @@
         <li class="nav-item"><a class="nav-link px-3" href="{{ url_for('contacto') }}">Contacto</a></li>
         <li class="nav-item ms-lg-3"><a class="btn btn-outline-secondary" href="{{ url_for('login') }}">Iniciar sesión</a></li>
         <li class="nav-item ms-lg-2"><a class="btn btn-subscribe" href="{{ url_for('subscribe') }}">Suscribirme (USD 50/mes)</a></li>
-        <li class="nav-item ms-lg-2"><a class="btn btn-brand" href="{{ url_for('app_entry') }}">Entrar a la app</a></li>
+        <li class="nav-item ms-lg-2"><a class="btn btn-brand" href="{{ url_for('checkout', plan='pro') }}">Ir al checkout</a></li>
       </ul>
     </div>
   </div>
@@ -58,7 +58,7 @@
           menos exceso, cero déficit y exportación a Excel lista para operación.
         </p>
         <div class="d-flex gap-3">
-          <a href="{{ url_for('app_entry') }}" class="btn btn-brand btn-lg px-4">Entrar a la app</a>
+          <a href="{{ url_for('subscribe') }}" class="btn btn-brand btn-lg px-4">Suscribirme</a>
           <a href="#features" class="btn btn-outline-secondary btn-lg px-4">Ver funciones</a>
         </div>
         <div class="d-flex gap-4 mt-4">
@@ -282,7 +282,7 @@
   <div class="container-xxl">
     <div class="text-center mb-5">
       <h2 class="fw-bold text-ink">Planes simples y claros</h2>
-      <p class="text-muted-adv">Comienza gratis y escálalo cuando tu operación lo necesite.</p>
+      <p class="text-muted-adv">Elige un plan y escálalo cuando tu operación lo necesite.</p>
     </div>
     <div class="row g-4">
       <div class="col-md-4">
@@ -296,7 +296,7 @@
                 <li><i class="bi bi-check2 check me-1" aria-hidden="true"></i><span class="visually-hidden">Incluido: </span>Exportar a Excel</li>
                 <li><i class="bi bi-dash text-muted me-1" aria-hidden="true"></i><span class="visually-hidden">No incluido: </span>JEAN personalizado</li>
             </ul>
-            <a href="{{ url_for('app_entry') }}" class="btn btn-outline-secondary w-100">Probar ahora</a>
+            <a href="{{ url_for('checkout', plan='basic') }}" class="btn btn-outline-secondary w-100">Ir al checkout</a>
           </div>
         </div>
       </div>
@@ -312,7 +312,7 @@
                 <li><i class="bi bi-check2 check me-1" aria-hidden="true"></i><span class="visually-hidden">Incluido: </span>JEAN personalizado</li>
                 <li><i class="bi bi-check2 check me-1" aria-hidden="true"></i><span class="visually-hidden">Incluido: </span>Métricas y heatmaps</li>
             </ul>
-            <a href="{{ url_for('app_entry') }}" class="btn btn-brand w-100">Comenzar</a>
+            <a href="{{ url_for('checkout', plan='pro') }}" class="btn btn-brand w-100">Comenzar</a>
           </div>
         </div>
       </div>
@@ -362,8 +362,8 @@
 <section class="py-5 bg-soft">
   <div class="container-xxl text-center">
     <h3 class="fw-bold text-ink mb-3">¿Listo para optimizar tus turnos?</h3>
-    <p class="text-muted-adv mb-4">Pruébalo gratis. Si ya tienes cuenta, entra directo a la app.</p>
-    <a href="{{ url_for('app_entry') }}" class="btn btn-brand btn-lg px-4">Entrar a la app</a>
+    <p class="text-muted-adv mb-4">Suscríbete para comenzar. Si ya tienes cuenta, inicia sesión.</p>
+    <a href="{{ url_for('subscribe') }}" class="btn btn-brand btn-lg px-4">Suscribirme</a>
   </div>
 </section>
 
