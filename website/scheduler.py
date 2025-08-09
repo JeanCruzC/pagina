@@ -1781,16 +1781,41 @@ def run_complete_optimization(file_stream, config=None):
 
         print("\U0001F501 [SCHEDULER] Generando patrones de turnos...")
         patterns = {}
-        for batch in generate_shifts_coverage_optimized(
-            demand_matrix,
-            max_patterns=cfg.get("max_patterns"),
-            batch_size=cfg.get("batch_size", 2000),
-            quality_threshold=cfg.get("quality_threshold", 0),
-            cfg=cfg,
-        ):
-            patterns.update(batch)
-            if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
-                break
+        if cfg.get("optimization_profile") == "JEAN Personalizado":
+            slot_minutes = int(cfg.get("slot_duration_minutes", 30))
+            start_hours = [h for h in np.arange(0, 24, slot_minutes / 60) if h <= 23.5]
+            patterns = load_shift_patterns(
+                cfg,
+                start_hours=start_hours,
+                break_from_start=cfg.get(
+                    "break_from_start", DEFAULT_CONFIG["break_from_start"]
+                ),
+                break_from_end=cfg.get(
+                    "break_from_end", DEFAULT_CONFIG["break_from_end"]
+                ),
+                slot_duration_minutes=slot_minutes,
+                demand_matrix=demand_matrix,
+                keep_percentage=cfg.get("keep_percentage", 0.3),
+                peak_bonus=cfg.get("peak_bonus", 1.5),
+                critical_bonus=cfg.get("critical_bonus", 2.0),
+                efficiency_bonus=cfg.get("efficiency_bonus", 1.0),
+                max_patterns=cfg.get("max_patterns"),
+            )
+            if not cfg.get("use_ft", True):
+                patterns = {k: v for k, v in patterns.items() if not k.startswith("FT")}
+            if not cfg.get("use_pt", True):
+                patterns = {k: v for k, v in patterns.items() if not k.startswith("PT")}
+        else:
+            for batch in generate_shifts_coverage_optimized(
+                demand_matrix,
+                max_patterns=cfg.get("max_patterns"),
+                batch_size=cfg.get("batch_size", 2000),
+                quality_threshold=cfg.get("quality_threshold", 0),
+                cfg=cfg,
+            ):
+                patterns.update(batch)
+                if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
+                    break
         print("[SCHEDULER] Patrones generados")
 
         print("[SCHEDULER] Iniciando optimizacion...")
@@ -1862,6 +1887,7 @@ def run_complete_optimization(file_stream, config=None):
             "metrics": _convert(metrics),
             "heatmaps": heatmaps,
         }
+        result["effective_config"] = _convert(cfg)
         print("\u2705 [SCHEDULER] Resultados preparados - RETORNANDO")
         return result
 
