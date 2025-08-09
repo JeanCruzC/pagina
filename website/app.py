@@ -169,7 +169,7 @@ def generador():
                     os.remove(session['last_result_file'])
                 except Exception:
                     pass
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.json')
+            tmp = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json', encoding='utf-8')
             json.dump(result, tmp)
             tmp.flush()
             tmp.close()
