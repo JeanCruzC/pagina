@@ -47,8 +47,8 @@ PAYPAL_BASE_URL = (
 
 # Available one-time payment plans (USD values)
 PLANS = {
-    "basic": 10.0,
-    "pro": 20.0,
+    "starter": 30.0,
+    "pro": 50.0,
 }
 
 SMTP_SERVER = os.getenv("SMTP_SERVER")
