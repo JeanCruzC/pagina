@@ -499,6 +499,16 @@ def subscribe():
     )
 
 
+@app.get("/subscribe/success")
+def subscribe_success():
+    sub_id = request.args.get("sub", "")
+    return render_template(
+        "subscribe_success.html",
+        subscription_id=sub_id,
+        title="Suscripción exitosa",
+    )
+
+
 @app.route('/api/paypal/subscription-activate', methods=['POST'])
 def paypal_subscription_activate():
     data = request.get_json(silent=True) or {}
