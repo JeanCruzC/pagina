@@ -162,10 +162,11 @@ def generador():
             print("🎯 [DEBUG] Agregando download_url...")
             result["download_url"] = url_for("download_excel") if session.get("last_excel_file") else None
 
-            print("📤 [DEBUG] Enviando respuesta al frontend...")
-            print(f"📤 [DEBUG] Tamaño de respuesta: {len(str(result))} caracteres")
+            # Persist result and configuration in session for later retrieval
+            session['last_result'] = result
+            session['effective_config'] = cfg
 
-            return render_template('resultados.html', resultado=result)
+            return redirect(url_for('resultados'))
 
         except Exception as e:
             print(f"\u274C [ERROR] Exception en POST: {str(e)}")
@@ -196,3 +197,29 @@ def download_excel():
         return response
 
     return send_file(file_path, download_name='horario.xlsx', as_attachment=True)
+
+
+@app.route('/resultados')
+@login_required
+def resultados():
+    result = session.get('last_result')
+    cfg = session.get('effective_config')
+    excel_file = session.get('last_excel_file')
+    if result is None or cfg is None:
+        flash('No hay resultados disponibles. Genera un nuevo horario.')
+        return redirect(url_for('generador'))
+    result['download_url'] = url_for('download_excel') if excel_file else None
+    result['effective_config'] = cfg
+    return render_template('resultados.html', resultado=result)
+
+
+@app.route('/configuracion')
+@login_required
+def configuracion():
+    return render_template('configuracion.html')
+
+
+@app.route('/perfil')
+@login_required
+def perfil():
+    return redirect(url_for('configuracion'))
