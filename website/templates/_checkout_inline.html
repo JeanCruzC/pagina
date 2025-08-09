@@ -55,7 +55,9 @@
       return actions.subscription.create({ plan_id: '{{ paypal_plan_id }}' }); // <- tu plan (P-...)
     },
     onApprove: function(data, actions){
-      window.location.href = "{{ url_for('subscribe_success') }}?sub=" + data.subscriptionID;
+      window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(data.subscriptionID);
+      // Fallback si no se desea una página de éxito dedicada:
+      // window.location.href = "{{ url_for('landing') }}?sub=" + encodeURIComponent(data.subscriptionID);
     },
     onError: function(err){
       console.error(err);
