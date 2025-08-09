@@ -18,16 +18,18 @@
         <span class="navbar-toggler-icon"></span>
       </button>
         <a class="navbar-brand d-flex align-items-center me-auto" href="/">
-          <span class="brand-logo me-2">
-            <span class="brand-spark"></span>
-          </span>
+          <span class="brand-dot me-2" aria-hidden="true"></span>
           <span class="fs-5 fw-semibold">Schedules</span>
         </a>
         <button class="btn btn-outline-secondary me-3" id="themeToggle" aria-label="Cambiar tema" type="button">
           <i class="bi bi-moon" aria-hidden="true"></i>
         </button>
-        {% if request.endpoint != 'subscribe' %}
-          <a href="{{ url_for('subscribe') }}" class="btn btn-subscribe ms-3">Suscribirme (USD 50/mes)</a>
+        {# Oculta el CTA en landing, home e interfaces de pago #}
+        {% set _hide_cta = request.endpoint in ['landing', 'index', 'checkout', 'subscribe'] %}
+        {% if not _hide_cta %}
+          <a href="{{ url_for('subscribe') }}" class="btn btn-subscribe ms-3">
+            Suscribirme (USD 50/mes)
+          </a>
         {% endif %}
       <div class="dropdown">
         {% set avatar = session.get('avatar_url') %}
