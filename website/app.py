@@ -413,7 +413,7 @@ def checkout(plan):
         flash('Plan inválido')
         return redirect(url_for('contacto'))
     session['pending_plan'] = plan
-    amount = PLANS[plan]
+    amount = f"{PLANS[plan]:.2f}"
     return render_template('checkout.html', plan=plan, amount=amount)
 
 
