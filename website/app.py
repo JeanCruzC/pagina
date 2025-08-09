@@ -12,12 +12,21 @@ from flask import (
     after_this_request,
 )
 from functools import wraps
-from . import scheduler
-import json, io
+import io
+import json
 import os
+import smtplib
+import ssl
 import warnings
 import tempfile
 from datetime import datetime
+from pathlib import Path
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+import requests
+
+from . import scheduler
 
 app = Flask(__name__)
 secret = os.getenv("SECRET_KEY")
@@ -26,7 +35,118 @@ if not secret:
     secret = "change-me"
 app.secret_key = secret
 
+PAYPAL_ENV = os.getenv("PAYPAL_ENV", "sandbox").lower()
+PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID")
+PAYPAL_SECRET = os.getenv("PAYPAL_SECRET")
+PAYPAL_SUB_PLAN_ID = os.getenv("PAYPAL_SUB_PLAN_ID")
+PAYPAL_BASE_URL = (
+    "https://api-m.paypal.com"
+    if PAYPAL_ENV == "live"
+    else "https://api-m.sandbox.paypal.com"
+)
+
+SMTP_SERVER = os.getenv("SMTP_SERVER")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
+SMTP_EMAIL = os.getenv("SMTP_EMAIL")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
+
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+ALLOWLIST_FILE = DATA_DIR / "allowlist.json"
+
 users = {}
+
+
+def load_allowlist() -> list:
+    if ALLOWLIST_FILE.exists():
+        try:
+            with ALLOWLIST_FILE.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+
+def add_to_allowlist(entry: str) -> list:
+    allowlist = load_allowlist()
+    if entry not in allowlist:
+        allowlist.append(entry)
+        ALLOWLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with ALLOWLIST_FILE.open("w", encoding="utf-8") as f:
+            json.dump(allowlist, f, indent=2)
+    return allowlist
+
+
+def is_allowed(entry: str) -> bool:
+    return entry in load_allowlist()
+
+
+def send_admin_email(subject: str, body: str) -> None:
+    if not all([SMTP_SERVER, SMTP_EMAIL, SMTP_PASSWORD, ADMIN_EMAIL]):
+        return
+    msg = MIMEMultipart()
+    msg["From"] = SMTP_EMAIL
+    msg["To"] = ADMIN_EMAIL
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
+        server.login(SMTP_EMAIL, SMTP_PASSWORD)
+        server.sendmail(SMTP_EMAIL, ADMIN_EMAIL, msg.as_string())
+
+
+def paypal_token() -> str:
+    auth = (PAYPAL_CLIENT_ID, PAYPAL_SECRET)
+    resp = requests.post(
+        f"{PAYPAL_BASE_URL}/v1/oauth2/token",
+        data={"grant_type": "client_credentials"},
+        auth=auth,
+    )
+    resp.raise_for_status()
+    return resp.json().get("access_token", "")
+
+
+def paypal_get_subscription(sub_id: str) -> dict:
+    token = paypal_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = requests.get(
+        f"{PAYPAL_BASE_URL}/v1/billing/subscriptions/{sub_id}", headers=headers
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def paypal_create_order(value: float, currency: str = "USD") -> dict:
+    token = paypal_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "intent": "CAPTURE",
+        "purchase_units": [
+            {"amount": {"currency_code": currency, "value": str(value)}}
+        ],
+    }
+    resp = requests.post(
+        f"{PAYPAL_BASE_URL}/v2/checkout/orders", headers=headers, json=payload
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def paypal_capture_order(order_id: str) -> dict:
+    token = paypal_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    resp = requests.post(
+        f"{PAYPAL_BASE_URL}/v2/checkout/orders/{order_id}/capture",
+        headers=headers,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
 def login_required(f):
