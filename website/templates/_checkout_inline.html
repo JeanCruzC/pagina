@@ -82,7 +82,7 @@
     },
     onError: function(err){
       console.error(err);
-      alert('Hubo un problema iniciando la suscripción.');
+      alert('Error PayPal: ' + err.message);
     }
   }).render('#paypal-button-pro');
 </script>
