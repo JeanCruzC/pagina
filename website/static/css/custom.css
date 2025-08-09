@@ -127,3 +127,13 @@ html,body {
     0 0 22px rgba(34,197,94,.60);
 }
 
+/* Auth */
+.auth-hero{min-height:calc(100vh - 80px);display:grid;grid-template-columns:1fr 1fr}
+.auth-side{
+  background:linear-gradient(135deg,#f0fdf4,#dcfce7);
+  display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:2rem
+}
+[data-bs-theme="dark"] .auth-side{background:linear-gradient(135deg,#0f1410,#17211a)}
+.auth-form{display:flex;align-items:center;justify-content:center;padding:2rem}
+.auth-card{width:100%;max-width:420px}
+
