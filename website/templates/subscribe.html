@@ -62,10 +62,28 @@
 
 <script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription&disable-funding=card,credit,venmo{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
 <script>
+const sessionUser = {{ (session.get('user') or '') | tojson }};
 paypal.Buttons({
   style:{ layout:'vertical', shape:'rect', label:'subscribe', color:'blue', tagline:false },
   createSubscription:(data, actions)=> actions.subscription.create({ plan_id: "{{ paypal_plan_id }}" }),
-  onApprove:(data)=>{ alert("Suscripción creada: " + data.subscriptionID); },
+  onApprove:(data)=>{
+    fetch('/api/paypal/subscription-activate', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({subscriptionID:data.subscriptionID, email:sessionUser})
+    })
+    .then(res=>{
+      if(!res.ok) throw new Error('activation failed');
+      return res.json();
+    })
+    .then(()=>{
+      window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(data.subscriptionID);
+    })
+    .catch(err=>{
+      console.error(err);
+      alert("Error con PayPal");
+    });
+  },
   onError:(err)=>{ console.error(err); alert("Error con PayPal"); }
 }).render('#paypal-subscribe-btn');
 </script>
