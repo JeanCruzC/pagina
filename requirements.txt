@@ -6,3 +6,4 @@ seaborn==0.12.2
 openpyxl==3.1.2
 pulp==2.7.*
 psutil==5.9.5
+requests==2.31.0
