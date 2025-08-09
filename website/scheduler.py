@@ -21,7 +21,6 @@ import psutil
 
 try:
     import pulp as pl
-    pulp = pl
     PULP_AVAILABLE = True
 except Exception:
     PULP_AVAILABLE = False
@@ -1113,7 +1112,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
             return {}, "NO_SHIFTS"
 
         print("[PRECISION] Creando problema PuLP...")
-        prob = pulp.LpProblem("Precision_Scheduling", pulp.LpMinimize)
+        prob = pl.LpProblem("Precision_Scheduling", pl.LpMinimize)
         print("[PRECISION] Problema PuLP creado")
 
         total_demand = demand_matrix.sum()
@@ -1127,7 +1126,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         for i, shift in enumerate(shifts_list):
             if i % 500 == 0:
                 print(f"[PRECISION] Variables creadas: {i}/{len(shifts_list)}")
-            shift_vars[shift] = pulp.LpVariable(f"shift_{shift}", 0, max_per_shift, pulp.LpInteger)
+            shift_vars[shift] = pl.LpVariable(f"shift_{shift}", 0, max_per_shift, pl.LpInteger)
 
         print("[PRECISION] Variables creadas completamente")
         print("[PRECISION] Creando variables de deficit/exceso...")
@@ -1137,14 +1136,14 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         hours = demand_matrix.shape[1]
         for day in range(7):
             for hour in range(hours):
-                deficit_vars[(day, hour)] = pulp.LpVariable(f"deficit_{day}_{hour}", 0, None)
-                excess_vars[(day, hour)] = pulp.LpVariable(f"excess_{day}_{hour}", 0, None)
+                deficit_vars[(day, hour)] = pl.LpVariable(f"deficit_{day}_{hour}", 0, None)
+                excess_vars[(day, hour)] = pl.LpVariable(f"excess_{day}_{hour}", 0, None)
 
         print("[PRECISION] Variables de deficit/exceso creadas")
         print("[PRECISION] Definiendo funcion objetivo...")
 
-        total_deficit = pulp.lpSum([deficit_vars[(day, hour)] for day in range(7) for hour in range(hours)])
-        total_agents = pulp.lpSum([shift_vars[shift] for shift in shifts_list])
+        total_deficit = pl.lpSum([deficit_vars[(day, hour)] for day in range(7) for hour in range(hours)])
+        total_agents = pl.lpSum([shift_vars[shift] for shift in shifts_list])
 
         prob += (total_deficit * 100000 + total_agents * 0.01)
 
@@ -1154,7 +1153,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         restriction_count = 0
         for day in range(7):
             for hour in range(hours):
-                coverage = pulp.lpSum([
+                coverage = pl.lpSum([
                     shift_vars[shift] * shifts_coverage[shift][day * hours + hour]
                     for shift in shifts_list
                 ])
@@ -1170,7 +1169,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         print(f"[PRECISION] Total restricciones: {restriction_count}")
         print("[PRECISION] Configurando solver...")
 
-        solver = pulp.PULP_CBC_CMD(
+        solver = pl.PULP_CBC_CMD(
             msg=1,
             timeLimit=30,
             gapRel=0.1,
@@ -1187,7 +1186,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         hourly_totals = demand_matrix.sum(axis=0)
         critical_days = np.argsort(daily_totals)[-2:] if len(daily_totals) > 1 else [np.argmax(daily_totals)]
         peak_hours = np.where(hourly_totals >= np.percentile(hourly_totals[hourly_totals > 0], 80))[0]
-        total_agents = pulp.lpSum(shift_vars.values())
+        total_agents = pl.lpSum(shift_vars.values())
         smart_excess_penalty = 0
         for d in range(7):
             for h in range(hours):
@@ -1224,7 +1223,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
 
         for d in range(7):
             for h in range(hours):
-                coverage = pulp.lpSum(
+                coverage = pl.lpSum(
                     shift_vars[s] * shifts_coverage[s][d * hours + h] for s in shifts_list
                 )
                 demand = demand_matrix[d, h]
@@ -1242,12 +1241,12 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
                 int(total_demand / max(1, agent_limit_factor - 2)), int(peak_demand * 2)
             )
         prob += total_agents <= dynamic_limit
-        total_excess = pulp.lpSum(excess_vars.values())
+        total_excess = pl.lpSum(excess_vars.values())
         prob += total_excess <= total_demand * 0.10
         for d in range(7):
             day_demand = demand_matrix[d].sum()
             if day_demand > 0:
-                day_coverage = pulp.lpSum(
+                day_coverage = pl.lpSum(
                     shift_vars[s]
                     * np.sum(np.array(shifts_coverage[s]).reshape(7, hours)[d])
                     for s in shifts_list
@@ -1256,7 +1255,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
                 prob += day_coverage >= day_demand * 0.85
 
         assignments = {}
-        if prob.status == pulp.LpStatusOptimal:
+        if prob.status == pl.LpStatusOptimal:
             for s in shifts_list:
                 val = int(shift_vars[s].varValue or 0)
                 if val > 0:
@@ -1294,26 +1293,26 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
     TIME_SOLVER = cfg["TIME_SOLVER"]
     if not ft_shifts:
         return {}
-    prob = pulp.LpProblem("FT_No_Excess", pulp.LpMinimize)
+    prob = pl.LpProblem("FT_No_Excess", pl.LpMinimize)
     max_ft_per_shift = max(10, int(demand_matrix.sum() / agent_limit_factor))
-    ft_vars = {s: pulp.LpVariable(f"ft_{s}", 0, max_ft_per_shift, pulp.LpInteger) for s in ft_shifts}
+    ft_vars = {s: pl.LpVariable(f"ft_{s}", 0, max_ft_per_shift, pl.LpInteger) for s in ft_shifts}
     deficit_vars = {}
     hours = demand_matrix.shape[1]
     for d in range(7):
         for h in range(hours):
-            deficit_vars[(d, h)] = pulp.LpVariable(f"ft_deficit_{d}_{h}", 0, None)
-    total_deficit = pulp.lpSum(deficit_vars.values())
-    total_ft_agents = pulp.lpSum(ft_vars.values())
+            deficit_vars[(d, h)] = pl.LpVariable(f"ft_deficit_{d}_{h}", 0, None)
+    total_deficit = pl.lpSum(deficit_vars.values())
+    total_ft_agents = pl.lpSum(ft_vars.values())
     prob += total_deficit * 1000 + total_ft_agents * 1
     for d in range(7):
         for h in range(hours):
-            coverage = pulp.lpSum(ft_vars[s] * ft_shifts[s][d * hours + h] for s in ft_shifts)
+            coverage = pl.lpSum(ft_vars[s] * ft_shifts[s][d * hours + h] for s in ft_shifts)
             demand = demand_matrix[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage <= demand
-    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
+    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
     assignments = {}
-    if prob.status == pulp.LpStatusOptimal:
+    if prob.status == pl.LpStatusOptimal:
         for s in ft_shifts:
             val = int(ft_vars[s].varValue or 0)
             if val > 0:
@@ -1330,31 +1329,31 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
     optimization_profile = cfg["optimization_profile"]
     if not pt_shifts or remaining_demand.sum() == 0:
         return {}
-    prob = pulp.LpProblem("PT_Complete", pulp.LpMinimize)
+    prob = pl.LpProblem("PT_Complete", pl.LpMinimize)
     max_pt_per_shift = max(10, int(remaining_demand.sum() / max(1, agent_limit_factor)))
-    pt_vars = {s: pulp.LpVariable(f"pt_{s}", 0, max_pt_per_shift, pulp.LpInteger) for s in pt_shifts}
+    pt_vars = {s: pl.LpVariable(f"pt_{s}", 0, max_pt_per_shift, pl.LpInteger) for s in pt_shifts}
     deficit_vars = {}
     excess_vars = {}
     hours = remaining_demand.shape[1]
     for d in range(7):
         for h in range(hours):
-            deficit_vars[(d, h)] = pulp.LpVariable(f"pt_deficit_{d}_{h}", 0, None)
-            excess_vars[(d, h)] = pulp.LpVariable(f"pt_excess_{d}_{h}", 0, None)
-    total_deficit = pulp.lpSum(deficit_vars.values())
-    total_excess = pulp.lpSum(excess_vars.values())
-    total_pt_agents = pulp.lpSum(pt_vars.values())
+            deficit_vars[(d, h)] = pl.LpVariable(f"pt_deficit_{d}_{h}", 0, None)
+            excess_vars[(d, h)] = pl.LpVariable(f"pt_excess_{d}_{h}", 0, None)
+    total_deficit = pl.lpSum(deficit_vars.values())
+    total_excess = pl.lpSum(excess_vars.values())
+    total_pt_agents = pl.lpSum(pt_vars.values())
     prob += total_deficit * 1000 + total_excess * (excess_penalty * 20) + total_pt_agents * 1
     if optimization_profile in ("JEAN", "JEAN Personalizado"):
         prob += total_excess == 0
     for d in range(7):
         for h in range(hours):
-            coverage = pulp.lpSum(pt_vars[s] * pt_shifts[s][d * hours + h] for s in pt_shifts)
+            coverage = pl.lpSum(pt_vars[s] * pt_shifts[s][d * hours + h] for s in pt_shifts)
             demand = remaining_demand[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage - excess_vars[(d, h)] <= demand
-    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
+    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
     assignments = {}
-    if prob.status == pulp.LpStatusOptimal:
+    if prob.status == pl.LpStatusOptimal:
         for s in pt_shifts:
             val = int(pt_vars[s].varValue or 0)
             if val > 0:
@@ -1444,7 +1443,7 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
     return assignments, "GREEDY_FALLBACK"
 
 
-def solve_with_pulp(demand_matrix, patterns, cfg=None):
+def solve_with_pulp(demand_matrix, patterns, config):
     """Solve assignment problem using PuLP.
 
     Parameters
@@ -1453,24 +1452,18 @@ def solve_with_pulp(demand_matrix, patterns, cfg=None):
         Required coverage for each day/hour.
     patterns : dict[str, numpy.ndarray]
         Mapping of shift name to a flattened weekly pattern.
-    cfg : dict, optional
+    config : dict
         Configuration overrides.
 
     Returns
     -------
-    assignments : dict
-        Number of agents assigned to each pattern.
-    coverage : numpy.ndarray
-        Coverage achieved for each day/hour.
-    total_agents : int
-        Sum of all assigned agents.
-    status : str
-        Solver status reported by PuLP.
+    dict
+        Dictionary with assignments, coverage matrix, total agents and status.
     """
     if not PULP_AVAILABLE:
         raise RuntimeError("PuLP is not available")
 
-    cfg = merge_config(cfg)
+    cfg = merge_config(config)
     hours = demand_matrix.shape[1]
     shifts = list(patterns.keys())
 
@@ -1521,7 +1514,12 @@ def solve_with_pulp(demand_matrix, patterns, cfg=None):
 
     total_agents_val = int(sum(assignments.values()))
     solver_status = pl.LpStatus.get(prob.status, str(prob.status))
-    return assignments, coverage, total_agents_val, solver_status
+    return {
+        "assignments": assignments,
+        "coverage_matrix": coverage,
+        "total_agents": total_agents_val,
+        "status": solver_status,
+    }
 
 
 def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, *, cfg=None):
@@ -1559,7 +1557,7 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
         emergency_cleanup()
         if not np.any(np.maximum(0, demand_matrix - coverage)):
             break
-    return assignments_total
+    return assignments_total, coverage
 
 
 def analyze_results(assignments, shifts_coverage, demand_matrix, coverage_matrix=None):
@@ -1773,62 +1771,24 @@ def run_complete_optimization(file_stream, config=None):
 
         print("[SCHEDULER] Iniciando optimizacion...")
 
-        # DEBUG GRANULAR - PASO A PASO:
-        print("[OPTIMIZER] Numero de patrones:", len(patterns) if 'patterns' in locals() else 'UNKNOWN')
-        print("[OPTIMIZER] Tama\u00f1o demanda:", demand_matrix.shape if 'demand_matrix' in locals() else 'UNKNOWN')
-        print("[OPTIMIZER] Suma demanda:", demand_matrix.sum() if 'demand_matrix' in locals() else 'UNKNOWN')
-
-        # DETECTAR QUÉ TIPO DE OPTIMIZACIÓN SE ESTÁ EJECUTANDO:
-        import sys
-        print("[OPTIMIZER] Memoria disponible:", sys.getsizeof(patterns)/1024/1024, "MB")
-
-        # SI EXISTE VARIABLE prob (PuLP):
-        if 'prob' in locals():
-            print("[OPTIMIZER] Detectado problema PuLP")
-            print("[OPTIMIZER] Variables en problema:", prob.numVariables() if hasattr(prob, 'numVariables') else 'UNKNOWN')
-            print("[OPTIMIZER] Restricciones:", prob.numConstraints() if hasattr(prob, 'numConstraints') else 'UNKNOWN')
-
-            print("\u23f3 [OPTIMIZER] Ejecutando PuLP con timeout...")
-            import time
-            solver_start = time.time()
-
-            # EJECUTAR CON TIMEOUT FORZADO
-            try:
-                status = prob.solve(pulp.PULP_CBC_CMD(msg=1, timeLimit=60, threads=1))
-                solver_end = time.time()
-                print(f"\u2705 [OPTIMIZER] PuLP terminó: {status} en {solver_end - solver_start:.1f}s")
-            except Exception as e:
-                print(f"\u274c [OPTIMIZER] PuLP falló: {str(e)}")
-                raise e
-
-        # SI NO HAY PuLP, buscar optimización greedy/iterativa:
+        if PULP_AVAILABLE:
+            print("[OPTIMIZER] Resolviendo con PuLP (CBC)…")
+            pulp_out = solve_with_pulp(demand_matrix, patterns, cfg)
+            assignments = pulp_out["assignments"]
+            coverage_matrix = pulp_out["coverage_matrix"]
+            status = pulp_out["status"]
+            total_agents = pulp_out["total_agents"]
         else:
-            print("[OPTIMIZER] Buscando optimizacion greedy/iterativa...")
+            print("[OPTIMIZER] PuLP no disponible, usando greedy")
+            assignments, coverage_matrix = solve_in_chunks_optimized(
+                patterns,
+                demand_matrix,
+                base_chunk_size=cfg.get("base_chunk_size", 10000),
+                cfg=cfg,
+            )
+            status = "GREEDY"
+            total_agents = sum(assignments.values())
 
-            # BUSCAR BUCLES QUE PUEDEN SER INFINITOS:
-            if 'MAX_ITER' in locals() or 'max_iterations' in locals():
-                max_iter = locals().get('MAX_ITER', locals().get('max_iterations', 'UNKNOWN'))
-                print("[OPTIMIZER] Iteraciones maximas configuradas:", max_iter)
-
-            # DETECTAR SI HAY BUCLES WHILE:
-            print("[OPTIMIZER] Iniciando bucle de optimizacion...")
-            iteration_count = 0
-            # [AQUÍ TU CÓDIGO DE OPTIMIZACIÓN SEGUIRÁ]
-        print("\U0001F3AF [OPTIMIZER] Llamando solve_in_chunks_optimized...")
-        result = solve_in_chunks_optimized(
-            patterns,
-            demand_matrix,
-            base_chunk_size=cfg.get("base_chunk_size", 10000),
-            cfg=cfg,
-        )
-        if isinstance(result, tuple):
-            assignments, coverage_matrix = result
-        else:
-            assignments = result
-            coverage_matrix = None
-        print("\u2705 [OPTIMIZER] solve_in_chunks_optimized completada")
-        status = locals().get("status", "UNKNOWN")
-        total_agents = sum(assignments.values()) if assignments else 0
         print(f"[OPTIMIZER] Status: {status}")
         print(f"[OPTIMIZER] Total agents: {total_agents}")
         print("\u2705 [SCHEDULER] Optimización completada")
