@@ -251,11 +251,14 @@ def _on(name: str) -> bool:
 
 @app.route('/')
 def landing():
+    plan_id = PAYPAL_SUB_PLAN_ID if PAYPAL_SUB_PLAN_ID else None
+    if plan_id is None:
+        app.logger.warning("PAYPAL_SUB_PLAN_ID missing; PayPal button disabled on landing")
     return render_template(
         'landing.html',
         title='Schedules',
         paypal_client_id=PAYPAL_CLIENT_ID,
-        paypal_plan_id=PAYPAL_SUB_PLAN_ID,
+        paypal_plan_id=plan_id,
         paypal_env=PAYPAL_ENV,
         year=datetime.now().year,
     )
@@ -490,11 +493,14 @@ def checkout(plan):
 
 @app.get("/subscribe")
 def subscribe():
+    plan_id = PAYPAL_SUB_PLAN_ID if PAYPAL_SUB_PLAN_ID else None
+    if plan_id is None:
+        app.logger.warning("PAYPAL_SUB_PLAN_ID missing; PayPal button disabled on subscribe")
     return render_template(
         "subscribe.html",
         paypal_client_id=PAYPAL_CLIENT_ID,
         paypal_env=PAYPAL_ENV,
-        paypal_plan_id=PAYPAL_SUB_PLAN_ID,
+        paypal_plan_id=plan_id,
         title="Suscripción"
     )
 

@@ -18,11 +18,15 @@
               <span>Pago seguro con PayPal. No compartimos tus datos financieros.</span>
             </div>
 
+            {% if paypal_plan_id %}
             <div id="paypal-subscribe-btn"></div>
 
             <p class="small text-muted mt-3 mb-0">
               Al continuar aceptas nuestros Términos y Política de privacidad. Recibirás el comprobante por correo.
             </p>
+            {% else %}
+            <div class="alert alert-warning mb-0">Configuración de PayPal pendiente.</div>
+            {% endif %}
           </div>
         </div>
       </div>
@@ -60,6 +64,7 @@
   </div>
 </section>
 
+{% if paypal_plan_id %}
 <script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription&disable-funding=card,credit,venmo{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
 <script>
 paypal.Buttons({
@@ -69,6 +74,7 @@ paypal.Buttons({
   onError:(err)=>{ console.error(err); alert("Error con PayPal"); }
 }).render('#paypal-subscribe-btn');
 </script>
+{% endif %}
 
 {% endblock %}
 
