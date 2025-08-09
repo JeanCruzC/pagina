@@ -64,44 +64,58 @@ body.dark-mode .navbar span {
   color: #fff;
 }
 
-.toast {
+ .toast {
   border-radius: 0.5rem;
-}
+ }
 
 :root{
-  --brand:#2d6cdf;      /* mismo tono de tu landing */
-  --ink:#1f2937;
-  --muted:#8a94a6;
+  --brand: #2d6cdf;
+  --brand-600:#1f5ad1;
+  --ink:   #111827;
+  --muted: #6b7280;
   --bg-soft:#f7f8fb;
+  --card:  #ffffff;
+  --card-bd:#eef1f6;
 }
 
-/* fondo suave como la landing */
+[data-bs-theme="dark"]{
+  --ink:   #e5e7eb;
+  --muted: #9aa4b2;
+  --bg-soft:#0f141b;
+  --card:  #1d2430;
+  --card-bd:#2a3240;
+}
+
+/* brand mark (igual en landing y checkout) */
+.brand-logo{
+  width:28px;height:28px;border-radius:8px;
+  background: linear-gradient(135deg,#dbeafe, #93c5fd 60%, #bfdbfe);
+  position:relative; display:inline-flex; align-items:center; justify-content:center;
+  box-shadow: 0 6px 16px rgba(37,99,235,.25);
+}
+.brand-spark{
+  width:8px;height:8px;border-radius:50%; background:#22d3ee;
+  box-shadow:0 0 0 4px rgba(34,211,238,.18), 0 0 22px rgba(34,211,238,.55);
+}
+
+/* botón de marca (si lo usas en navbar/landing) */
+.btn-brand{
+  background: var(--brand);
+  color:#fff;border:none; border-radius:10px; padding:.55rem .9rem; font-weight:600;
+}
+.btn-brand:hover{ background: var(--brand-600); color:#fff; }
+
+/* checkout layout (mismo estilo que landing) */
 .checkout-hero{ background: var(--bg-soft); }
+.shadow-soft{ box-shadow: 0 20px 45px rgba(0,0,0,.08); }
 
-/* sombras suaves */
-.shadow-soft{ box-shadow: 0 10px 30px rgba(17,24,39,.08); }
-
-/* puntito de marca */
-.badge-dot{ width:10px; height:10px; border-radius:50%; background:#00e0b8; display:inline-block; }
-
-/* chip de precio */
+.pay-card,.order-card{ background:var(--card); border:1px solid var(--card-bd); border-radius:18px; }
 .price-chip{
-  background: rgba(45,108,223,.08);
-  color: var(--brand);
-  font-weight: 700;
-  padding: .4rem .8rem;
-  border-radius: 999px;
+  background: rgba(45,108,223,.12); color:var(--brand);
+  font-weight:700; padding:.35rem .7rem; border-radius:999px;
 }
-
-/* línea de seguridad */
 .secure-line{
-  display:flex; align-items:center; gap:.5rem;
-  color: var(--muted);
-  background:#fff; border:1px solid #eef1f6; border-radius:12px;
-  padding:.75rem 1rem;
+  display:flex; align-items:center; gap:.5rem; color:var(--muted);
+  background:var(--card); border:1px solid var(--card-bd); border-radius:12px; padding:.7rem 1rem;
 }
 .secure-line .bi{ color:#16a34a; }
-
-/* cards principales */
-.pay-card,.order-card{ border-radius:20px; }
-.order-card .h4{ color: var(--ink); }
