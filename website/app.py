@@ -538,9 +538,9 @@ def paypal_subscription_activate():
     try:
         sub = paypal_get_subscription(sub_id)
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'error': 'failed to retrieve subscription', 'details': str(e)}), 400
     if sub.get('status') != 'ACTIVE':
-        return jsonify({'error': 'subscription not active'}), 400
+        return jsonify({'error': 'subscription not active', 'details': sub}), 400
     add_subscription_record(email, sub_id, sub.get('status', ''))
     add_to_allowlist(email)
     send_admin_email('Nueva suscripción', f'{email} activó la suscripción {sub_id}')

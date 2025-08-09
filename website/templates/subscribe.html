@@ -77,15 +77,18 @@ paypal.Buttons({
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ subscription_id: data.subscriptionID })
     })
-    .then(res=>{
-      if(!res.ok) throw new Error('activation failed');
+    .then(async res=>{
+      if(!res.ok){
+        const msg = await res.text();
+        throw new Error(msg || 'activation failed');
+      }
       return res.json();
     })
     .then(()=>{
       window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(data.subscriptionID);
     })
     .catch(err=>{
-      console.error(err);
+      console.error('PayPal activation error:', err.message || err);
       alert("Error con PayPal");
     });
   },
