@@ -51,9 +51,16 @@ def _on(name: str) -> bool:
     return v is not None and str(v).lower() in {'on', '1', 'true', 'yes'}
 
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+@app.route('/', methods=['GET'])
+def landing():
+    return render_template('landing.html', title='Schedules')
+
+
+@app.route('/app', methods=['GET'])
+def app_entry():
+    if session.get('user'):
+        return redirect(url_for('generador'))
+    return redirect(url_for('login'))
 
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -80,7 +87,7 @@ def login():
 @app.route('/logout')
 def logout():
     session.pop('user', None)
-    return redirect(url_for('index'))
+    return redirect(url_for('landing'))
 
 
 @app.route('/generador', methods=['GET', 'POST'])
