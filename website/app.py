@@ -28,6 +28,19 @@ app.secret_key = secret
 
 users = {}
 
+# Allowed email list obtained from environment variable "ALLOWED_EMAILS".
+# If the variable is empty or undefined, all users are considered allowed.
+allowed_emails = {
+    e.strip().lower()
+    for e in os.getenv("ALLOWED_EMAILS", "").split(",")
+    if e.strip()
+}
+
+
+def is_allowed(email: str) -> bool:
+    """Check if the given email is in the allowed list."""
+    return not allowed_emails or email.lower() in allowed_emails
+
 
 def login_required(f):
     @wraps(f)
@@ -76,10 +89,13 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        user = request.form['username']
+        user_email = request.form['username']
         pw = request.form['password']
-        if users.get(user) == pw:
-            session['user'] = user
+        if users.get(user_email) == pw:
+            if not is_allowed(user_email):
+                flash('Correo no autorizado')
+                return render_template('login.html')
+            session['user'] = user_email
             return redirect(url_for('generador'))
         flash('Credenciales invalidas')
     return render_template('login.html')
