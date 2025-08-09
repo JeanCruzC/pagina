@@ -7,54 +7,62 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU5LuCkDQsIHep6L5Yx1YtBLBKYJl4lI4lYesFSBPw/26dR" crossorigin="anonymous">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
 </head>
 <body>
-  <nav class="navbar navbar-expand-lg bg-body-tertiary fixed-top">
+  <header class="navbar bg-body-tertiary sticky-top border-bottom">
     <div class="container-fluid">
-      <a class="navbar-brand d-flex align-items-center" href="/">
+      <button class="navbar-toggler me-2" type="button" data-bs-toggle="offcanvas" data-bs-target="#drawer" aria-controls="drawer" aria-label="Abrir menú">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <a class="navbar-brand d-flex align-items-center me-auto" href="/">
         <i class="bi bi-calendar-check me-2" aria-hidden="true"></i>
         <span class="fs-5 fw-semibold">Schedules</span>
       </a>
-      <div class="d-flex align-items-center ms-auto">
-        <button class="btn btn-outline-secondary me-3" id="themeToggle" aria-label="Cambiar tema" type="button">
-          <i class="bi bi-moon" aria-hidden="true"></i>
-        </button>
-        <div class="dropdown">
-          {% set avatar = session.get('avatar_url') %}
-          {% set username = session.get('user', 'Invitado') %}
-          <a href="#" class="d-flex align-items-center text-decoration-none" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            {% if avatar %}
-              <img src="{{ avatar }}" class="rounded-circle me-2" alt="avatar" width="32" height="32">
-            {% else %}
-              <i class="bi bi-person-circle fs-4 me-2" aria-hidden="true"></i>
-            {% endif %}
-            <span>{{ username }} ▾</span>
-          </a>
-          <ul class="dropdown-menu dropdown-menu-end">
-              <li><a class="dropdown-item" href="{{ url_for('configuracion') }}">Perfil</a></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="{{ url_for('logout') }}">Salir</a></li>
-          </ul>
-        </div>
+      <button class="btn btn-outline-secondary me-3" id="themeToggle" aria-label="Cambiar tema" type="button">
+        <i class="bi bi-moon" aria-hidden="true"></i>
+      </button>
+      <div class="dropdown">
+        {% set avatar = session.get('avatar_url') %}
+        {% set username = session.get('user', 'Invitado') %}
+        <a href="#" class="d-flex align-items-center text-decoration-none" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+          {% if avatar %}
+            <img src="{{ avatar }}" class="rounded-circle me-2" alt="avatar" width="32" height="32">
+          {% else %}
+            <i class="bi bi-person-circle fs-4 me-2" aria-hidden="true"></i>
+          {% endif %}
+          <span>{{ username }} ▾</span>
+        </a>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="{{ url_for('configuracion') }}">Perfil</a></li>
+          <li><hr class="dropdown-divider"></li>
+          <li><a class="dropdown-item" href="{{ url_for('logout') }}">Salir</a></li>
+        </ul>
       </div>
     </div>
-  </nav>
-  <div class="d-flex">
-    <aside class="sidebar d-flex flex-column flex-shrink-0 p-3 bg-light" style="width: 240px; margin-top:56px;">
-        <div class="nav flex-column">
-          <a href="{{ url_for('generador') }}"     class="nav-link {{ 'active' if request.endpoint=='generador' else '' }}">Generador</a>
-          <a href="{{ url_for('resultados') }}"    class="nav-link {{ 'active' if request.endpoint=='resultados' else '' }}">Resultados</a>
-          <a href="{{ url_for('configuracion') }}" class="nav-link {{ 'active' if request.endpoint=='configuracion' else '' }}">Configuración</a>
-        </div>
-    </aside>
-    <main class="flex-grow-1 p-4" style="margin-top:56px;">
-      {% block content %}{% endblock %}
-    </main>
+  </header>
+
+  <div class="offcanvas offcanvas-start" tabindex="-1" id="drawer" aria-labelledby="drawerLabel">
+    <div class="offcanvas-header">
+      <h5 class="offcanvas-title" id="drawerLabel">Menú</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+    </div>
+    <div class="offcanvas-body">
+      <nav class="nav flex-column">
+        <a href="{{ url_for('generador') }}" class="nav-link {{ 'active' if request.endpoint=='generador' else '' }}">Generador</a>
+        <a href="{{ url_for('resultados') }}" class="nav-link {{ 'active' if request.endpoint=='resultados' else '' }}">Resultados</a>
+        <a href="{{ url_for('configuracion') }}" class="nav-link {{ 'active' if request.endpoint=='configuracion' else '' }}">Configuración</a>
+      </nav>
+    </div>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+  <main class="container-xxl py-4">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60DJb5xYRVhX0D5VAn1sQzZo3AQT+clzt0AxVXMl8Hdz8vwp0W" crossorigin="anonymous"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
