@@ -17,6 +17,7 @@ import json, io
 import os
 import warnings
 import tempfile
+from datetime import datetime
 
 app = Flask(__name__)
 secret = os.getenv("SECRET_KEY")
@@ -53,7 +54,7 @@ def _on(name: str) -> bool:
 
 @app.route('/', methods=['GET'])
 def landing():
-    return render_template('landing.html', title='Schedules')
+    return render_template('landing.html', title='Schedules', year=datetime.now().year)
 
 
 @app.route('/app', methods=['GET'])
