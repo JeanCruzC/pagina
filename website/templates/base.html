@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
 </head>
 <body>
-  {% set is_public = request.endpoint in ['landing','index','checkout'] %}
+  {% set is_public = request.endpoint in ['landing','index','checkout','subscribe'] %}
   {% set is_auth   = session.get('user') %}
 
   <header class="navbar bg-body-tertiary sticky-top border-bottom">
