@@ -13,7 +13,7 @@ from flask import (
 )
 from functools import wraps
 from . import scheduler
-import json
+import json, io
 import os
 import warnings
 import tempfile
@@ -44,6 +44,11 @@ def login_required(f):
         print("\u2705 [AUTH] User authorized, proceeding")
         return f(*args, **kwargs)
     return wrapped
+
+
+def _on(name: str) -> bool:
+    v = request.form.get(name)
+    return v is not None and str(v).lower() in {'on', '1', 'true', 'yes'}
 
 
 @app.route('/')
@@ -110,13 +115,13 @@ def generador():
             cfg = {
                 'TIME_SOLVER': request.form.get('solver_time', type=int),
                 'TARGET_COVERAGE': request.form.get('coverage', type=float),
-                'use_ft': bool(request.form.get('use_ft')),
-                'use_pt': bool(request.form.get('use_pt')),
-                'allow_8h': bool(request.form.get('allow_8h')),
-                'allow_10h8': bool(request.form.get('allow_10h8')),
-                'allow_pt_4h': bool(request.form.get('allow_pt_4h')),
-                'allow_pt_6h': bool(request.form.get('allow_pt_6h')),
-                'allow_pt_5h': bool(request.form.get('allow_pt_5h')),
+                'use_ft': _on('use_ft'),
+                'use_pt': _on('use_pt'),
+                'allow_8h': _on('allow_8h'),
+                'allow_10h8': _on('allow_10h8'),
+                'allow_pt_4h': _on('allow_pt_4h'),
+                'allow_pt_6h': _on('allow_pt_6h'),
+                'allow_pt_5h': _on('allow_pt_5h'),
                 'break_from_start': request.form.get('break_from_start', type=float),
                 'break_from_end': request.form.get('break_from_end', type=float),
                 'optimization_profile': request.form.get('profile'),
@@ -133,7 +138,8 @@ def generador():
             jean_template = request.files.get('jean_file')
             if jean_template and jean_template.filename:
                 try:
-                    cfg.update(json.load(jean_template))
+                    with io.TextIOWrapper(jean_template, encoding='utf-8') as fh:
+                        cfg.update(json.load(fh))
                 except Exception:
                     flash('Plantilla JEAN inválida')
 
