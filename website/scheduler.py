@@ -1562,33 +1562,45 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
     return assignments_total
 
 
-def analyze_results(assignments, shifts_coverage, demand_matrix):
+def analyze_results(assignments, shifts_coverage, demand_matrix, coverage_matrix=None):
     """Compute coverage metrics from solved assignments."""
     if not assignments:
         return None
-    slots_per_day = len(next(iter(shifts_coverage.values()))) // 7 if shifts_coverage else 24
-    total_coverage = np.zeros((7, slots_per_day), dtype=np.int16)
+
+    compute_coverage = coverage_matrix is None
+    if compute_coverage:
+        slots_per_day = (
+            len(next(iter(shifts_coverage.values()))) // 7 if shifts_coverage else 24
+        )
+        coverage_matrix = np.zeros((7, slots_per_day), dtype=np.int16)
+    else:
+        slots_per_day = coverage_matrix.shape[1]
+
     total_agents = 0
     ft_agents = 0
     pt_agents = 0
     for shift_name, count in assignments.items():
-        weekly_pattern = shifts_coverage[shift_name]
-        slots_per_day = len(weekly_pattern) // 7
-        pattern_matrix = np.array(weekly_pattern).reshape(7, slots_per_day)
-        total_coverage += pattern_matrix * count
         total_agents += count
         if shift_name.startswith('FT'):
             ft_agents += count
         else:
             pt_agents += count
+        if compute_coverage:
+            weekly_pattern = shifts_coverage[shift_name]
+            slots_per_day = len(weekly_pattern) // 7
+            pattern_matrix = np.array(weekly_pattern).reshape(7, slots_per_day)
+            coverage_matrix += pattern_matrix * count
+
     total_demand = demand_matrix.sum()
-    total_covered = np.minimum(total_coverage, demand_matrix).sum()
-    coverage_percentage = (total_covered / total_demand) * 100 if total_demand > 0 else 0
-    diff_matrix = total_coverage - demand_matrix
+    total_covered = np.minimum(coverage_matrix, demand_matrix).sum()
+    coverage_percentage = (
+        (total_covered / total_demand) * 100 if total_demand > 0 else 0
+    )
+    diff_matrix = coverage_matrix - demand_matrix
     overstaffing = np.sum(diff_matrix[diff_matrix > 0])
     understaffing = np.sum(np.abs(diff_matrix[diff_matrix < 0]))
     return {
-        'total_coverage': total_coverage,
+        'total_coverage': coverage_matrix,
         'total_agents': total_agents,
         'ft_agents': ft_agents,
         'pt_agents': pt_agents,
@@ -1803,16 +1815,21 @@ def run_complete_optimization(file_stream, config=None):
             iteration_count = 0
             # [AQUÍ TU CÓDIGO DE OPTIMIZACIÓN SEGUIRÁ]
         print("\U0001F3AF [OPTIMIZER] Llamando solve_in_chunks_optimized...")
-        assignments = solve_in_chunks_optimized(
+        result = solve_in_chunks_optimized(
             patterns,
             demand_matrix,
             base_chunk_size=cfg.get("base_chunk_size", 10000),
             cfg=cfg,
         )
+        if isinstance(result, tuple):
+            assignments, coverage_matrix = result
+        else:
+            assignments = result
+            coverage_matrix = None
         print("\u2705 [OPTIMIZER] solve_in_chunks_optimized completada")
         print("\u2705 [SCHEDULER] Optimización completada")
 
-        metrics = analyze_results(assignments, patterns, demand_matrix)
+        metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
         excel_bytes = export_detailed_schedule(assignments, patterns)
         if excel_bytes:
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
