@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Generador de Horarios</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-light bg-light">
+  <div class="container">
+    <a class="navbar-brand" href="/">Schedules Generator</a>
+    <div class="ms-auto">
+      <a class="btn btn-outline-primary me-2" href="{{ url_for('login') }}">Iniciar sesión</a>
+      <a class="btn btn-primary" href="{{ url_for('register') }}">Crear cuenta</a>
+    </div>
+  </div>
+</nav>
+
+<header class="py-5 bg-light text-center">
+  <div class="container">
+    <h1 class="display-4">Optimiza tus Horarios</h1>
+    <p class="lead mb-4">Crea turnos de trabajo de forma sencilla y eficiente.</p>
+    <a href="/app" class="btn btn-success btn-lg">Entrar a la app</a>
+  </div>
+</header>
+
+<section class="py-5">
+  <div class="container">
+    <div class="row">
+      <div class="col-md-4">
+        <h3>Fácil de usar</h3>
+        <p>Configura los parámetros y genera horarios en minutos.</p>
+      </div>
+      <div class="col-md-4">
+        <h3>Optimizado</h3>
+        <p>Algoritmos que minimizan exceso y déficit de personal.</p>
+      </div>
+      <div class="col-md-4">
+        <h3>Flexible</h3>
+        <p>Adapta los turnos a las necesidades de tu negocio.</p>
+      </div>
+    </div>
+    <div class="text-center mt-4">
+      <a href="/app" class="btn btn-success">Entrar a la app</a>
+    </div>
+  </div>
+</section>
+
+<footer class="py-4 bg-light text-center">
+  <div class="container">
+    <p class="mb-2">&copy; 2024 Schedules Generator</p>
+    <a href="/app" class="btn btn-success">Entrar a la app</a>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
