@@ -67,3 +67,41 @@ body.dark-mode .navbar span {
 .toast {
   border-radius: 0.5rem;
 }
+
+:root{
+  --brand:#2d6cdf;      /* mismo tono de tu landing */
+  --ink:#1f2937;
+  --muted:#8a94a6;
+  --bg-soft:#f7f8fb;
+}
+
+/* fondo suave como la landing */
+.checkout-hero{ background: var(--bg-soft); }
+
+/* sombras suaves */
+.shadow-soft{ box-shadow: 0 10px 30px rgba(17,24,39,.08); }
+
+/* puntito de marca */
+.badge-dot{ width:10px; height:10px; border-radius:50%; background:#00e0b8; display:inline-block; }
+
+/* chip de precio */
+.price-chip{
+  background: rgba(45,108,223,.08);
+  color: var(--brand);
+  font-weight: 700;
+  padding: .4rem .8rem;
+  border-radius: 999px;
+}
+
+/* línea de seguridad */
+.secure-line{
+  display:flex; align-items:center; gap:.5rem;
+  color: var(--muted);
+  background:#fff; border:1px solid #eef1f6; border-radius:12px;
+  padding:.75rem 1rem;
+}
+.secure-line .bi{ color:#16a34a; }
+
+/* cards principales */
+.pay-card,.order-card{ border-radius:20px; }
+.order-card .h4{ color: var(--ink); }
