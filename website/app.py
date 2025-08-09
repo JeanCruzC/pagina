@@ -23,10 +23,17 @@ from datetime import datetime
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from shutil import copyfile
+from dotenv import load_dotenv
 
 import requests
 
 from . import scheduler
+
+if not Path(".env").exists() and Path(".env.example").exists():
+    copyfile(".env.example", ".env")
+
+load_dotenv()
 
 app = Flask(__name__)
 secret = os.getenv("SECRET_KEY")
@@ -51,10 +58,10 @@ PLANS = {
     "pro": 50.0,
 }
 
-SMTP_SERVER = os.getenv("SMTP_SERVER")
+SMTP_HOST = os.getenv("SMTP_HOST")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
-SMTP_EMAIL = os.getenv("SMTP_EMAIL")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("SMTP_PASS")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
@@ -147,17 +154,17 @@ def has_active_subscription(email: str) -> bool:
 
 
 def send_admin_email(subject: str, body: str) -> None:
-    if not all([SMTP_SERVER, SMTP_EMAIL, SMTP_PASSWORD, ADMIN_EMAIL]):
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):
         return
     msg = MIMEMultipart()
-    msg["From"] = SMTP_EMAIL
+    msg["From"] = SMTP_USER
     msg["To"] = ADMIN_EMAIL
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain"))
     context = ssl.create_default_context()
-    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
-        server.login(SMTP_EMAIL, SMTP_PASSWORD)
-        server.sendmail(SMTP_EMAIL, ADMIN_EMAIL, msg.as_string())
+    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context) as server:
+        server.login(SMTP_USER, SMTP_PASS)
+        server.sendmail(SMTP_USER, ADMIN_EMAIL, msg.as_string())
 
 
 def paypal_token() -> str:
