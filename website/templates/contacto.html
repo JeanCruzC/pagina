@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Contacto</h1>
+<form method="post">
+  <div class="mb-3">
+    <label for="email" class="form-label">Correo</label>
+    <input type="email" class="form-control" name="email" id="email" required>
+  </div>
+  <div class="mb-3">
+    <label for="intention" class="form-label">¿Qué deseas?</label>
+    <select name="intention" id="intention" class="form-select">
+      <option value="subscription">Suscripción</option>
+      {% for key, plan in PLANS.items() %}
+      <option value="{{ key }}">Pago único - {{ plan.description }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn btn-primary">Continuar</button>
+</form>
+{% endblock %}

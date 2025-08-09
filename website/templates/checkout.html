@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Checkout - {{ plan_info.description }}</h1>
+<p>Precio: {{ plan_info.price }} USD</p>
+<div id="paypal-button-container"></div>
+{% endblock %}

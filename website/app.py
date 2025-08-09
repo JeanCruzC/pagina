@@ -19,6 +19,15 @@ import warnings
 import tempfile
 from datetime import datetime
 
+# Simple product catalogue for one-time payments
+PLANS = {
+    "basic": {"price": "5.00", "description": "Plan Básico"},
+    "pro": {"price": "10.00", "description": "Plan Pro"},
+}
+
+ALLOWLIST_FILE = os.path.join(os.path.dirname(__file__), "allowlist.txt")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
+
 app = Flask(__name__)
 secret = os.getenv("SECRET_KEY")
 if not secret:
@@ -27,6 +36,22 @@ if not secret:
 app.secret_key = secret
 
 users = {}
+
+
+def add_to_allowlist(email: str):
+    """Append the email to the allowlist file."""
+    if not email:
+        return
+    try:
+        with open(ALLOWLIST_FILE, "a", encoding="utf-8") as fh:
+            fh.write(email.strip() + "\n")
+    except Exception:
+        pass
+
+
+def notify_admin(subject: str, body: str):
+    """Very small helper that logs an email to the administrator."""
+    print(f"[ADMIN EMAIL] {subject} -> {ADMIN_EMAIL}: {body}")
 
 
 def login_required(f):
@@ -55,6 +80,18 @@ def _on(name: str) -> bool:
 @app.route('/', methods=['GET'])
 def landing():
     return render_template('landing.html', title='Schedules', year=datetime.now().year)
+
+
+@app.route('/contacto', methods=['GET', 'POST'])
+def contacto():
+    """Simple contact form that redirects to subscription or checkout."""
+    if request.method == 'POST':
+        session['contact_email'] = request.form.get('email')
+        intention = request.form.get('intention')
+        if intention == 'subscription':
+            return redirect(url_for('subscribe'))
+        return redirect(url_for('checkout', plan=intention))
+    return render_template('contacto.html', PLANS=PLANS)
 
 
 @app.route('/app', methods=['GET'])
@@ -89,6 +126,49 @@ def login():
 def logout():
     session.pop('user', None)
     return redirect(url_for('landing'))
+
+
+@app.route('/subscribe', methods=['GET'])
+def subscribe():
+    """Display the subscription page."""
+    return render_template('subscribe.html')
+
+
+@app.route('/api/paypal/subscription-activate', methods=['POST'])
+def subscription_activate():
+    data = request.get_json(force=True)
+    email = data.get('email')
+    add_to_allowlist(email)
+    notify_admin('Suscripción activada', f'{email} se ha suscrito')
+    return jsonify({'status': 'ok'})
+
+
+@app.route('/checkout/<plan>', methods=['GET'])
+def checkout(plan):
+    plan_info = PLANS.get(plan)
+    if not plan_info:
+        flash('Plan inválido')
+        return redirect(url_for('contacto'))
+    return render_template('checkout.html', plan=plan, plan_info=plan_info)
+
+
+@app.route('/api/paypal/create-order', methods=['POST'])
+def create_order():
+    data = request.get_json(force=True)
+    plan = data.get('plan')
+    if plan not in PLANS:
+        return jsonify({'error': 'Plan inválido'}), 400
+    order_id = f"ORDER-{datetime.now().timestamp()}"
+    return jsonify({'id': order_id})
+
+
+@app.route('/api/paypal/capture-order', methods=['POST'])
+def capture_order():
+    data = request.get_json(force=True)
+    email = data.get('email')
+    add_to_allowlist(email)
+    notify_admin('Pago capturado', f'{email} completó un pago único')
+    return jsonify({'status': 'captured'})
 
 
 @app.route('/generador', methods=['GET', 'POST'])
