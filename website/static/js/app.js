@@ -1,24 +1,31 @@
 document.addEventListener('DOMContentLoaded', () => {
   const htmlEl = document.documentElement;
+  const body = document.body;
   const themeToggle = document.getElementById('themeToggle');
-  const storedTheme = localStorage.getItem('theme') || 'light';
-  htmlEl.setAttribute('data-bs-theme', storedTheme);
+  const storedTheme = localStorage.getItem('theme');
+
+  const applyTheme = (theme) => {
+    const isDark = theme === 'dark';
+    htmlEl.setAttribute('data-bs-theme', isDark ? 'dark' : 'light');
+    body.classList.toggle('dark-mode', isDark);
+    return isDark;
+  };
+
+  const initIsDark = applyTheme(storedTheme || 'light');
 
   if (themeToggle) {
     const icon = themeToggle.querySelector('i');
-    if (icon) {
-      icon.classList.toggle('bi-moon', storedTheme === 'light');
-      icon.classList.toggle('bi-sun', storedTheme === 'dark');
-    }
+    const updateIcon = (isDark) => {
+      if (!icon) return;
+      icon.classList.toggle('bi-moon', !isDark);
+      icon.classList.toggle('bi-sun', isDark);
+    };
+    updateIcon(initIsDark);
     themeToggle.addEventListener('click', () => {
-      const current = htmlEl.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light';
-      const next = current === 'light' ? 'dark' : 'light';
-      htmlEl.setAttribute('data-bs-theme', next);
-      if (icon) {
-        icon.classList.toggle('bi-moon', next === 'light');
-        icon.classList.toggle('bi-sun', next === 'dark');
-      }
-      localStorage.setItem('theme', next);
+      const isDark = body.classList.toggle('dark-mode');
+      htmlEl.setAttribute('data-bs-theme', isDark ? 'dark' : 'light');
+      updateIcon(isDark);
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
     });
   }
 
