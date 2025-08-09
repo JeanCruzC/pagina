@@ -1,3 +1,7 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()  # CARGAR .env SIEMPRE
+
 from flask import (
     Flask,
     render_template,
@@ -14,55 +18,50 @@ from flask import (
 from functools import wraps
 import io
 import json
-import os
 import smtplib
 import ssl
-import warnings
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from shutil import copyfile
-from dotenv import load_dotenv
 
 import requests
 
 from . import scheduler
 
-if not Path(".env").exists() and Path(".env.example").exists():
-    copyfile(".env.example", ".env")
+# PayPal
+PAYPAL_ENV = os.getenv("PAYPAL_ENV", "sandbox")  # 'sandbox' | 'live'
+PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID", "")
+PAYPAL_SECRET = os.getenv("PAYPAL_SECRET", "")
+PAYPAL_SUB_PLAN_ID = os.getenv("PAYPAL_SUB_PLAN_ID", "")
 
-load_dotenv()
+# SMTP opcional (no debe romper si está vacío)
+def _env_int(name, default):
+    v = os.getenv(name)
+    try:
+        return int(v) if v not in (None, "") else default
+    except ValueError:
+        return default
 
-app = Flask(__name__)
-secret = os.getenv("SECRET_KEY")
-if not secret:
-    warnings.warn("SECRET_KEY environment variable not set, using insecure default")
-    secret = "change-me"
-app.secret_key = secret
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
+SMTP_HOST   = os.getenv("SMTP_HOST", "")
+SMTP_PORT   = _env_int("SMTP_PORT", 587)
+SMTP_USER   = os.getenv("SMTP_USER", "")
+SMTP_PASS   = os.getenv("SMTP_PASS", "")
 
-PAYPAL_ENV = os.getenv("PAYPAL_ENV", "sandbox").lower()
-PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID")
-PAYPAL_SECRET = os.getenv("PAYPAL_SECRET")
-PAYPAL_SUB_PLAN_ID = os.getenv("PAYPAL_SUB_PLAN_ID")
+SECRET_KEY  = os.getenv("SECRET_KEY", "dev-secret")
+
 PAYPAL_BASE_URL = (
     "https://api-m.paypal.com"
     if PAYPAL_ENV == "live"
     else "https://api-m.sandbox.paypal.com"
 )
 
-# Available one-time payment plans (USD values)
-PLANS = {
-    "starter": 30.0,
-    "pro": 50.0,
-}
+PLANS = {"starter": 30.0, "pro": 50.0}
 
-SMTP_HOST = os.getenv("SMTP_HOST")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASS = os.getenv("SMTP_PASS")
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
+app = Flask(__name__)
+app.secret_key = SECRET_KEY
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 ALLOWLIST_FILE = DATA_DIR / "allowlist.json"
@@ -153,14 +152,15 @@ def has_active_subscription(email: str) -> bool:
     return email in load_allowlist()
 
 
-def send_admin_email(subject: str, body: str) -> None:
-    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, ADMIN_EMAIL]):
+def send_admin_email(subject: str, html_body: str) -> None:
+    if not (SMTP_HOST and SMTP_USER and SMTP_PASS and ADMIN_EMAIL):
+        print("[EMAIL] SMTP no configurado; se omite envío:", subject)
         return
     msg = MIMEMultipart()
     msg["From"] = SMTP_USER
     msg["To"] = ADMIN_EMAIL
     msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
+    msg.attach(MIMEText(html_body, "html"))
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context) as server:
         server.login(SMTP_USER, SMTP_PASS)
@@ -469,19 +469,27 @@ def contacto():
     return render_template('contacto.html')
 
 
-@app.route('/checkout/<plan>')
+@app.get("/checkout/<plan>")
 def checkout(plan):
-    if plan not in PLANS:
-        flash('Plan inválido')
-        return redirect(url_for('contacto'))
-    session['pending_plan'] = plan
-    amount = f"{PLANS[plan]:.2f}"
-    return render_template('checkout.html', plan=plan, amount=amount)
+    amount = PLANS.get(plan, 50.0)
+    return render_template(
+        "checkout.html",
+        amount=amount,
+        paypal_client_id=PAYPAL_CLIENT_ID,
+        paypal_env=PAYPAL_ENV,
+        title="Pago"
+    )
 
 
-@app.route('/subscribe')
+@app.get("/subscribe")
 def subscribe():
-    return render_template('subscribe.html')
+    return render_template(
+        "subscribe.html",
+        paypal_client_id=PAYPAL_CLIENT_ID,
+        paypal_env=PAYPAL_ENV,
+        paypal_plan_id=PAYPAL_SUB_PLAN_ID,
+        title="Suscripción"
+    )
 
 
 @app.route('/api/paypal/subscription-activate', methods=['POST'])

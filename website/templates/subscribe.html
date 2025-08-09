@@ -9,14 +9,19 @@
 </form>
 
 <div id="paypal-button-container"></div>
-<script src="https://www.paypal.com/sdk/js?client-id=YOUR_CLIENT_ID&vault=true&intent=subscription"></script>
+<script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
 <script>
   paypal.Buttons({
     createSubscription: function(data, actions) {
-      return actions.subscription.create({ plan_id: 'P-PLAN_ID' });
+      return actions.subscription.create({ plan_id: '{{ paypal_plan_id }}' });
     },
     onApprove: function(data, actions) {
       alert('Suscripción completada');
+      // TODO: llamar a tu backend para allowlist y notificación al admin
+    },
+    onError: function(err) {
+      console.error(err);
+      alert("Error con PayPal (consulta la consola del navegador).");
     }
   }).render('#paypal-button-container');
 </script>

@@ -1,22 +1,36 @@
 {% extends 'base.html' %}
 {% block content %}
-<h1>Pago</h1>
-<div id="paypal-button-container"></div>
-<script src="https://www.paypal.com/sdk/js?client-id=YOUR_CLIENT_ID&currency=USD"></script>
+
+<div class="container-xxl py-4">
+  <h1 class="mb-3">Pago</h1>
+  <div class="alert alert-info">Monto: <strong>USD {{ '%.2f'|format(amount) }}</strong></div>
+  <div id="paypal-button-container"></div>
+</div>
+
+<!-- SDK de PayPal con client_id inyectado -->
+<script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&currency=USD&components=buttons&intent=capture{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
+
 <script>
-  paypal.Buttons({
-    createOrder: function(data, actions) {
-      return actions.order.create({
-        purchase_units: [{
-          amount: { value: '{{ amount }}' }
-        }]
-      });
-    },
-    onApprove: function(data, actions) {
-      return actions.order.capture().then(function(details) {
-        alert('Transacción completada por ' + details.payer.name.given_name);
-      });
-    }
-  }).render('#paypal-button-container');
+paypal.Buttons({
+  style: { layout: 'vertical', shape: 'rect', label: 'pay', color: 'gold' },
+
+  createOrder: (data, actions) => {
+    return actions.order.create({
+      purchase_units: [{ amount: { value: "{{ '%.2f'|format(amount) }}" } }]
+    });
+  },
+
+  onApprove: (data, actions) => {
+    return actions.order.capture().then((details) => {
+      alert("Pago completado por " + (details.payer?.name?.given_name || "el comprador"));
+      // TODO: llamar a tu backend para allowlist y notificación al admin
+    });
+  },
+
+  onError: (err) => {
+    console.error(err);
+    alert("Error con PayPal (consulta la consola del navegador).");
+  }
+}).render('#paypal-button-container');
 </script>
 {% endblock %}
