@@ -1810,6 +1810,10 @@ def run_complete_optimization(file_stream, config=None):
             cfg=cfg,
         )
         print("\u2705 [OPTIMIZER] solve_in_chunks_optimized completada")
+        status = locals().get("status", "UNKNOWN")
+        total_agents = sum(assignments.values()) if assignments else 0
+        print(f"[OPTIMIZER] Status: {status}")
+        print(f"[OPTIMIZER] Total agents: {total_agents}")
         print("\u2705 [SCHEDULER] Optimización completada")
 
         metrics = analyze_results(assignments, patterns, demand_matrix)
