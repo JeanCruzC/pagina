@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Suscripción</h1>
+<form class="mb-4">
+  <div class="mb-3">
+    <label for="email" class="form-label">Correo</label>
+    <input type="email" class="form-control" id="email" placeholder="nombre@ejemplo.com">
+  </div>
+</form>
+
+<div id="paypal-button-container"></div>
+<script src="https://www.paypal.com/sdk/js?client-id=YOUR_CLIENT_ID&vault=true&intent=subscription"></script>
+<script>
+  paypal.Buttons({
+    createSubscription: function(data, actions) {
+      return actions.subscription.create({ plan_id: 'P-PLAN_ID' });
+    },
+    onApprove: function(data, actions) {
+      alert('Suscripción completada');
+    }
+  }).render('#paypal-button-container');
+</script>
+{% endblock %}
