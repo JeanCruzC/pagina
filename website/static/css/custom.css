@@ -1,95 +1,71 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
 
-body {
-  font-family: 'Inter', sans-serif;
-  background-color: #f8f9fa;
+/* =========================
+   TOKENS (CLARO / OSCURO)
+   ========================= */
+:root{
+  --brand: #2d6cdf;
+  --brand-600:#1f5ad1;
+
+  --ink:#111827;
+  --muted:#6b7280;
+
+  --bg-soft:#f7f8fb;   /* fondo suaves de secciones */
+  --page:#ffffff;      /* fondo de página */
+  --card:#ffffff;      /* cards */
+  --card-bd:#eef1f6;   /* borde cards */
 }
 
-body.dark-mode {
-  background-color: #212529;
-  color: #f8f9fa;
+[data-bs-theme="dark"]{
+  --ink:#e5e7eb;
+  --muted:#9aa4b2;
+
+  --bg-soft:#0f141b;
+  --page:#0b1118;
+  --card:#1d2430;
+  --card-bd:#2a3240;
 }
 
-html {
-  transition: color 0.3s ease, background-color 0.3s ease;
+/* =========================
+   BASE
+   ========================= */
+html,body {
+  font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--page);
+  color: var(--ink);
+  transition: color .25s ease, background-color .25s ease;
 }
 
 .card {
   border-radius: 1rem;
-  box-shadow: 0 0.75rem 1.5rem rgba(0,0,0,0.05);
+  border: 1px solid var(--card-bd);
+  background: var(--card);
+  box-shadow: 0 .75rem 1.5rem rgba(0,0,0,.05);
+}
+[data-bs-theme="dark"] .card {
+  box-shadow: 0 1.25rem 2.5rem rgba(0,0,0,.35);
 }
 
-body.dark-mode .card {
-  background-color: #343a40;
+/* =========================
+   NAVBAR / OFFCANVAS
+   ========================= */
+.navbar.bg-body-tertiary{
+  background: var(--card) !important;
+  border-bottom: 1px solid var(--card-bd) !important;
 }
-
-.btn-primary {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  border: none;
+.offcanvas{
+  background: var(--card);
+  border-right: 1px solid var(--card-bd);
 }
+.offcanvas .nav-link{ color: var(--ink); }
+.offcanvas .nav-link.active, .offcanvas .nav-link:hover{ color: var(--brand); }
 
-.btn-primary:hover {
-  background: linear-gradient(135deg, #4f46e5, #4338ca);
-}
-
-.sidebar .list-group-item {
-  border: none;
-}
-
-.sidebar .list-group-item:hover {
-  background-color: #e9ecef;
-}
-
-body.dark-mode .sidebar {
-  background-color: #2b3035;
-}
-
-body.dark-mode .sidebar .list-group-item:hover {
-  background-color: #343a40;
-}
-
-body.dark-mode .navbar {
-  background-color: #343a40 !important;
-}
-
-body.dark-mode .navbar .navbar-brand,
-body.dark-mode .navbar .nav-link,
-body.dark-mode .navbar span {
-  color: #f8f9fa !important;
-}
-
-.list-group-item.active {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  border: none;
-  color: #fff;
-}
-
- .toast {
-  border-radius: 0.5rem;
- }
-
-:root{
-  --brand: #2d6cdf;
-  --brand-600:#1f5ad1;
-  --ink:   #111827;
-  --muted: #6b7280;
-  --bg-soft:#f7f8fb;
-  --card:  #ffffff;
-  --card-bd:#eef1f6;
-}
-
-[data-bs-theme="dark"]{
-  --ink:   #e5e7eb;
-  --muted: #9aa4b2;
-  --bg-soft:#0f141b;
-  --card:  #1d2430;
-  --card-bd:#2a3240;
-}
-
-/* brand mark (igual en landing y checkout) */
+/* =========================
+   MARCA (LOGO CUADRADO)
+   ========================= */
 .brand-logo{
   width:28px;height:28px;border-radius:8px;
-  background: linear-gradient(135deg,#dbeafe, #93c5fd 60%, #bfdbfe);
+  background: linear-gradient(135deg,#dbeafe,#93c5fd 60%,#bfdbfe);
   position:relative; display:inline-flex; align-items:center; justify-content:center;
   box-shadow: 0 6px 16px rgba(37,99,235,.25);
 }
@@ -98,18 +74,32 @@ body.dark-mode .navbar span {
   box-shadow:0 0 0 4px rgba(34,211,238,.18), 0 0 22px rgba(34,211,238,.55);
 }
 
-/* botón de marca (si lo usas en navbar/landing) */
-.btn-brand{
-  background: var(--brand);
-  color:#fff;border:none; border-radius:10px; padding:.55rem .9rem; font-weight:600;
+/* =========================
+   BOTONES DE MARCA
+   ========================= */
+.btn-brand{ /* azul (si lo usas en otras pantallas) */
+  background: var(--brand); border-color: var(--brand);
+  color:#fff; border:none; border-radius:10px; padding:.55rem .9rem; font-weight:600;
 }
-.btn-brand:hover{ background: var(--brand-600); color:#fff; }
+.btn-brand:hover{ background: var(--brand-600); border-color: var(--brand-600); color:#fff; }
 
-/* checkout layout (mismo estilo que landing) */
+/* verde del landing — ahora global */
+.btn-subscribe{
+  background:#16a34a; border-color:#16a34a; color:#fff;
+  border:none; border-radius:10px; padding:.55rem .9rem; font-weight:600;
+}
+.btn-subscribe:hover{ background:#15803d; border-color:#15803d; color:#fff; }
+
+/* =========================
+   CHECKOUT LOOK & FEEL
+   ========================= */
 .checkout-hero{ background: var(--bg-soft); }
 .shadow-soft{ box-shadow: 0 20px 45px rgba(0,0,0,.08); }
+[data-bs-theme="dark"] .shadow-soft{ box-shadow: 0 20px 45px rgba(0,0,0,.55); }
 
-.pay-card,.order-card{ background:var(--card); border:1px solid var(--card-bd); border-radius:18px; }
+.pay-card,.order-card{
+  background:var(--card); border:1px solid var(--card-bd); border-radius:18px;
+}
 .price-chip{
   background: rgba(45,108,223,.12); color:var(--brand);
   font-weight:700; padding:.35rem .7rem; border-radius:999px;
@@ -119,3 +109,8 @@ body.dark-mode .navbar span {
   background:var(--card); border:1px solid var(--card-bd); border-radius:12px; padding:.7rem 1rem;
 }
 .secure-line .bi{ color:#16a34a; }
+.badge-dot{
+  width:10px;height:10px;border-radius:50%;background:#00e676;
+  box-shadow:0 0 0 3px rgba(0,230,118,.15);
+}
+

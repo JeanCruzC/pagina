@@ -27,7 +27,7 @@
           <i class="bi bi-moon" aria-hidden="true"></i>
         </button>
         {% if request.endpoint != 'subscribe' %}
-          <a href="{{ url_for('subscribe') }}" class="btn btn-brand ms-3">Suscribirme (USD 50/mes)</a>
+          <a href="{{ url_for('subscribe') }}" class="btn btn-subscribe ms-3">Suscribirme (USD 50/mes)</a>
         {% endif %}
       <div class="dropdown">
         {% set avatar = session.get('avatar_url') %}
