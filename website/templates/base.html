@@ -44,16 +44,10 @@
   </nav>
   <div class="d-flex">
     <aside class="sidebar d-flex flex-column flex-shrink-0 p-3 bg-light" style="width: 240px; margin-top:56px;">
-        <div class="list-group list-group-flush">
-          <a class="list-group-item list-group-item-action d-flex align-items-center {{ 'active bg-primary text-white' if request.endpoint == 'generador' else '' }}" href="{{ url_for('generador') }}">
-            <i class="bi bi-sliders me-2" aria-hidden="true"></i> Generador
-          </a>
-          <a class="list-group-item list-group-item-action d-flex align-items-center {{ 'active bg-primary text-white' if request.endpoint == 'resultados' else '' }}" href="{{ url_for('resultados') }}">
-            <i class="bi bi-graph-up me-2" aria-hidden="true"></i> Resultados
-          </a>
-          <a class="list-group-item list-group-item-action d-flex align-items-center {{ 'active bg-primary text-white' if request.endpoint == 'configuracion' else '' }}" href="{{ url_for('configuracion') }}">
-            <i class="bi bi-gear me-2" aria-hidden="true"></i> Configuración
-          </a>
+        <div class="nav flex-column">
+          <a href="{{ url_for('generador') }}"     class="nav-link {{ 'active' if request.endpoint=='generador' else '' }}">Generador</a>
+          <a href="{{ url_for('resultados') }}"    class="nav-link {{ 'active' if request.endpoint=='resultados' else '' }}">Resultados</a>
+          <a href="{{ url_for('configuracion') }}" class="nav-link {{ 'active' if request.endpoint=='configuracion' else '' }}">Configuración</a>
         </div>
     </aside>
     <main class="flex-grow-1 p-4" style="margin-top:56px;">
