@@ -16,6 +16,7 @@ from . import scheduler
 import json
 import os
 import warnings
+import tempfile
 
 app = Flask(__name__)
 secret = os.getenv("SECRET_KEY")
@@ -162,8 +163,17 @@ def generador():
             print("🎯 [DEBUG] Agregando download_url...")
             result["download_url"] = url_for("download_excel") if session.get("last_excel_file") else None
 
-            # Persist result and configuration in session for later retrieval
-            session['last_result'] = result
+            # Persist result to a temporary file and store its path in session
+            if session.get('last_result_file'):
+                try:
+                    os.remove(session['last_result_file'])
+                except Exception:
+                    pass
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.json')
+            json.dump(result, tmp)
+            tmp.flush()
+            tmp.close()
+            session['last_result_file'] = tmp.name
             session['effective_config'] = cfg
 
             return redirect(url_for('resultados'))
@@ -202,12 +212,14 @@ def download_excel():
 @app.route('/resultados')
 @login_required
 def resultados():
-    result = session.get('last_result')
+    result_file = session.get('last_result_file')
     cfg = session.get('effective_config')
     excel_file = session.get('last_excel_file')
-    if result is None or cfg is None:
+    if not result_file or not os.path.exists(result_file) or cfg is None:
         flash('No hay resultados disponibles. Genera un nuevo horario.')
         return redirect(url_for('generador'))
+    with open(result_file) as f:
+        result = json.load(f)
     result['download_url'] = url_for('download_excel') if excel_file else None
     result['effective_config'] = cfg
     return render_template('resultados.html', resultado=result)
