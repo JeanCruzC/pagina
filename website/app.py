@@ -501,10 +501,23 @@ def subscribe():
 
 @app.get("/subscribe/success")
 def subscribe_success():
+    """Handle PayPal subscription success callback."""
     sub_id = request.args.get("sub", "")
+    status = None
+    email = session.get("user") or session.get("pending_email")
+    try:
+        if sub_id:
+            sub = paypal_get_subscription(sub_id)
+            status = sub.get("status")
+            if email:
+                add_subscription_record(email, sub_id, status or "")
+                add_to_allowlist(email)
+    except Exception:
+        app.logger.exception("Error verifying PayPal subscription")
     return render_template(
         "subscribe_success.html",
         subscription_id=sub_id,
+        status=status,
         title="Suscripción exitosa",
     )
 
