@@ -100,6 +100,52 @@ def is_allowed(entry: str) -> bool:
     return entry in load_allowlist()
 
 
+SUBSCRIPTIONS_FILE = DATA_DIR / "subscriptions.json"
+
+
+def load_subscriptions() -> dict:
+    if SUBSCRIPTIONS_FILE.exists():
+        try:
+            with SUBSCRIPTIONS_FILE.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_subscriptions(subs: dict) -> None:
+    SUBSCRIPTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with SUBSCRIPTIONS_FILE.open("w", encoding="utf-8") as f:
+        json.dump(subs, f, indent=2)
+
+
+def add_subscription_record(email: str, subscription_id: str, status: str) -> None:
+    subs = load_subscriptions()
+    subs[email] = {
+        "subscription_id": subscription_id,
+        "status": status,
+    }
+    save_subscriptions(subs)
+
+
+def has_active_subscription(email: str) -> bool:
+    email = email.strip().lower()
+    subs = load_subscriptions()
+    info = subs.get(email)
+    if info and info.get("status") == "ACTIVE":
+        return True
+    if info and info.get("subscription_id"):
+        try:
+            sub = paypal_get_subscription(info["subscription_id"])
+            info["status"] = sub.get("status")
+            subs[email] = info
+            save_subscriptions(subs)
+            return info.get("status") == "ACTIVE"
+        except Exception:
+            return False
+    return email in load_allowlist()
+
+
 def send_admin_email(subject: str, body: str) -> None:
     if not all([SMTP_SERVER, SMTP_EMAIL, SMTP_PASSWORD, ADMIN_EMAIL]):
         return
@@ -180,6 +226,11 @@ def login_required(f):
                 return jsonify({'error': 'Unauthorized'}), 401
             print("\u274C [AUTH] No user, redirecting to login")
             return redirect(url_for('login'))
+        if not has_active_subscription(user):
+            if 'application/json' in request.headers.get('Accept', ''):
+                return jsonify({'error': 'Payment required'}), 402
+            flash('Suscripción activa requerida')
+            return redirect(url_for('subscribe'))
 
         print("\u2705 [AUTH] User authorized, proceeding")
         return f(*args, **kwargs)
@@ -198,8 +249,12 @@ def landing():
 
 @app.route('/app', methods=['GET'])
 def app_entry():
-    if session.get('user'):
-        return redirect(url_for('generador'))
+    user = session.get('user')
+    if user:
+        if has_active_subscription(user):
+            return redirect(url_for('generador'))
+        flash('Suscripción activa requerida')
+        return redirect(url_for('subscribe'))
     return redirect(url_for('login'))
 
 
@@ -435,6 +490,7 @@ def paypal_subscription_activate():
         return jsonify({'error': str(e)}), 400
     if sub.get('status') != 'ACTIVE':
         return jsonify({'error': 'subscription not active'}), 400
+    add_subscription_record(email, sub_id, sub.get('status', ''))
     add_to_allowlist(email)
     send_admin_email('Nueva suscripción', f'{email} activó la suscripción {sub_id}')
     return jsonify({'status': 'ok'})
