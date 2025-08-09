@@ -12,11 +12,14 @@ This project creates optimized work schedules using Flask.
 
    The list includes the `pulp` package used for solving the optimization problem.
 
-2. Set the `SECRET_KEY` environment variable used to sign Flask sessions:
+2. Copia el archivo `.env.example` a `.env` y completa las credenciales reales:
    ```bash
-   export SECRET_KEY="replace-me"
+   cp .env.example .env
    ```
-   If this variable is omitted the application falls back to an insecure default and prints a warning.
+   Edita `.env` con los valores de `PAYPAL_ENV`, `PAYPAL_CLIENT_ID`,
+   `PAYPAL_SECRET`, `PAYPAL_SUB_PLAN_ID`, `ADMIN_EMAIL`, `SMTP_HOST`,
+   `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` y `SECRET_KEY` antes de ejecutar la
+   aplicación.
 
 3. Launch the Flask application:
    ```bash
