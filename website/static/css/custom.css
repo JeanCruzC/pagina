@@ -5,7 +5,7 @@ body {
   background-color: #f8f9fa;
 }
 
-html[data-bs-theme="dark"] body {
+body.dark-mode {
   background-color: #212529;
   color: #f8f9fa;
 }
@@ -19,7 +19,7 @@ html {
   box-shadow: 0 0.75rem 1.5rem rgba(0,0,0,0.05);
 }
 
-html[data-bs-theme="dark"] .card {
+body.dark-mode .card {
   background-color: #343a40;
 }
 
@@ -40,12 +40,22 @@ html[data-bs-theme="dark"] .card {
   background-color: #e9ecef;
 }
 
-html[data-bs-theme="dark"] .sidebar {
+body.dark-mode .sidebar {
   background-color: #2b3035;
 }
 
-html[data-bs-theme="dark"] .sidebar .list-group-item:hover {
+body.dark-mode .sidebar .list-group-item:hover {
   background-color: #343a40;
+}
+
+body.dark-mode .navbar {
+  background-color: #343a40 !important;
+}
+
+body.dark-mode .navbar .navbar-brand,
+body.dark-mode .navbar .nav-link,
+body.dark-mode .navbar span {
+  color: #f8f9fa !important;
 }
 
 .list-group-item.active {
