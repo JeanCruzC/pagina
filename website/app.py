@@ -273,15 +273,6 @@ def app_entry():
     return redirect(url_for('login'))
 
 
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        users[request.form['email']] = request.form['password']
-        flash('Usuario creado. Ingrese ahora.')
-        return redirect(url_for('login'))
-    return render_template('register.html')
-
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
