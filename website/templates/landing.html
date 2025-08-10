@@ -296,7 +296,7 @@
                 <li><i class="bi bi-check2 check me-1" aria-hidden="true"></i><span class="visually-hidden">Incluido: </span>Exportar a Excel</li>
                 <li><i class="bi bi-dash text-muted me-1" aria-hidden="true"></i><span class="visually-hidden">No incluido: </span>JEAN personalizado</li>
             </ul>
-            <a href="#checkout" class="btn btn-outline-secondary w-100">Ir al checkout</a>
+            <a href="{{ url_for('subscribe', plan='starter') }}" class="btn btn-outline-secondary w-100">Ir al checkout</a>
           </div>
         </div>
       </div>
@@ -312,7 +312,7 @@
                 <li><i class="bi bi-check2 check me-1" aria-hidden="true"></i><span class="visually-hidden">Incluido: </span>JEAN personalizado</li>
                 <li><i class="bi bi-check2 check me-1" aria-hidden="true"></i><span class="visually-hidden">Incluido: </span>Métricas y heatmaps</li>
             </ul>
-            <a href="#checkout" class="btn btn-brand w-100">Ir al checkout</a>
+            <a href="{{ url_for('subscribe', plan='pro') }}" class="btn btn-primary w-100">Ir al checkout</a>
           </div>
         </div>
       </div>
@@ -335,7 +335,7 @@
   </div>
 </section>
 
-{% include '_checkout_inline.html' %}
+
 
 <!-- FAQ -->
 <section id="faq" class="py-5">
