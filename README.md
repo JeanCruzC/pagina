@@ -40,6 +40,15 @@ Each entry maps an email to a password hash produced by
 `generate_password_hash()` from Werkzeug, so the plaintext password is never
 saved.
 
+To hash a password manually run:
+
+```bash
+python scripts/hash_password.py <password>
+```
+
+The command prints the hashed string so it can be copied into
+`data/allowlist.json`.
+
 To add a new user:
 
 1. Set the target app:
