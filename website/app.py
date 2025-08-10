@@ -688,3 +688,40 @@ def paypal_diagnose():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
+@app.route("/api/paypal/plan/check", methods=["GET"])
+def paypal_plan_check():
+    try:
+        token = paypal_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        user_info = {}
+        try:
+            uresp = requests.get(
+                f"{PAYPAL_BASE_URL}/v1/identity/oauth2/userinfo?schema=paypalv1.1",
+                headers=headers,
+            )
+            if uresp.content:
+                user_info = uresp.json()
+        except Exception as e:
+            user_info = {"error": str(e)}
+        app.logger.info("paypal plan check %r %s", PAYPAL_SUB_PLAN_ID, user_info)
+        r = requests.get(
+            f"{PAYPAL_BASE_URL}/v1/billing/plans/{PAYPAL_SUB_PLAN_ID}",
+            headers=headers,
+        )
+        r.raise_for_status()
+        resp = make_response(r.text, r.status_code)
+        resp.headers["Content-Type"] = r.headers.get("Content-Type", "application/json")
+        return resp
+    except requests.HTTPError as e:
+        r = e.response
+        body = r.text if r is not None else ""
+        status = r.status_code if r is not None else 500
+        resp = make_response(body, status)
+        if r is not None:
+            resp.headers["Content-Type"] = r.headers.get("Content-Type", "application/json")
+        else:
+            resp.headers["Content-Type"] = "application/json"
+        return resp
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
