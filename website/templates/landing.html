@@ -40,8 +40,6 @@
         <li class="nav-item"><a class="nav-link px-3" href="#faq">FAQ</a></li>
         <li class="nav-item"><a class="nav-link px-3" href="{{ url_for('contacto') }}">Contacto</a></li>
         <li class="nav-item ms-lg-3"><a class="btn btn-outline-secondary" href="{{ url_for('login') }}">Iniciar sesión</a></li>
-        <li class="nav-item ms-lg-2"><a class="btn btn-subscribe" href="{{ url_for('subscribe') }}">Suscribirme (USD 50/mes)</a></li>
-        <li class="nav-item ms-lg-2"><a class="btn btn-brand" href="#checkout">Ir al checkout</a></li>
       </ul>
     </div>
   </div>
@@ -58,7 +56,7 @@
           menos exceso, cero déficit y exportación a Excel lista para operación.
         </p>
         <div class="d-flex gap-3">
-          <a href="{{ url_for('subscribe') }}" class="btn btn-brand btn-lg px-4">Suscribirme</a>
+          <a href="{{ url_for('login') }}" class="btn btn-brand btn-lg px-4">Iniciar sesión</a>
           <a href="#features" class="btn btn-outline-secondary btn-lg px-4">Ver funciones</a>
         </div>
         <div class="d-flex gap-4 mt-4">
