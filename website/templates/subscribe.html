@@ -65,35 +65,52 @@
 </section>
 
 {% if paypal_plan_id %}
-<script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription&disable-funding=card,credit,venmo{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
+<script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&components=buttons&vault=true&intent=subscription{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
 <script>
-console.log('PLAN', '{{ paypal_plan_id }}');
+console.log('PAYPAL_ENV:', '{{ paypal_env }}');
+console.log('PLAN_ID:', '{{ paypal_plan_id }}');
+console.log('CLIENT_ID present:', '{{ paypal_client_id }}'.length > 10);
+
 paypal.Buttons({
   style:{ layout:'vertical', shape:'rect', label:'subscribe', color:'blue', tagline:false },
-  createSubscription:(data, actions)=> actions.subscription.create({ plan_id: "{{ paypal_plan_id }}" }),
-  onApprove:(data)=>{
-    fetch('/api/paypal/subscription-activate', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ subscription_id: data.subscriptionID })
-    })
-    .then(async res=>{
-      if(!res.ok){
-        const msg = await res.text();
-        throw new Error(msg || 'activation failed');
-      }
-      return res.json();
-    })
-    .then(()=>{
-      window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(data.subscriptionID);
-    })
-    .catch(err=>{
-      console.error('PayPal activation error:', err.message || err);
-      alert("Error con PayPal");
+
+  createSubscription: (data, actions) => {
+    return actions.subscription.create({
+      plan_id: "{{ paypal_plan_id }}"
+    }).catch(err => {
+      console.error('createSubscription failed:', err);
+      alert('No se pudo iniciar la suscripción (createSubscription).');
+      throw err;
     });
   },
-  onError:(err)=>{ console.error(err); alert("Error con PayPal"); }
+
+  onApprove: async (data) => {
+    try {
+      const res = await fetch('/api/paypal/subscription-activate', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ subscription_id: data.subscriptionID })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(data.subscriptionID);
+    } catch (err) {
+      console.error('activation error:', err);
+      alert('Error con PayPal al activar.');
+    }
+  },
+
+  onError: (err) => {
+    console.error('PayPal onError:', err);
+    alert('Error con PayPal');
+  }
 }).render('#paypal-subscribe-btn');
+
+fetch('/api/paypal/diagnose').then(r=>r.json()).then(j=>{
+  console.log('DIAGNOSE:', j);
+  if(!j.ok || j.status !== 'ACTIVE'){
+    console.warn('El plan no está accesible/activo desde estas credenciales.');
+  }
+});
 </script>
 {% endif %}
 
