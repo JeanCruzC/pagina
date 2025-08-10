@@ -20,15 +20,10 @@
           <label class="form-label">Correo</label>
           <input name="email" type="email" class="form-control" required placeholder="tucorreo@ejemplo.com" value="{{ request.form.get('email','') }}">
         </div>
-        <div class="mb-3">
-          <label class="form-label">Contraseña</label>
-          <input name="password" type="password" class="form-control" required placeholder="••••••••">
-        </div>
         <button type="submit" class="btn btn-primary w-100">Entrar</button>
       </form>
       <div class="d-flex justify-content-center gap-2 small mt-3">
-        <a href="{{ url_for('login') }}">Login</a> ·
-        <a href="{{ url_for('register') }}">Registro</a>
+        <a href="{{ url_for('login') }}">Login</a>
       </div>
     </div>
   </div>
