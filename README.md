@@ -33,6 +33,19 @@ This project creates optimized work schedules using Flask.
 5. Choose the **JEAN** profile from the sidebar to minimise the sum of excess and deficit while keeping coverage near 100%.
 6. Select **JEAN Personalizado** to choose the working days, hours per day and break placement. All other solver parameters use the JEAN profile automatically.
 
+## Allowlist
+
+User passwords for the generator are stored as hashes in `data/allowlist.json`.
+If you prefer to edit this file manually, generate the hash with the helper
+script:
+
+```bash
+python scripts/hash_password.py "my-secret-password"
+```
+
+Paste the printed hash into `data/allowlist.json` next to the desired email
+address.
+
 ## Excel Input
 
 The expected Excel file `Requerido.xlsx` must contain a column named `Día` with values from 1 to 7 and a column `Suma de Agentes Requeridos Erlang` representing the hourly staffing requirements.
