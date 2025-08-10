@@ -9,14 +9,16 @@ result to stdout.
 from __future__ import annotations
 
 import argparse
+import getpass
 from werkzeug.security import generate_password_hash
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Hash a password using Werkzeug")
-    parser.add_argument("password", help="Plaintext password to hash")
+    parser.add_argument("password", nargs="?", help="Plaintext password to hash")
     args = parser.parse_args()
-    hashed = generate_password_hash(args.password)
+    password = args.password or getpass.getpass("Password: ")
+    hashed = generate_password_hash(password)
     print(hashed)
 
 
