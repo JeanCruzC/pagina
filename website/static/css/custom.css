@@ -69,13 +69,6 @@ html,body {
 }
 .btn-brand:hover{ background: var(--brand-600); border-color: var(--brand-600); color:#fff; }
 
-/* verde del landing — ahora global */
-.btn-subscribe{
-  background:#16a34a; border-color:#16a34a; color:#fff;
-  border:none; border-radius:10px; padding:.55rem .9rem; font-weight:600;
-}
-.btn-subscribe:hover{ background:#15803d; border-color:#15803d; color:#fff; }
-
 /* =========================
    CHECKOUT LOOK & FEEL
    ========================= */
