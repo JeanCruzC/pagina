@@ -528,23 +528,29 @@ def subscribe_success():
     )
 
 
-@app.route('/api/paypal/subscription-activate', methods=['POST'])
+@app.route("/api/paypal/subscription-activate", methods=["POST"])
 def paypal_subscription_activate():
     data = request.get_json(silent=True) or {}
-    sub_id = data.get('subscriptionID')
-    email = (data.get('email') or session.get('pending_email', '')).strip().lower()
-    if not sub_id or not email:
-        return jsonify({'error': 'missing data'}), 400
+    sub_id = data.get("subscription_id")
+    if not sub_id:
+        return jsonify({"error": "subscription_id requerido"}), 400
+
     try:
         sub = paypal_get_subscription(sub_id)
+        status = sub.get("status", "")
+        email = session.get("user") or "anon"
+        add_subscription_record(email, sub_id, status)
+        ok_status = {"ACTIVE", "APPROVAL_PENDING", "APPROVED"}
+        if status in ok_status:
+            return jsonify({"ok": True, "status": status})
+        return jsonify({"ok": False, "status": status}), 422
+    except requests.HTTPError as e:
+        try:
+            return jsonify({"ok": False, "error": "HTTPError", "details": e.response.json()}), 502
+        except Exception:
+            return jsonify({"ok": False, "error": "HTTPError"}), 502
     except Exception as e:
-        return jsonify({'error': 'failed to retrieve subscription', 'details': str(e)}), 400
-    if sub.get('status') != 'ACTIVE':
-        return jsonify({'error': 'subscription not active', 'details': sub}), 400
-    add_subscription_record(email, sub_id, sub.get('status', ''))
-    add_to_allowlist(email)
-    send_admin_email('Nueva suscripción', f'{email} activó la suscripción {sub_id}')
-    return jsonify({'status': 'ok'})
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route('/api/paypal/create-order', methods=['POST'])
