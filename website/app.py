@@ -70,22 +70,6 @@ app.logger.info("PAYPAL_PLAN_ID_PRO: %r", PAYPAL_PLAN_ID_PRO)
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 ALLOWLIST_FILE = DATA_DIR / "allowlist.json"
 
-users = {}
-
-# Allowed email list obtained from environment variable "ALLOWED_EMAILS".
-# If the variable is empty or undefined, all users are considered allowed.
-allowed_emails = {
-    e.strip().lower()
-    for e in os.getenv("ALLOWED_EMAILS", "").split(",")
-    if e.strip()
-}
-
-
-def is_allowed(email: str) -> bool:
-    """Check if the given email is in the allowed list."""
-    return not allowed_emails or email.lower() in allowed_emails
-
-
 def load_allowlist() -> list:
     if ALLOWLIST_FILE.exists():
         try:
@@ -273,27 +257,19 @@ def app_entry():
     return redirect(url_for('login'))
 
 
-@app.route('/register', methods=['GET', 'POST'])
+@app.route('/register')
 def register():
-    if request.method == 'POST':
-        users[request.form['email']] = request.form['password']
-        flash('Usuario creado. Ingrese ahora.')
-        return redirect(url_for('login'))
-    return render_template('register.html')
+    return redirect(url_for('login'))
 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         email = request.form['email']
-        pw = request.form['password']
-        if users.get(email) == pw:
-            if not is_allowed(email):
-                flash('Correo no autorizado')
-                return render_template('login.html')
+        if is_allowed(email):
             session['user'] = email
             return redirect(url_for('generador'))
-        flash('Credenciales invalidas')
+        flash('Correo no autorizado')
     return render_template('login.html')
 
 
