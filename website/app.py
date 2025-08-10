@@ -27,6 +27,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 import requests
+import click
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from . import scheduler
 
@@ -70,28 +72,44 @@ app.logger.info("PAYPAL_PLAN_ID_PRO: %r", PAYPAL_PLAN_ID_PRO)
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 ALLOWLIST_FILE = DATA_DIR / "allowlist.json"
 
-def load_allowlist() -> list:
+def load_allowlist() -> dict:
     if ALLOWLIST_FILE.exists():
         try:
             with ALLOWLIST_FILE.open("r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
         except Exception:
-            return []
-    return []
+            return {}
+    return {}
 
 
-def add_to_allowlist(entry: str) -> list:
+def add_to_allowlist(email: str, raw_password: str) -> dict:
     allowlist = load_allowlist()
-    if entry not in allowlist:
-        allowlist.append(entry)
-        ALLOWLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with ALLOWLIST_FILE.open("w", encoding="utf-8") as f:
-            json.dump(allowlist, f, indent=2)
+    email = email.strip().lower()
+    allowlist[email] = generate_password_hash(raw_password)
+    ALLOWLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with ALLOWLIST_FILE.open("w", encoding="utf-8") as f:
+        json.dump(allowlist, f, indent=2)
     return allowlist
 
 
-def is_allowed(entry: str) -> bool:
-    return entry in load_allowlist()
+def verify_user(email: str, password: str) -> bool:
+    allowlist = load_allowlist()
+    email = email.strip().lower()
+    hashed = allowlist.get(email)
+    if not hashed:
+        return False
+    return check_password_hash(hashed, password)
+
+
+@app.cli.command('allowlist-add')
+@click.argument('email')
+@click.argument('password')
+def allowlist_add(email: str, password: str) -> None:
+    """CLI para añadir un usuario al allowlist."""
+    add_to_allowlist(email, password)
+    click.echo(f"Usuario {email} añadido al allowlist")
 
 
 SUBSCRIPTIONS_FILE = DATA_DIR / "subscriptions.json"
@@ -266,10 +284,11 @@ def register():
 def login():
     if request.method == 'POST':
         email = request.form['email']
-        if is_allowed(email):
+        password = request.form.get('password', '')
+        if verify_user(email, password):
             session['user'] = email
             return redirect(url_for('generador'))
-        flash('Correo no autorizado')
+        flash('Credenciales inválidas')
     return render_template('login.html')
 
 
