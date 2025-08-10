@@ -17,7 +17,7 @@ This project creates optimized work schedules using Flask.
    cp .env.example .env
    ```
    Edita `.env` con los valores de `PAYPAL_ENV`, `PAYPAL_CLIENT_ID`,
-   `PAYPAL_SECRET`, `PAYPAL_SUB_PLAN_ID`, `ADMIN_EMAIL`, `SMTP_HOST`,
+   `PAYPAL_SECRET`, `PAYPAL_PLAN_ID_STARTER`, `PAYPAL_PLAN_ID_PRO`, `ADMIN_EMAIL`, `SMTP_HOST`,
    `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` y `SECRET_KEY` antes de ejecutar la
    aplicación.
 

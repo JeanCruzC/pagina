@@ -34,7 +34,8 @@ from . import scheduler
 PAYPAL_ENV = os.getenv("PAYPAL_ENV", "sandbox")  # 'sandbox' | 'live'
 PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID", "")
 PAYPAL_SECRET = os.getenv("PAYPAL_SECRET", "")
-PAYPAL_SUB_PLAN_ID = os.getenv("PAYPAL_SUB_PLAN_ID", "")
+PAYPAL_PLAN_ID_STARTER = os.getenv("PAYPAL_PLAN_ID_STARTER", "")
+PAYPAL_PLAN_ID_PRO = os.getenv("PAYPAL_PLAN_ID_PRO", "")
 
 # SMTP opcional (no debe romper si está vacío)
 def _env_int(name, default):
@@ -63,7 +64,8 @@ PLANS = {"starter": 30.0, "pro": 50.0}
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 app.logger.setLevel("INFO")
-app.logger.info("PAYPAL_SUB_PLAN_ID repr: %r", PAYPAL_SUB_PLAN_ID)
+app.logger.info("PAYPAL_PLAN_ID_STARTER: %r", PAYPAL_PLAN_ID_STARTER)
+app.logger.info("PAYPAL_PLAN_ID_PRO: %r", PAYPAL_PLAN_ID_PRO)
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 ALLOWLIST_FILE = DATA_DIR / "allowlist.json"
@@ -253,15 +255,9 @@ def _on(name: str) -> bool:
 
 @app.route('/')
 def landing():
-    plan_id = PAYPAL_SUB_PLAN_ID if PAYPAL_SUB_PLAN_ID else None
-    if plan_id is None:
-        app.logger.warning("PAYPAL_SUB_PLAN_ID missing; PayPal button disabled on landing")
     return render_template(
         'landing.html',
         title='Schedules',
-        paypal_client_id=PAYPAL_CLIENT_ID,
-        paypal_plan_id=plan_id,
-        paypal_env=PAYPAL_ENV,
         year=datetime.now().year,
     )
 
@@ -495,15 +491,25 @@ def checkout(plan):
 
 @app.get("/subscribe")
 def subscribe():
-    plan_id = PAYPAL_SUB_PLAN_ID if PAYPAL_SUB_PLAN_ID else None
-    if plan_id is None:
-        app.logger.warning("PAYPAL_SUB_PLAN_ID missing; PayPal button disabled on subscribe")
+    tier = request.args.get("plan", "pro")
+    if tier == "starter":
+        plan_id = PAYPAL_PLAN_ID_STARTER
+        amount = 30
+        tier_name = "Starter"
+    else:
+        plan_id = PAYPAL_PLAN_ID_PRO
+        amount = 50
+        tier_name = "Pro"
+
+    app.logger.info(f"[PAYPAL] ENV={PAYPAL_ENV} TIER={tier_name} PLAN_ID={repr(plan_id)}")
     return render_template(
         "subscribe.html",
         paypal_client_id=PAYPAL_CLIENT_ID,
         paypal_env=PAYPAL_ENV,
         paypal_plan_id=plan_id,
-        title="Suscripción"
+        amount=amount,
+        tier=tier_name,
+        title="Suscripción",
     )
 
 
@@ -601,7 +607,7 @@ def paypal_create_plan():
         return jsonify(
             {
                 "plan_id": plan_id,
-                "message": "Update PAYPAL_SUB_PLAN_ID with this value",
+                "message": "Update PAYPAL_PLAN_ID_PRO with this value",
             }
         )
     except requests.HTTPError as e:
@@ -665,7 +671,7 @@ def paypal_capture_order_endpoint():
 @app.route("/api/paypal/diagnose", methods=["GET"])
 def paypal_diagnose():
     try:
-        plan_id = PAYPAL_SUB_PLAN_ID
+        plan_id = request.args.get("plan", PAYPAL_PLAN_ID_PRO)
         token = paypal_token()
         headers = {"Authorization": f"Bearer {token}"}
         r = requests.get(f"{PAYPAL_BASE_URL}/v1/billing/plans/{plan_id}", headers=headers)
@@ -694,6 +700,7 @@ def paypal_diagnose():
 @app.route("/api/paypal/plan/check", methods=["GET"])
 def paypal_plan_check():
     try:
+        plan_id = request.args.get("plan", PAYPAL_PLAN_ID_PRO)
         token = paypal_token()
         headers = {"Authorization": f"Bearer {token}"}
         user_info = {}
@@ -706,9 +713,9 @@ def paypal_plan_check():
                 user_info = uresp.json()
         except Exception as e:
             user_info = {"error": str(e)}
-        app.logger.info("paypal plan check %r %s", PAYPAL_SUB_PLAN_ID, user_info)
+        app.logger.info("paypal plan check %r %s", plan_id, user_info)
         r = requests.get(
-            f"{PAYPAL_BASE_URL}/v1/billing/plans/{PAYPAL_SUB_PLAN_ID}",
+            f"{PAYPAL_BASE_URL}/v1/billing/plans/{plan_id}",
             headers=headers,
         )
         r.raise_for_status()

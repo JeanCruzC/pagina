@@ -35,20 +35,11 @@
       <div class="col-lg-5">
         <div class="card order-card shadow-soft border-0">
           <div class="card-body p-4 p-md-5">
-            <div class="d-flex align-items-center justify-content-between mb-2">
-              <h2 class="h5 fw-semibold mb-0">Resumen del plan</h2>
-              <span class="badge bg-primary-subtle text-primary">Pro</span>
-            </div>
-
-            <ul class="list-unstyled mb-4 small text-muted">
-              <li class="mb-1"><i class="bi bi-check2 text-success me-1"></i> Perfiles avanzados</li>
-              <li class="mb-1"><i class="bi bi-check2 text-success me-1"></i> JEAN personalizado</li>
-              <li class="mb-1"><i class="bi bi-check2 text-success me-1"></i> Métricas y heatmaps</li>
-            </ul>
+            <h2 class="h5 fw-semibold mb-4">Resumen del pedido — {{ tier }}</h2>
 
             <div class="d-flex align-items-center justify-content-between">
-              <span class="text-muted">Plan</span>
-              <span class="h4 fw-bold mb-0">Pro</span>
+              <span class="text-muted">Total</span>
+              <span class="h4 fw-bold mb-0">USD {{ '%0.2f'|format(amount) }}</span>
             </div>
 
             <hr class="my-4">
@@ -65,54 +56,29 @@
 </section>
 
 {% if paypal_plan_id %}
-<script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&components=buttons&vault=true&intent=subscription{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
+<script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription&disable-funding=card,credit,venmo{% if paypal_env=='sandbox' %}&debug=true{% endif %}"></script>
 <script>
-console.log('PAYPAL_ENV:', '{{ paypal_env }}');
-const PLAN_ID = "{{ paypal_plan_id|trim|e }}";
-console.log('PLAN_ID:', PLAN_ID);
-console.log('CLIENT_ID present:', '{{ paypal_client_id }}'.length > 10);
-
-paypal.Buttons({
-  style:{ layout:'vertical', shape:'rect', label:'subscribe', color:'blue', tagline:false },
-
-  createSubscription: (data, actions) => {
-    return actions.subscription.create({
-      plan_id: PLAN_ID
-    }).catch(err => {
-      console.error('createSubscription failed:', err);
-      alert('No se pudo iniciar la suscripción (createSubscription).');
-      throw err;
-    });
-  },
-
-  onApprove: async (data) => {
-    const sub = data.subscriptionID || data.subscriptionId;
-    try {
-      const res = await fetch('/api/paypal/subscription-activate', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ subscription_id: sub })
-      });
-      if (!res.ok) throw new Error(await res.text());
-      window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(sub);
-    } catch (err) {
-      console.error('activation error:', err);
-      alert('Error con PayPal al activar.');
-    }
-  },
-
-  onError: (err) => {
-    console.error('PayPal onError:', err);
-    alert('Error con PayPal');
-  }
-}).render('#paypal-subscribe-btn');
-
-fetch('/api/paypal/diagnose').then(r=>r.json()).then(j=>{
-  console.log('DIAGNOSE:', j);
-  if(!j.ok || j.status !== 'ACTIVE'){
-    console.warn('El plan no está accesible/activo desde estas credenciales.');
-  }
-});
+  console.log('ENV','{{ paypal_env }}','PLAN','{{ paypal_plan_id }}','TIER','{{ tier }}');
+  paypal.Buttons({
+    style:{ layout:'vertical', shape:'rect', label:'subscribe', color:'blue', tagline:false },
+    createSubscription:(data, actions)=> actions.subscription.create({ plan_id: "{{ paypal_plan_id }}" }),
+    onApprove: async (data) => {
+      const sub = data.subscriptionID || data.subscriptionId;
+      try {
+        const res = await fetch('/api/paypal/subscription-activate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subscription_id: sub })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(sub);
+      } catch (err) {
+        console.error(err);
+        alert('Error con PayPal al activar.');
+      }
+    },
+    onError: (err) => { console.error(err); alert('Error con PayPal'); }
+  }).render('#paypal-subscribe-btn');
 </script>
 {% endif %}
 
