@@ -62,6 +62,8 @@ PLANS = {"starter": 30.0, "pro": 50.0}
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+app.logger.setLevel("INFO")
+app.logger.info("PAYPAL_SUB_PLAN_ID repr: %r", PAYPAL_SUB_PLAN_ID)
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 ALLOWLIST_FILE = DATA_DIR / "allowlist.json"
