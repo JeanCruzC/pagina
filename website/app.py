@@ -553,6 +553,73 @@ def paypal_subscription_activate():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/paypal/plan/create", methods=["POST"])
+def paypal_create_plan():
+    """Create a PayPal product and subscription plan."""
+    try:
+        token = paypal_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
+        prod_payload = {"name": "Pro plan", "type": "SERVICE"}
+        r_prod = requests.post(
+            f"{PAYPAL_BASE_URL}/v1/catalogs/products",
+            headers=headers,
+            json=prod_payload,
+        )
+        r_prod.raise_for_status()
+        product_id = r_prod.json().get("id")
+
+        plan_payload = {
+            "product_id": product_id,
+            "name": "Pro plan",
+            "billing_cycles": [
+                {
+                    "frequency": {"interval_unit": "MONTH", "interval_count": 1},
+                    "tenure_type": "REGULAR",
+                    "sequence": 1,
+                    "total_cycles": 0,
+                    "pricing_scheme": {
+                        "fixed_price": {"value": "50", "currency_code": "USD"}
+                    },
+                }
+            ],
+            "payment_preferences": {"auto_bill_outstanding": True},
+        }
+        r_plan = requests.post(
+            f"{PAYPAL_BASE_URL}/v1/billing/plans",
+            headers=headers,
+            json=plan_payload,
+        )
+        r_plan.raise_for_status()
+        plan_id = r_plan.json().get("id")
+        app.logger.info("Created PayPal plan %s", plan_id)
+        return jsonify(
+            {
+                "plan_id": plan_id,
+                "message": "Update PAYPAL_SUB_PLAN_ID with this value",
+            }
+        )
+    except requests.HTTPError as e:
+        try:
+            return (
+                jsonify(
+                    {
+                        "error": "HTTPError",
+                        "status_code": e.response.status_code,
+                        "details": e.response.json(),
+                    }
+                ),
+                502,
+            )
+        except Exception:
+            return jsonify({"error": "HTTPError"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/paypal/create-order', methods=['POST'])
 def paypal_create_order_endpoint():
     data = request.get_json(silent=True) or {}
