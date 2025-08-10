@@ -32,7 +32,6 @@
       {# CTA del header: oculto en landing/checkout (allí ya hay planes/checkout inline) #}
       {% set _hide_cta = is_public %}
       {% if not _hide_cta %}
-        <a href="{{ url_for('subscribe') }}" class="btn btn-subscribe ms-3">Suscribirme (USD 50/mes)</a>
       {% endif %}
 
       {# PERFIL #}
