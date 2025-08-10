@@ -586,3 +586,32 @@ def paypal_capture_order_endpoint():
     add_to_allowlist(payer_email)
     send_admin_email('Nuevo pago', f'{payer_email} completó el pago {order_id}')
     return jsonify({'status': 'ok'})
+
+@app.route("/api/paypal/diagnose", methods=["GET"])
+def paypal_diagnose():
+    try:
+        plan_id = PAYPAL_SUB_PLAN_ID
+        token = paypal_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        r = requests.get(f"{PAYPAL_BASE_URL}/v1/billing/plans/{plan_id}", headers=headers)
+        body = r.json() if r.content else {}
+        return jsonify({
+            "ok": r.status_code == 200,
+            "plan_id": plan_id,
+            "status": body.get("status"),
+            "product_id": body.get("product_id"),
+            "raw": body
+        }), (200 if r.status_code == 200 else 500)
+    except requests.HTTPError as e:
+        try:
+            return jsonify({
+                "ok": False,
+                "error": "HTTPError",
+                "status_code": e.response.status_code,
+                "body": e.response.json()
+            }), 500
+        except Exception:
+            return jsonify({"ok": False, "error": "HTTPError"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
