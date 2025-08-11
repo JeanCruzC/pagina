@@ -1,3 +1,4 @@
+import os
 from functools import wraps
 from flask import (
     Blueprint,
@@ -87,6 +88,30 @@ def configuracion():
 @bp.route("/contacto")
 def contacto():
     return render_template("contacto.html")
+
+
+@bp.route("/subscribe")
+def subscribe():
+    plan = request.args.get("plan", "starter")
+    plans = {
+        "starter": {
+            "paypal_plan_id": os.getenv("PAYPAL_PLAN_ID_STARTER"),
+            "amount": float(os.getenv("STARTER_AMOUNT", "0")),
+        },
+        "pro": {
+            "paypal_plan_id": os.getenv("PAYPAL_PLAN_ID_PRO"),
+            "amount": float(os.getenv("PRO_AMOUNT", "0")),
+        },
+    }
+    data = plans.get(plan, plans["starter"])
+    return render_template(
+        "subscribe.html",
+        paypal_plan_id=data["paypal_plan_id"],
+        paypal_client_id=os.getenv("PAYPAL_CLIENT_ID"),
+        paypal_env=os.getenv("PAYPAL_ENV", "sandbox"),
+        amount=data["amount"],
+        tier=plan if plan in plans else "starter",
+    )
 
 
 @bp.route("/subscribe/success")
