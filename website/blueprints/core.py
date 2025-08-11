@@ -34,9 +34,14 @@ def login_required(view):
 # ---------------------------------------------------------------------------
 
 @bp.route("/")
+def landing():
+    return render_template("landing.html")
+    # o: return redirect(url_for("core.login"))
+
+
+@bp.route("/index")
 def index():
     return render_template("index.html")
-    # o: return redirect(url_for("core.login"))
 
 @bp.route("/login", methods=["GET", "POST"])
 def login():
