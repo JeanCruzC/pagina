@@ -32,9 +32,9 @@
         </button>
         <div class="collapse navbar-collapse" id="navMain">
           <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-            <li class="nav-item"><a href="{{ url_for('generador') }}" class="nav-link {{ 'active' if request.endpoint=='generador' else '' }}">Generador</a></li>
-            <li class="nav-item"><a href="{{ url_for('resultados') }}" class="nav-link {{ 'active' if request.endpoint=='resultados' else '' }}">Resultados</a></li>
-            <li class="nav-item"><a href="{{ url_for('configuracion') }}" class="nav-link {{ 'active' if request.endpoint=='configuracion' else '' }}">Configuración</a></li>
+            <li class="nav-item"><a href="{{ url_for('core.generador') }}" class="nav-link {{ 'active' if request.endpoint=='generador' else '' }}">Generador</a></li>
+            <li class="nav-item"><a href="{{ url_for('core.resultados') }}" class="nav-link {{ 'active' if request.endpoint=='resultados' else '' }}">Resultados</a></li>
+            <li class="nav-item"><a href="{{ url_for('core.configuracion') }}" class="nav-link {{ 'active' if request.endpoint=='configuracion' else '' }}">Configuración</a></li>
           </ul>
           <button class="btn btn-outline-secondary me-3" id="themeToggle" aria-label="Cambiar tema" type="button">
             <i class="bi bi-moon" aria-hidden="true"></i>
