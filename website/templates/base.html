@@ -16,71 +16,81 @@
   {% set is_public = request.endpoint in ['landing','index','checkout','subscribe'] %}
   {% set is_auth   = session.get('user') %}
 
-  <header class="navbar bg-body-tertiary sticky-top border-bottom">
-    <div class="container-fluid">
-
-      {# BRAND — puntito verde + texto #}
-      <a class="navbar-brand d-flex align-items-center me-auto" href="/">
-        <span class="brand-dot me-2" aria-hidden="true"></span>
-        <span class="fs-5 fw-semibold">Schedules</span>
-      </a>
-
-      <button class="btn btn-outline-secondary me-3" id="themeToggle" aria-label="Cambiar tema" type="button">
-        <i class="bi bi-moon" aria-hidden="true"></i>
-      </button>
-
-      {# CTA del header: oculto en landing/checkout (allí ya hay planes/checkout inline) #}
-      {% set _hide_cta = is_public %}
-      {% if not _hide_cta %}
-      {% endif %}
-
-      {# PERFIL #}
-      <div class="dropdown ms-3">
-        {% set avatar = session.get('avatar_url') %}
-        {% set user_email = session.get('user', 'Invitado') %}
-        <a href="#" class="d-flex align-items-center text-decoration-none" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-          {% if avatar %}
-            <img src="{{ avatar }}" class="rounded-circle me-2" alt="avatar" width="32" height="32">
-          {% else %}
-            <i class="bi bi-person-circle fs-4 me-2" aria-hidden="true"></i>
-          {% endif %}
-          <span>{{ user_email }} ▾</span>
+  <header>
+    <nav class="navbar navbar-expand-lg bg-body-tertiary border-bottom sticky-top">
+      <div class="container-xxl">
+        {# BRAND — puntito verde + texto #}
+        <a class="navbar-brand d-flex align-items-center" href="/">
+          <span class="brand-dot me-2" aria-hidden="true"></span>
+          <span class="fs-5 fw-semibold">Schedules</span>
         </a>
-        <ul class="dropdown-menu dropdown-menu-end">
-          <li><a class="dropdown-item" href="{{ url_for('configuracion') }}">Perfil</a></li>
-          <li><hr class="dropdown-divider"></li>
-          {% if is_auth %}
-            <li><a class="dropdown-item" href="{{ url_for('logout') }}">Salir</a></li>
-          {% else %}
-            <li><a class="dropdown-item" href="{{ url_for('login') }}">Iniciar sesión</a></li>
-          {% endif %}
-        </ul>
-      </div>
 
-      {# HAMBURGUESA / OFFCANVAS: solo en páginas internas y si hay usuario #}
-      {% if not is_public and is_auth %}
-        <button class="navbar-toggler ms-2" type="button" data-bs-toggle="offcanvas" data-bs-target="#drawer" aria-controls="drawer" aria-label="Abrir menú">
+        {% if not is_public and is_auth %}
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain" aria-controls="navMain" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
-      {% endif %}
-    </div>
+        <div class="collapse navbar-collapse" id="navMain">
+          <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+            <li class="nav-item"><a href="{{ url_for('generador') }}" class="nav-link {{ 'active' if request.endpoint=='generador' else '' }}">Generador</a></li>
+            <li class="nav-item"><a href="{{ url_for('resultados') }}" class="nav-link {{ 'active' if request.endpoint=='resultados' else '' }}">Resultados</a></li>
+            <li class="nav-item"><a href="{{ url_for('configuracion') }}" class="nav-link {{ 'active' if request.endpoint=='configuracion' else '' }}">Configuración</a></li>
+          </ul>
+          <button class="btn btn-outline-secondary me-3" id="themeToggle" aria-label="Cambiar tema" type="button">
+            <i class="bi bi-moon" aria-hidden="true"></i>
+          </button>
+          <div class="dropdown">
+            {% set avatar = session.get('avatar_url') %}
+            {% set user_email = session.get('user', 'Invitado') %}
+            <a href="#" class="d-flex align-items-center text-decoration-none" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              {% if avatar %}
+                <img src="{{ avatar }}" class="rounded-circle me-2" alt="avatar" width="32" height="32">
+              {% else %}
+                <i class="bi bi-person-circle fs-4 me-2" aria-hidden="true"></i>
+              {% endif %}
+              <span>{{ user_email }} ▾</span>
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="{{ url_for('configuracion') }}">Perfil</a></li>
+              <li><hr class="dropdown-divider"></li>
+              {% if is_auth %}
+                <li><a class="dropdown-item" href="{{ url_for('logout') }}">Salir</a></li>
+              {% else %}
+                <li><a class="dropdown-item" href="{{ url_for('login') }}">Iniciar sesión</a></li>
+              {% endif %}
+            </ul>
+          </div>
+        </div>
+        {% else %}
+        <div class="d-flex ms-auto align-items-center">
+          <button class="btn btn-outline-secondary me-3" id="themeToggle" aria-label="Cambiar tema" type="button">
+            <i class="bi bi-moon" aria-hidden="true"></i>
+          </button>
+          <div class="dropdown">
+            {% set avatar = session.get('avatar_url') %}
+            {% set user_email = session.get('user', 'Invitado') %}
+            <a href="#" class="d-flex align-items-center text-decoration-none" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              {% if avatar %}
+                <img src="{{ avatar }}" class="rounded-circle me-2" alt="avatar" width="32" height="32">
+              {% else %}
+                <i class="bi bi-person-circle fs-4 me-2" aria-hidden="true"></i>
+              {% endif %}
+              <span>{{ user_email }} ▾</span>
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="{{ url_for('configuracion') }}">Perfil</a></li>
+              <li><hr class="dropdown-divider"></li>
+              {% if is_auth %}
+                <li><a class="dropdown-item" href="{{ url_for('logout') }}">Salir</a></li>
+              {% else %}
+                <li><a class="dropdown-item" href="{{ url_for('login') }}">Iniciar sesión</a></li>
+              {% endif %}
+            </ul>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </nav>
   </header>
-
-  {% if not is_public and is_auth %}
-  <div class="offcanvas offcanvas-start" tabindex="-1" id="drawer" aria-labelledby="drawerLabel">
-    <div class="offcanvas-header">
-      <h5 class="offcanvas-title" id="drawerLabel">Menú</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
-    </div>
-    <div class="offcanvas-body">
-      <nav class="nav flex-column">
-        <a href="{{ url_for('generador') }}" class="nav-link {{ 'active' if request.endpoint=='generador' else '' }}">Generador</a>
-        <a href="{{ url_for('resultados') }}" class="nav-link {{ 'active' if request.endpoint=='resultados' else '' }}">Resultados</a>
-        <a href="{{ url_for('configuracion') }}" class="nav-link {{ 'active' if request.endpoint=='configuracion' else '' }}">Configuración</a>
-      </nav>
-    </div>
-  </div>
-  {% endif %}
 
   <main class="container-xxl py-4">
     {% block content %}{% endblock %}
