@@ -84,6 +84,11 @@ def configuracion():
     return render_template("configuracion.html")
 
 
+@bp.route("/contacto")
+def contacto():
+    return render_template("contacto.html")
+
+
 # ---------------------------------------------------------------------------
 # Error handlers
 # ---------------------------------------------------------------------------
