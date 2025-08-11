@@ -1,4 +1,5 @@
 import os
+import logging
 from dotenv import load_dotenv
 load_dotenv()  # CARGAR .env SIEMPRE
 
@@ -63,9 +64,13 @@ PAYPAL_BASE_URL = (
 
 PLANS = {"starter": 30.0, "pro": 50.0}
 
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+numeric_level = getattr(logging, LOG_LEVEL, logging.INFO)
+
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
-app.logger.setLevel("INFO")
+logging.basicConfig(level=numeric_level)
+app.logger.setLevel(numeric_level)
 app.logger.info("PAYPAL_PLAN_ID_STARTER: %r", PAYPAL_PLAN_ID_STARTER)
 app.logger.info("PAYPAL_PLAN_ID_PRO: %r", PAYPAL_PLAN_ID_PRO)
 
@@ -160,7 +165,7 @@ def has_active_subscription(email: str) -> bool:
 
 def send_admin_email(subject: str, html_body: str) -> None:
     if not (SMTP_HOST and SMTP_USER and SMTP_PASS and ADMIN_EMAIL):
-        print("[EMAIL] SMTP no configurado; se omite envío:", subject)
+        app.logger.warning("SMTP not configured; skipping admin email: %s", subject)
         return
     msg = MIMEMultipart()
     msg["From"] = SMTP_USER
@@ -231,13 +236,13 @@ def login_required(f):
     @wraps(f)
     def wrapped(*args, **kwargs):
         user = session.get('user')
-        print(f"\U0001F50D [AUTH] User: {user}, Method: {request.method}")
+        app.logger.debug("[AUTH] User: %s, Method: %s", user, request.method)
 
         if not user:
             if 'application/json' in request.headers.get('Accept', ''):
-                print("\u274C [AUTH] No user, returning JSON error")
+                app.logger.warning("[AUTH] No user, returning JSON error")
                 return jsonify({'error': 'Unauthorized'}), 401
-            print("\u274C [AUTH] No user, redirecting to login")
+            app.logger.warning("[AUTH] No user, redirecting to login")
             return redirect(url_for('login'))
         if not has_active_subscription(user):
             if 'application/json' in request.headers.get('Accept', ''):
@@ -245,7 +250,7 @@ def login_required(f):
             flash('Suscripción activa requerida')
             return redirect(url_for('subscribe'))
 
-        print("\u2705 [AUTH] User authorized, proceeding")
+        app.logger.debug("[AUTH] User authorized, proceeding")
         return f(*args, **kwargs)
     return wrapped
 
@@ -307,25 +312,25 @@ def generador():
         response.headers.add('Access-Control-Allow-Headers', "*")
         response.headers.add('Access-Control-Allow-Methods', "*")
         return response
-    print(f"\U0001F50D [DEBUG] Request method: {request.method}")
-    print(f"\U0001F50D [DEBUG] Content-Type: {request.content_type}")
-    print(f"\U0001F50D [DEBUG] Files: {list(request.files.keys())}")
-    print(f"\U0001F50D [DEBUG] Form: {list(request.form.keys())}")
-    print(f"\U0001F50D [DEBUG] User session: {session.get('user', 'NO_USER')}")
+    app.logger.debug("Request method: %s", request.method)
+    app.logger.debug("Content-Type: %s", request.content_type)
+    app.logger.debug("Files: %s", list(request.files.keys()))
+    app.logger.debug("Form: %s", list(request.form.keys()))
+    app.logger.debug("User session: %s", session.get('user', 'NO_USER'))
 
     if request.method == 'POST':
         try:
-            print("\u2705 [DEBUG] Entrando a lógica POST")
-            print("\U0001F680 [DEBUG] Iniciando procesamiento POST")
+            app.logger.debug("Entering POST logic")
+            app.logger.debug("Starting POST processing")
 
             excel = request.files.get('excel')
             if not excel:
-                print("\u274C [ERROR] No se recibió archivo")
+                app.logger.error("No file received")
                 return {'error': 'No file provided'}, 400
 
-            print(f"\u2705 [DEBUG] Archivo recibido: {excel.filename}")
+            app.logger.debug("Received file: %s", excel.filename)
 
-            print("🔄 [DEBUG] Construyendo configuración...")
+            app.logger.debug("Building configuration...")
 
             cfg = {
                 'TIME_SOLVER': request.form.get('solver_time', type=int),
@@ -347,8 +352,8 @@ def generador():
                 'iterations': request.form.get('iterations', type=int),
             }
 
-            print(f"✅ [DEBUG] Configuración creada: {cfg}")
-            print("🚀 [DEBUG] Llamando scheduler.run_complete_optimization...")
+            app.logger.debug("Configuration created: %s", cfg)
+            app.logger.debug("Calling scheduler.run_complete_optimization...")
 
             jean_template = request.files.get('jean_file')
             if jean_template and jean_template.filename:
@@ -360,28 +365,28 @@ def generador():
 
             try:
                 result = scheduler.run_complete_optimization(excel, config=cfg)
-                print(f"✅ [DEBUG] Scheduler completado exitosamente")
-                print(f"✅ [DEBUG] Tipo de resultado: {type(result)}")
-                print(f"✅ [DEBUG] Keys en resultado: {list(result.keys()) if isinstance(result, dict) else 'No es dict'}")
-                print("📊 [DEBUG] Verificando librerías...")
+                app.logger.info("Scheduler completed successfully")
+                app.logger.debug("Result type: %s", type(result))
+                app.logger.debug(
+                    "Result keys: %s",
+                    list(result.keys()) if isinstance(result, dict) else 'No es dict',
+                )
+                app.logger.debug("Verifying libraries...")
                 try:
                     import pulp
-                    print(f"✅ PuLP disponible: {pulp.__version__}")
+                    app.logger.debug("PuLP available: %s", pulp.__version__)
                 except Exception:
-                    print("❌ PuLP no disponible")
+                    app.logger.warning("PuLP not available")
                 try:
                     import numpy as np
-                    print(f"✅ NumPy: {np.__version__}")
+                    app.logger.debug("NumPy: %s", np.__version__)
                 except Exception:
-                    print("❌ NumPy no disponible")
+                    app.logger.warning("NumPy not available")
             except Exception as e:
-                print(f"❌ [ERROR] EXCEPCIÓN EN SCHEDULER: {str(e)}")
-                import traceback
-                print("❌ [ERROR] STACK TRACE COMPLETO:")
-                traceback.print_exc()
+                app.logger.exception("Scheduler exception: %s", e)
                 return {"error": f"Error en optimización: {str(e)}"}, 500
 
-            print("🎯 [DEBUG] Agregando download_url...")
+            app.logger.debug("Adding download_url...")
             result["download_url"] = url_for("download_excel") if session.get("last_excel_file") else None
 
             # Persist result to a temporary file and store its path in session
@@ -400,9 +405,7 @@ def generador():
             return redirect(url_for('resultados'))
 
         except Exception as e:
-            print(f"\u274C [ERROR] Exception en POST: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            app.logger.exception("Exception in POST: %s", e)
             code = 400 if isinstance(e, ValueError) else 500
             return {"error": f'Server error: {str(e)}'}, code
 
