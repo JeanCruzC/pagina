@@ -623,6 +623,18 @@ def paypal_create_plan():
         return jsonify({"error": str(e)}), 500
 
 
+@app.errorhandler(404)
+def not_found(error):
+    app.logger.error("404 error: %s", error)
+    return render_template("404.html"), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    app.logger.exception("500 error: %s", error)
+    return render_template("500.html"), 500
+
+
 @app.route('/api/paypal/create-order', methods=['POST'])
 def paypal_create_order_endpoint():
     data = request.get_json(silent=True) or {}
