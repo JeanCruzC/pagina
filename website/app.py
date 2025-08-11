@@ -19,13 +19,9 @@ from flask import (
 from functools import wraps
 import io
 import json
-import smtplib
-import ssl
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 import requests
 import click
@@ -34,37 +30,17 @@ from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
 
 from . import scheduler
-
-# PayPal
-PAYPAL_ENV = os.getenv("PAYPAL_ENV", "sandbox")  # 'sandbox' | 'live'
-PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID", "")
-PAYPAL_SECRET = os.getenv("PAYPAL_SECRET", "")
-PAYPAL_PLAN_ID_STARTER = os.getenv("PAYPAL_PLAN_ID_STARTER", "")
-PAYPAL_PLAN_ID_PRO = os.getenv("PAYPAL_PLAN_ID_PRO", "")
-
-# SMTP opcional (no debe romper si está vacío)
-def _env_int(name, default):
-    v = os.getenv(name)
-    try:
-        return int(v) if v not in (None, "") else default
-    except ValueError:
-        return default
-
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "")
-SMTP_HOST   = os.getenv("SMTP_HOST", "")
-SMTP_PORT   = _env_int("SMTP_PORT", 587)
-SMTP_USER   = os.getenv("SMTP_USER", "")
-SMTP_PASS   = os.getenv("SMTP_PASS", "")
-
-SECRET_KEY  = os.getenv("SECRET_KEY", "dev-secret")
-
-PAYPAL_BASE_URL = (
-    "https://api-m.paypal.com"
-    if PAYPAL_ENV == "live"
-    else "https://api-m.sandbox.paypal.com"
+from .config import (
+    PAYPAL_ENV,
+    PAYPAL_CLIENT_ID,
+    PAYPAL_SECRET,
+    PAYPAL_PLAN_ID_STARTER,
+    PAYPAL_PLAN_ID_PRO,
+    PAYPAL_BASE_URL,
+    PLANS,
 )
 
-PLANS = {"starter": 30.0, "pro": 50.0}
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret")
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 numeric_level = getattr(logging, LOG_LEVEL, logging.INFO)
@@ -167,19 +143,6 @@ def has_active_subscription(email: str) -> bool:
     return email in load_allowlist()
 
 
-def send_admin_email(subject: str, html_body: str) -> None:
-    if not (SMTP_HOST and SMTP_USER and SMTP_PASS and ADMIN_EMAIL):
-        app.logger.warning("SMTP not configured; skipping admin email: %s", subject)
-        return
-    msg = MIMEMultipart()
-    msg["From"] = SMTP_USER
-    msg["To"] = ADMIN_EMAIL
-    msg["Subject"] = subject
-    msg.attach(MIMEText(html_body, "html"))
-    context = ssl.create_default_context()
-    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context) as server:
-        server.login(SMTP_USER, SMTP_PASS)
-        server.sendmail(SMTP_USER, ADMIN_EMAIL, msg.as_string())
 
 
 def paypal_token() -> str:
@@ -538,96 +501,6 @@ def subscribe_success():
     )
 
 
-@app.route("/api/paypal/subscription-activate", methods=["POST"])
-def paypal_subscription_activate():
-    data = request.get_json(silent=True) or {}
-    sub_id = data.get("subscription_id")
-    if not sub_id:
-        return jsonify({"error": "subscription_id requerido"}), 400
-
-    try:
-        sub = paypal_get_subscription(sub_id)
-        status = sub.get("status", "")
-        email = session.get("user") or "anon"
-        add_subscription_record(email, sub_id, status)
-        ok_status = {"ACTIVE", "APPROVAL_PENDING", "APPROVED"}
-        if status in ok_status:
-            return jsonify({"ok": True, "status": status})
-        return jsonify({"ok": False, "status": status}), 422
-    except requests.HTTPError as e:
-        try:
-            return jsonify({"ok": False, "error": "HTTPError", "details": e.response.json()}), 502
-        except Exception:
-            return jsonify({"ok": False, "error": "HTTPError"}), 502
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.route("/api/paypal/plan/create", methods=["POST"])
-def paypal_create_plan():
-    """Create a PayPal product and subscription plan."""
-    try:
-        token = paypal_token()
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
-
-        prod_payload = {"name": "Pro plan", "type": "SERVICE"}
-        r_prod = requests.post(
-            f"{PAYPAL_BASE_URL}/v1/catalogs/products",
-            headers=headers,
-            json=prod_payload,
-        )
-        r_prod.raise_for_status()
-        product_id = r_prod.json().get("id")
-
-        plan_payload = {
-            "product_id": product_id,
-            "name": "Pro plan",
-            "billing_cycles": [
-                {
-                    "frequency": {"interval_unit": "MONTH", "interval_count": 1},
-                    "tenure_type": "REGULAR",
-                    "sequence": 1,
-                    "total_cycles": 0,
-                    "pricing_scheme": {
-                        "fixed_price": {"value": "50", "currency_code": "USD"}
-                    },
-                }
-            ],
-            "payment_preferences": {"auto_bill_outstanding": True},
-        }
-        r_plan = requests.post(
-            f"{PAYPAL_BASE_URL}/v1/billing/plans",
-            headers=headers,
-            json=plan_payload,
-        )
-        r_plan.raise_for_status()
-        plan_id = r_plan.json().get("id")
-        app.logger.info("Created PayPal plan %s", plan_id)
-        return jsonify(
-            {
-                "plan_id": plan_id,
-                "message": "Update PAYPAL_PLAN_ID_PRO with this value",
-            }
-        )
-    except requests.HTTPError as e:
-        try:
-            return (
-                jsonify(
-                    {
-                        "error": "HTTPError",
-                        "status_code": e.response.status_code,
-                        "details": e.response.json(),
-                    }
-                ),
-                502,
-            )
-        except Exception:
-            return jsonify({"error": "HTTPError"}), 502
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 
 @app.errorhandler(CSRFError)
@@ -647,109 +520,3 @@ def server_error(e):
     return render_template('500.html'), 500
 
 
-@app.route('/api/paypal/create-order', methods=['POST'])
-def paypal_create_order_endpoint():
-    data = request.get_json(silent=True) or {}
-    plan = data.get('plan') or session.get('pending_plan')
-    if plan not in PLANS:
-        return jsonify({'error': 'invalid plan'}), 400
-    try:
-        order = paypal_create_order(PLANS[plan])
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-    order_id = order.get('id')
-    if not order_id:
-        return jsonify({'error': 'invalid response from PayPal'}), 400
-    return jsonify({'orderID': order_id})
-
-
-@app.route('/api/paypal/capture-order', methods=['POST'])
-def paypal_capture_order_endpoint():
-    data = request.get_json(silent=True) or {}
-    order_id = data.get('orderID')
-    email = (data.get('email') or session.get('pending_email', '')).strip().lower()
-    if not order_id or not email:
-        return jsonify({'error': 'missing data'}), 400
-    try:
-        capture = paypal_capture_order(order_id)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
-    status = capture.get('status')
-    if status != 'COMPLETED':
-        try:
-            status = capture['purchase_units'][0]['payments']['captures'][0]['status']
-        except Exception:
-            status = None
-        if status != 'COMPLETED':
-            return jsonify({'error': 'payment not completed'}), 400
-    payer_email = capture.get('payer', {}).get('email_address', email)
-    add_to_allowlist(payer_email)
-    send_admin_email('Nuevo pago', f'{payer_email} completó el pago {order_id}')
-    return jsonify({'status': 'ok'})
-
-@app.route("/api/paypal/diagnose", methods=["GET"])
-def paypal_diagnose():
-    try:
-        plan_id = request.args.get("plan", PAYPAL_PLAN_ID_PRO)
-        token = paypal_token()
-        headers = {"Authorization": f"Bearer {token}"}
-        r = requests.get(f"{PAYPAL_BASE_URL}/v1/billing/plans/{plan_id}", headers=headers)
-        body = r.json() if r.content else {}
-        return jsonify({
-            "ok": r.status_code == 200,
-            "plan_id": plan_id,
-            "status": body.get("status"),
-            "product_id": body.get("product_id"),
-            "raw": body
-        }), (200 if r.status_code == 200 else 500)
-    except requests.HTTPError as e:
-        try:
-            return jsonify({
-                "ok": False,
-                "error": "HTTPError",
-                "status_code": e.response.status_code,
-                "body": e.response.json()
-            }), 500
-        except Exception:
-            return jsonify({"ok": False, "error": "HTTPError"}), 500
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.route("/api/paypal/plan/check", methods=["GET"])
-def paypal_plan_check():
-    try:
-        plan_id = request.args.get("plan", PAYPAL_PLAN_ID_PRO)
-        token = paypal_token()
-        headers = {"Authorization": f"Bearer {token}"}
-        user_info = {}
-        try:
-            uresp = requests.get(
-                f"{PAYPAL_BASE_URL}/v1/identity/oauth2/userinfo?schema=paypalv1.1",
-                headers=headers,
-            )
-            if uresp.content:
-                user_info = uresp.json()
-        except Exception as e:
-            user_info = {"error": str(e)}
-        app.logger.info("paypal plan check %r %s", plan_id, user_info)
-        r = requests.get(
-            f"{PAYPAL_BASE_URL}/v1/billing/plans/{plan_id}",
-            headers=headers,
-        )
-        r.raise_for_status()
-        resp = make_response(r.text, r.status_code)
-        resp.headers["Content-Type"] = r.headers.get("Content-Type", "application/json")
-        return resp
-    except requests.HTTPError as e:
-        r = e.response
-        body = r.text if r is not None else ""
-        status = r.status_code if r is not None else 500
-        resp = make_response(body, status)
-        if r is not None:
-            resp.headers["Content-Type"] = r.headers.get("Content-Type", "application/json")
-        else:
-            resp.headers["Content-Type"] = "application/json"
-        return resp
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
