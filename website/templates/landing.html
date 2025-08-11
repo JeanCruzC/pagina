@@ -38,8 +38,8 @@
         <li class="nav-item"><a class="nav-link px-3" href="#shots">Capturas</a></li>
         <li class="nav-item"><a class="nav-link px-3" href="#pricing">Precios</a></li>
         <li class="nav-item"><a class="nav-link px-3" href="#faq">FAQ</a></li>
-        <li class="nav-item"><a class="nav-link px-3" href="{{ url_for('contacto') }}">Contacto</a></li>
-        <li class="nav-item ms-lg-3"><a class="btn btn-outline-secondary" href="{{ url_for('login') }}">Iniciar sesión</a></li>
+        <li class="nav-item"><a class="nav-link px-3" href="{{ url_for('payments.contacto') }}">Contacto</a></li>
+        <li class="nav-item ms-lg-3"><a class="btn btn-outline-secondary" href="{{ url_for('auth.login') }}">Iniciar sesión</a></li>
       </ul>
     </div>
   </div>
@@ -56,7 +56,7 @@
           menos exceso, cero déficit y exportación a Excel lista para operación.
         </p>
         <div class="d-flex gap-3">
-          <a href="{{ url_for('login') }}" class="btn btn-brand btn-lg px-4">Iniciar sesión</a>
+          <a href="{{ url_for('auth.login') }}" class="btn btn-brand btn-lg px-4">Iniciar sesión</a>
           <a href="#features" class="btn btn-outline-secondary btn-lg px-4">Ver funciones</a>
         </div>
         <div class="d-flex gap-4 mt-4">
@@ -294,7 +294,7 @@
                 <li><i class="bi bi-check2 check me-1" aria-hidden="true"></i><span class="visually-hidden">Incluido: </span>Exportar a Excel</li>
                 <li><i class="bi bi-dash text-muted me-1" aria-hidden="true"></i><span class="visually-hidden">No incluido: </span>JEAN personalizado</li>
             </ul>
-            <a href="{{ url_for('subscribe', plan='starter') }}" class="btn btn-outline-secondary w-100">Ir al checkout</a>
+            <a href="{{ url_for('payments.subscribe', plan='starter') }}" class="btn btn-outline-secondary w-100">Ir al checkout</a>
           </div>
         </div>
       </div>
@@ -310,7 +310,7 @@
                 <li><i class="bi bi-check2 check me-1" aria-hidden="true"></i><span class="visually-hidden">Incluido: </span>JEAN personalizado</li>
                 <li><i class="bi bi-check2 check me-1" aria-hidden="true"></i><span class="visually-hidden">Incluido: </span>Métricas y heatmaps</li>
             </ul>
-            <a href="{{ url_for('subscribe', plan='pro') }}" class="btn btn-primary w-100">Ir al checkout</a>
+            <a href="{{ url_for('payments.subscribe', plan='pro') }}" class="btn btn-primary w-100">Ir al checkout</a>
           </div>
         </div>
       </div>
@@ -363,7 +363,7 @@
   <div class="container-xxl text-center">
     <h3 class="fw-bold text-ink mb-3">¿Listo para optimizar tus turnos?</h3>
     <p class="text-muted-adv mb-4">Suscríbete para comenzar. Si ya tienes cuenta, inicia sesión.</p>
-    <a href="{{ url_for('subscribe') }}" class="btn btn-brand btn-lg px-4">Suscribirme</a>
+    <a href="{{ url_for('payments.subscribe') }}" class="btn btn-brand btn-lg px-4">Suscribirme</a>
   </div>
 </section>
 
@@ -374,7 +374,7 @@
     <div class="d-flex gap-3 small">
       <a class="footer-link" href="#features">Funciones</a>
       <a class="footer-link" href="#pricing">Precios</a>
-      <a class="footer-link" href="{{ url_for('login') }}">Iniciar sesión</a>
+      <a class="footer-link" href="{{ url_for('auth.login') }}">Iniciar sesión</a>
     </div>
   </div>
 </footer>

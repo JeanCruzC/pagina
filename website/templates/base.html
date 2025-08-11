@@ -31,9 +31,9 @@
         </button>
         <div class="collapse navbar-collapse" id="navMain">
           <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-            <li class="nav-item"><a href="{{ url_for('generador') }}" class="nav-link {{ 'active' if request.endpoint=='generador' else '' }}">Generador</a></li>
-            <li class="nav-item"><a href="{{ url_for('resultados') }}" class="nav-link {{ 'active' if request.endpoint=='resultados' else '' }}">Resultados</a></li>
-            <li class="nav-item"><a href="{{ url_for('configuracion') }}" class="nav-link {{ 'active' if request.endpoint=='configuracion' else '' }}">Configuración</a></li>
+            <li class="nav-item"><a href="{{ url_for('routes.generador') }}" class="nav-link {{ 'active' if request.endpoint=='routes.generador' else '' }}">Generador</a></li>
+            <li class="nav-item"><a href="{{ url_for('routes.resultados') }}" class="nav-link {{ 'active' if request.endpoint=='routes.resultados' else '' }}">Resultados</a></li>
+            <li class="nav-item"><a href="{{ url_for('routes.configuracion') }}" class="nav-link {{ 'active' if request.endpoint=='routes.configuracion' else '' }}">Configuración</a></li>
           </ul>
           <button class="btn btn-outline-secondary me-3" id="themeToggle" aria-label="Cambiar tema" type="button">
             <i class="bi bi-moon" aria-hidden="true"></i>
@@ -50,12 +50,12 @@
               <span>{{ user_email }} ▾</span>
             </a>
             <ul class="dropdown-menu dropdown-menu-end">
-              <li><a class="dropdown-item" href="{{ url_for('configuracion') }}">Perfil</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('routes.configuracion') }}">Perfil</a></li>
               <li><hr class="dropdown-divider"></li>
               {% if is_auth %}
-                <li><a class="dropdown-item" href="{{ url_for('logout') }}">Salir</a></li>
+                <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">Salir</a></li>
               {% else %}
-                <li><a class="dropdown-item" href="{{ url_for('login') }}">Iniciar sesión</a></li>
+                <li><a class="dropdown-item" href="{{ url_for('auth.login') }}">Iniciar sesión</a></li>
               {% endif %}
             </ul>
           </div>
@@ -77,12 +77,12 @@
               <span>{{ user_email }} ▾</span>
             </a>
             <ul class="dropdown-menu dropdown-menu-end">
-              <li><a class="dropdown-item" href="{{ url_for('configuracion') }}">Perfil</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('routes.configuracion') }}">Perfil</a></li>
               <li><hr class="dropdown-divider"></li>
               {% if is_auth %}
-                <li><a class="dropdown-item" href="{{ url_for('logout') }}">Salir</a></li>
+                <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">Salir</a></li>
               {% else %}
-                <li><a class="dropdown-item" href="{{ url_for('login') }}">Iniciar sesión</a></li>
+                <li><a class="dropdown-item" href="{{ url_for('auth.login') }}">Iniciar sesión</a></li>
               {% endif %}
             </ul>
           </div>
