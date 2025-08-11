@@ -13,6 +13,14 @@ app = app_module.app
 add_to_allowlist = app_module.add_to_allowlist
 
 
+def _csrf_token(client):
+    resp = client.get('/login')
+    html = resp.get_data(as_text=True)
+    import re
+    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    return match.group(1) if match else None
+
+
 @pytest.fixture(autouse=True)
 def temp_allowlist(tmp_path):
     app_module.ALLOWLIST_FILE = tmp_path / "allowlist.json"
@@ -22,9 +30,10 @@ def temp_allowlist(tmp_path):
 def test_no_access_with_wrong_credentials():
     add_to_allowlist('user@example.com', 'secret')
     client = app.test_client()
+    token = _csrf_token(client)
     response = client.post(
         '/login',
-        data={'email': 'user@example.com', 'password': 'wrong'},
+        data={'email': 'user@example.com', 'password': 'wrong', 'csrf_token': token},
         follow_redirects=False,
     )
     assert response.status_code == 200
@@ -34,9 +43,10 @@ def test_no_access_with_wrong_credentials():
 def test_access_with_valid_credentials():
     add_to_allowlist('user@example.com', 'secret')
     client = app.test_client()
+    token = _csrf_token(client)
     response = client.post(
         '/login',
-        data={'email': 'user@example.com', 'password': 'secret'},
+        data={'email': 'user@example.com', 'password': 'secret', 'csrf_token': token},
         follow_redirects=False,
     )
     assert response.status_code == 302
