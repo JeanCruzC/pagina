@@ -16,7 +16,6 @@ from flask import (
     make_response,
     after_this_request,
 )
-from functools import wraps
 import io
 import json
 import smtplib
@@ -235,28 +234,7 @@ def paypal_capture_order(order_id: str) -> dict:
     resp.raise_for_status()
     return resp.json()
 
-
-def login_required(f):
-    @wraps(f)
-    def wrapped(*args, **kwargs):
-        user = session.get('user')
-        app.logger.debug("[AUTH] User: %s, Method: %s", user, request.method)
-
-        if not user:
-            if 'application/json' in request.headers.get('Accept', ''):
-                app.logger.warning("[AUTH] No user, returning JSON error")
-                return jsonify({'error': 'Unauthorized'}), 401
-            app.logger.warning("[AUTH] No user, redirecting to login")
-            return redirect(url_for('login'))
-        if not has_active_subscription(user):
-            if 'application/json' in request.headers.get('Accept', ''):
-                return jsonify({'error': 'Payment required'}), 402
-            flash('Suscripción activa requerida')
-            return redirect(url_for('subscribe'))
-
-        app.logger.debug("[AUTH] User authorized, proceeding")
-        return f(*args, **kwargs)
-    return wrapped
+from .blueprints.auth.routes import auth_bp, login_required
 
 
 def _on(name: str) -> bool:
@@ -281,30 +259,7 @@ def app_entry():
             return redirect(url_for('generador'))
         flash('Suscripción activa requerida')
         return redirect(url_for('subscribe'))
-    return redirect(url_for('login'))
-
-
-@app.route('/register')
-def register():
-    return redirect(url_for('login'))
-
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        email = request.form['email']
-        password = request.form.get('password', '')
-        if verify_user(email, password):
-            session['user'] = email
-            return redirect(url_for('generador'))
-        flash('Credenciales inválidas')
-    return render_template('login.html')
-
-
-@app.route('/logout')
-def logout():
-    session.pop('user', None)
-    return redirect(url_for('landing'))
+    return redirect(url_for('auth.login'))
 
 
 @app.route('/generador', methods=['GET', 'POST'])
@@ -628,6 +583,12 @@ def paypal_create_plan():
             return jsonify({"error": "HTTPError"}), 502
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def create_app():
+    if 'auth' not in app.blueprints:
+        app.register_blueprint(auth_bp)
+    return app
 
 
 @app.errorhandler(CSRFError)

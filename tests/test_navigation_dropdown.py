@@ -9,7 +9,7 @@ sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
 
 import website.app as app_module
 
-app = app_module.app
+app = app_module.create_app()
 add_to_allowlist = app_module.add_to_allowlist
 
 

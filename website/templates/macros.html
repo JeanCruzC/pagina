@@ -14,9 +14,9 @@
       <li><a class="dropdown-item" href="{{ url_for('configuracion') }}">Perfil</a></li>
       <li><hr class="dropdown-divider"></li>
       {% if is_auth %}
-        <li><a class="dropdown-item" href="{{ url_for('logout') }}">Salir</a></li>
+        <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">Salir</a></li>
       {% else %}
-        <li><a class="dropdown-item" href="{{ url_for('login') }}">Iniciar sesión</a></li>
+        <li><a class="dropdown-item" href="{{ url_for('auth.login') }}">Iniciar sesión</a></li>
       {% endif %}
     </ul>
   </div>
