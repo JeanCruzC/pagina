@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 from .extensions import csrf, scheduler
 from .blueprints.core import bp as core_bp
+from .blueprints.auth.routes import auth_bp
 
 
 def create_app(config=None):
@@ -33,5 +34,6 @@ def create_app(config=None):
 
     # Blueprints
     app.register_blueprint(core_bp)
+    app.register_blueprint(auth_bp)
 
     return app
