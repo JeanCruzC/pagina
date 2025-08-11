@@ -84,6 +84,11 @@ def configuracion():
     return render_template("configuracion.html")
 
 
+@bp.route("/subscribe/success")
+def subscribe_success():
+    return render_template("subscribe_success.html")
+
+
 # ---------------------------------------------------------------------------
 # Error handlers
 # ---------------------------------------------------------------------------
