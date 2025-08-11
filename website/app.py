@@ -627,15 +627,14 @@ def paypal_create_plan():
 
 
 @app.errorhandler(404)
-def not_found(error):
-    app.logger.error("404 error: %s", error)
-    return render_template("404.html"), 404
+def not_found(e):
+    return render_template('404.html'), 404
 
 
 @app.errorhandler(500)
-def internal_error(error):
-    app.logger.exception("500 error: %s", error)
-    return render_template("500.html"), 500
+def server_error(e):
+    app.logger.exception(e)
+    return render_template('500.html'), 500
 
 
 @app.route('/api/paypal/create-order', methods=['POST'])
