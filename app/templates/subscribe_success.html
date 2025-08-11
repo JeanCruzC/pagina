@@ -7,9 +7,9 @@
   <p class="lead">ID de suscripción: <code>{{ subscription_id }}</code></p>
   {% endif %}
   {% if session.get('user') %}
-    <a href="{{ url_for('generador') }}" class="btn btn-primary mt-3">Ir al generador</a>
+    <a href="{{ url_for('generator.generador') }}" class="btn btn-primary mt-3">Ir al generador</a>
   {% else %}
-    <a href="{{ url_for('login') }}" class="btn btn-primary mt-3">Iniciar sesión</a>
+    <a href="{{ url_for('auth.login') }}" class="btn btn-primary mt-3">Iniciar sesión</a>
   {% endif %}
   <p class="mt-4"><a href="{{ url_for('landing') }}">Volver al inicio</a></p>
 </div>

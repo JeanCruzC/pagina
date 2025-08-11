@@ -1,11 +1,11 @@
 import os
 import sys
-import types
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
 
-from website.app import app
+import app as app_package
+
+app = app_package.create_app()
 
 
 def test_register_redirects_to_login():
