@@ -16,6 +16,7 @@
     <div class="card auth-card p-4 shadow-soft">
       <h4 class="mb-3">Iniciar sesión</h4>
       <form method="post" action="{{ url_for('login') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="mb-3">
           <label class="form-label">Correo</label>
           <input name="email" type="email" class="form-control" required placeholder="tucorreo@ejemplo.com" value="{{ request.form.get('email','') }}">

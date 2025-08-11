@@ -2,6 +2,7 @@
 {% block content %}
 <h1>Contacto y Cotización</h1>
 <form class="mb-4">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="mb-3">
     <label for="name" class="form-label">Nombre</label>
     <input type="text" class="form-control" id="name" placeholder="Tu nombre">

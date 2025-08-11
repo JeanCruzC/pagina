@@ -30,6 +30,8 @@ from email.mime.multipart import MIMEMultipart
 import requests
 import click
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
 
 from . import scheduler
 
@@ -69,6 +71,8 @@ numeric_level = getattr(logging, LOG_LEVEL, logging.INFO)
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+app.config['WTF_CSRF_SECRET_KEY'] = os.environ.get('CSRF_SECRET', SECRET_KEY)
+csrf = CSRFProtect(app)
 logging.basicConfig(level=numeric_level)
 app.logger.setLevel(numeric_level)
 app.logger.info("PAYPAL_PLAN_ID_STARTER: %r", PAYPAL_PLAN_ID_STARTER)
@@ -624,6 +628,12 @@ def paypal_create_plan():
             return jsonify({"error": "HTTPError"}), 502
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(error):
+    app.logger.warning("CSRF error: %s", error.description)
+    return render_template("400.html", description=error.description), 400
 
 
 @app.errorhandler(404)
