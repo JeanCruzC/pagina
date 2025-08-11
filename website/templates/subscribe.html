@@ -71,7 +71,7 @@
           body: JSON.stringify({ subscription_id: sub })
         });
         if (!res.ok) throw new Error(await res.text());
-        window.location.href = "{{ url_for('subscribe_success') }}?sub=" + encodeURIComponent(sub);
+        window.location.href = "{{ url_for('core.subscribe_success') }}?sub=" + encodeURIComponent(sub);
       } catch (err) {
         console.error(err);
         alert('Error con PayPal al activar.');
