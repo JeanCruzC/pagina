@@ -33,6 +33,11 @@ def login_required(view):
 # Routes
 # ---------------------------------------------------------------------------
 
+@bp.route("/")
+def index():
+    return render_template("index.html")
+    # o: return redirect(url_for("core.login"))
+
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
