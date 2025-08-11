@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
 </head>
 <body>
-  {% set is_public = request.endpoint in ['landing','index','checkout','subscribe'] %}
+    {% set is_public = request.endpoint in ['core.landing','core.index','core.checkout','core.subscribe'] %}
   {% set is_auth   = session.get('user') %}
   {% from 'macros.html' import user_dropdown %}
 
