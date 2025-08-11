@@ -7,10 +7,11 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
 
-import website.app as app_module
+from website import create_app
+from website.utils import allowlist as allowlist_module
 
-app = app_module.app
-add_to_allowlist = app_module.add_to_allowlist
+app = create_app()
+add_to_allowlist = allowlist_module.add_to_allowlist
 
 
 def _csrf_token(client):
@@ -23,7 +24,7 @@ def _csrf_token(client):
 
 @pytest.fixture(autouse=True)
 def temp_allowlist(tmp_path):
-    app_module.ALLOWLIST_FILE = tmp_path / "allowlist.json"
+    allowlist_module.ALLOWLIST_FILE = tmp_path / "allowlist.json"
     yield
 
 
