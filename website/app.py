@@ -29,6 +29,8 @@ from email.mime.multipart import MIMEMultipart
 import requests
 import click
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
 
 from . import scheduler
 
@@ -65,9 +67,18 @@ PLANS = {"starter": 30.0, "pro": 50.0}
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+app.config['WTF_CSRF_SECRET_KEY'] = os.getenv("WTF_CSRF_SECRET_KEY", "dev-csrf")
+app.config['WTF_CSRF_CHECK_DEFAULT'] = False
+csrf = CSRFProtect(app)
 app.logger.setLevel("INFO")
 app.logger.info("PAYPAL_PLAN_ID_STARTER: %r", PAYPAL_PLAN_ID_STARTER)
 app.logger.info("PAYPAL_PLAN_ID_PRO: %r", PAYPAL_PLAN_ID_PRO)
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    flash('Token CSRF inválido')
+    return redirect(request.referrer or url_for('login'))
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 ALLOWLIST_FILE = DATA_DIR / "allowlist.json"
@@ -283,6 +294,7 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        csrf.protect()
         email = request.form['email']
         password = request.form.get('password', '')
         if verify_user(email, password):
@@ -314,6 +326,7 @@ def generador():
     print(f"\U0001F50D [DEBUG] User session: {session.get('user', 'NO_USER')}")
 
     if request.method == 'POST':
+        csrf.protect()
         try:
             print("\u2705 [DEBUG] Entrando a lógica POST")
             print("\U0001F680 [DEBUG] Iniciando procesamiento POST")
@@ -461,6 +474,7 @@ def perfil():
 @app.route('/contacto', methods=['GET', 'POST'])
 def contacto():
     if request.method == 'POST':
+        csrf.protect()
         email = request.form.get('email', '').strip().lower()
         plan = request.form.get('plan')
         if email:
