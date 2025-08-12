@@ -1895,6 +1895,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
     try:
         cfg = apply_configuration(config)
 
+        print(f"[MEM] Antes de carga de demanda: {monitor_memory_usage():.1f}%")
         print("\U0001F4D6 [SCHEDULER] Leyendo archivo Excel...")
         import pandas as pd
         df = pd.read_excel(file_stream)
@@ -1906,7 +1907,9 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
         demand_packed = np.packbits(demand_matrix > 0, axis=1).astype(np.uint8)
         CONTEXT["demand_packed"] = demand_packed
         print("\u2705 [SCHEDULER] Matriz de demanda procesada")
+        print(f"[MEM] Después de empaquetar demanda: {monitor_memory_usage():.1f}%")
 
+        print(f"[MEM] Antes de generación de patrones: {monitor_memory_usage():.1f}%")
         print("\U0001F501 [SCHEDULER] Generando patrones de turnos...")
         patterns = {}
         if cfg.get("optimization_profile") == "JEAN Personalizado":
@@ -1946,9 +1949,10 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
                 if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
                     break
         print("[SCHEDULER] Patrones generados")
+        print(f"[MEM] Después de generación de patrones: {monitor_memory_usage():.1f}%")
 
         print("[SCHEDULER] Iniciando optimizacion...")
-
+        print(f"[MEM] Antes de resolver: {monitor_memory_usage():.1f}%")
         if PULP_AVAILABLE:
             print("[OPTIMIZER] Resolviendo con PuLP (CBC)…")
             pulp_out = solve_with_pulp(demand_matrix, patterns, cfg)
@@ -1967,11 +1971,12 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
             )
             status = "GREEDY"
             total_agents = sum(assignments.values())
-
+        print(f"[MEM] Después de resolver: {monitor_memory_usage():.1f}%")
         print(f"[OPTIMIZER] Status: {status}")
         print(f"[OPTIMIZER] Total agents: {total_agents}")
         print("\u2705 [SCHEDULER] Optimización completada")
 
+        print(f"[MEM] Antes de exportar resultados: {monitor_memory_usage():.1f}%")
         metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
         excel_bytes, csv_bytes = export_detailed_schedule(assignments, patterns)
 
@@ -1992,6 +1997,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
                 tmp.close()
                 heatmaps[key] = tmp.name
                 plt.close("all")
+        print(f"[MEM] Después de exportar resultados: {monitor_memory_usage():.1f}%")
 
         print("\U0001F4E4 [SCHEDULER] Preparando resultados...")
 
