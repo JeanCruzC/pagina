@@ -124,19 +124,20 @@ def generador():
                     heatmaps[key] = None
             result["heatmaps"] = heatmaps
 
-        json_path = os.path.join("/tmp", f"{job_id}.json")
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(result, f)
-
         if excel_bytes:
             xlsx_path = os.path.join("/tmp", f"{job_id}.xlsx")
             with open(xlsx_path, "wb") as f:
                 f.write(excel_bytes)
+            result["download_url"] = url_for("core.download_excel", job_id=job_id)
 
         if csv_bytes:
             csv_path = os.path.join("/tmp", f"{job_id}.csv")
             with open(csv_path, "wb") as f:
                 f.write(csv_bytes)
+
+        json_path = os.path.join("/tmp", f"{job_id}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(result, f)
 
         session["job_id"] = job_id
 
@@ -175,11 +176,6 @@ def resultados():
         pass
 
     try:
-        os.remove(os.path.join("/tmp", f"{job_id}.xlsx"))
-    except OSError:
-        pass
-
-    try:
         os.remove(os.path.join("/tmp", f"{job_id}.csv"))
     except OSError:
         pass
@@ -187,6 +183,24 @@ def resultados():
     session.pop("job_id", None)
 
     return render_template("resultados.html", resultado=resultado)
+
+
+@bp.route("/download/<job_id>")
+@login_required
+def download_excel(job_id):
+    path = os.path.join("/tmp", f"{job_id}.xlsx")
+    if not os.path.exists(path):
+        abort(404)
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return response
+
+    return send_file(path, as_attachment=True)
 
 
 @bp.route("/heatmap/<job_id>/<path:filename>")
