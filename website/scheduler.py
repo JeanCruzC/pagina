@@ -6,6 +6,7 @@ import gc
 import hashlib
 from io import BytesIO
 from itertools import combinations, permutations
+import heapq
 
 from flask import session
 import tempfile
@@ -779,8 +780,15 @@ def get_optimal_break_time(start_hour: float, shift_duration: int, day: int, dem
     return best
 
 
-def generate_shift_patterns(demand_matrix=None, *, keep_percentage=0.3, peak_bonus=1.5, critical_bonus=2.0, cfg=None):
-    """Return an exhaustive set of patterns with multiple break options."""
+def generate_shift_patterns(demand_matrix=None, *, top_k=100, cfg=None):
+    """Generate patterns and keep only the ``top_k`` highest scoring ones.
+
+    Patterns are evaluated against ``demand_matrix`` as they are produced and a
+    min-heap is used to retain only the best ``top_k`` entries.  Each heap entry
+    stores ``(score, name, pat_packed)`` where ``pat_packed`` is the flattened
+    byte representation of the pattern.  The final result is returned as a list
+    sorted by score in descending order.
+    """
     cfg = merge_config(cfg)
     use_ft = cfg["use_ft"]
     use_pt = cfg["use_pt"]
@@ -798,8 +806,20 @@ def generate_shift_patterns(demand_matrix=None, *, keep_percentage=0.3, peak_bon
         first_hour = analysis["first_hour"]
         last_hour = analysis["last_hour"]
 
-    shifts_coverage = {}
     start_hours = np.arange(max(6, first_hour), min(last_hour - 2, 20), 0.5)
+    heap = []
+
+    def push_pattern(name: str, pattern: np.ndarray) -> None:
+        """Score and push ``pattern`` onto the heap, keeping only ``top_k``."""
+        pat = pattern.astype(np.int8)
+        score = score_pattern(pat, demand_matrix) if demand_matrix is not None else 0
+        packed = pat.tobytes()
+        entry = (score, name, packed)
+        if len(heap) < top_k:
+            heapq.heappush(heap, entry)
+        else:
+            if score > heap[0][0]:
+                heapq.heapreplace(heap, entry)
 
     if use_ft and allow_8h:
         for start_hour in start_hours:
@@ -807,9 +827,14 @@ def generate_shift_patterns(demand_matrix=None, *, keep_percentage=0.3, peak_bon
                 non_working = [d for d in active_days if d not in working_combo]
                 for dso_day in non_working + [None]:
                     for brk in get_valid_break_times(start_hour, 8, cfg=cfg):
-                        pattern = generate_weekly_pattern_with_break(start_hour, 8, list(working_combo), dso_day, brk, cfg=cfg)
+                        pattern = generate_weekly_pattern_with_break(
+                            start_hour, 8, list(working_combo), dso_day, brk, cfg=cfg
+                        )
                         suffix = f"_DSO{dso_day}" if dso_day is not None else ""
-                        shifts_coverage[f"FT8_{start_hour:04.1f}_DAYS{''.join(map(str,working_combo))}_BRK{brk:04.1f}{suffix}"] = pattern
+                        name = (
+                            f"FT8_{start_hour:04.1f}_DAYS{''.join(map(str,working_combo))}_BRK{brk:04.1f}{suffix}"
+                        )
+                        push_pattern(name, pattern)
 
     if use_pt:
         if allow_pt_4h:
@@ -818,31 +843,31 @@ def generate_shift_patterns(demand_matrix=None, *, keep_percentage=0.3, peak_bon
                     if num_days <= len(active_days):
                         for combo in combinations(active_days, num_days):
                             pattern = generate_weekly_pattern_simple(start_hour, 4, list(combo))
-                            shifts_coverage[f"PT4_{start_hour:04.1f}_DAYS{''.join(map(str,combo))}"] = pattern
+                            name = f"PT4_{start_hour:04.1f}_DAYS{''.join(map(str,combo))}"
+                            push_pattern(name, pattern)
         if allow_pt_6h:
             for start_hour in start_hours[::2]:
                 for num_days in [4]:
                     if num_days <= len(active_days):
                         for combo in combinations(active_days, num_days):
                             pattern = generate_weekly_pattern_simple(start_hour, 6, list(combo))
-                            shifts_coverage[f"PT6_{start_hour:04.1f}_DAYS{''.join(map(str,combo))}"] = pattern
+                            name = f"PT6_{start_hour:04.1f}_DAYS{''.join(map(str,combo))}"
+                            push_pattern(name, pattern)
         if allow_pt_5h:
             for start_hour in start_hours[::2]:
                 for num_days in [5]:
                     if num_days <= len(active_days):
                         for combo in combinations(active_days, num_days):
                             pattern = generate_weekly_pattern_simple(start_hour, 5, list(combo))
-                            shifts_coverage[f"PT5_{start_hour:04.1f}_DAYS{''.join(map(str,combo))}"] = pattern
+                            name = f"PT5_{start_hour:04.1f}_DAYS{''.join(map(str,combo))}"
+                            push_pattern(name, pattern)
 
-    if demand_matrix is not None:
-        shifts_coverage = score_and_filter_patterns(
-            shifts_coverage,
-            demand_matrix,
-            keep_percentage=keep_percentage,
-            peak_bonus=peak_bonus,
-            critical_bonus=critical_bonus,
-        )
-    return shifts_coverage
+    # Return heap contents sorted by score (highest first) and unpack patterns
+    ordered = sorted(heap, reverse=True)
+    return [
+        (score, name, np.frombuffer(packed, dtype=np.int8))
+        for score, name, packed in ordered
+    ]
 
 
 def get_valid_break_times(start_hour: float, duration: int, *, cfg=None) -> list:
