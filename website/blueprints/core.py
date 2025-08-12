@@ -140,6 +140,7 @@ def generador():
             csv_path = os.path.join("/tmp", f"{job_id}.csv")
             with open(csv_path, "wb") as f:
                 f.write(csv_bytes)
+            result["csv_url"] = url_for("core.download_csv", job_id=job_id)
 
         json_path = os.path.join("/tmp", f"{job_id}.json")
         with open(json_path, "w", encoding="utf-8") as f:
@@ -181,11 +182,6 @@ def resultados():
     except OSError:
         pass
 
-    try:
-        os.remove(os.path.join("/tmp", f"{job_id}.csv"))
-    except OSError:
-        pass
-
     session.pop("job_id", None)
 
     return render_template("resultados.html", resultado=resultado)
@@ -195,6 +191,24 @@ def resultados():
 @login_required
 def download_excel(job_id):
     path = os.path.join("/tmp", f"{job_id}.xlsx")
+    if not os.path.exists(path):
+        abort(404)
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return response
+
+    return send_file(path, as_attachment=True)
+
+
+@bp.route("/download/csv/<job_id>")
+@login_required
+def download_csv(job_id):
+    path = os.path.join("/tmp", f"{job_id}.csv")
     if not os.path.exists(path):
         abort(404)
 
