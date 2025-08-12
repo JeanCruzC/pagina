@@ -70,7 +70,7 @@
     <div class="col-md-6">
       <div class="card">
         <div class="card-header">Demanda requerida</div>
-        <img class="card-img-bottom" alt="Demanda" src="data:image/png;base64,{{ resultado.heatmaps.demand }}">
+        <img class="card-img-bottom" alt="Demanda" src="{{ resultado.heatmaps.demand }}">
       </div>
     </div>
     {% endif %}
@@ -79,7 +79,7 @@
     <div class="col-md-6">
       <div class="card">
         <div class="card-header">Cobertura asignada</div>
-        <img class="card-img-bottom" alt="Cobertura" src="data:image/png;base64,{{ resultado.heatmaps.coverage }}">
+        <img class="card-img-bottom" alt="Cobertura" src="{{ resultado.heatmaps.coverage }}">
       </div>
     </div>
     {% endif %}
@@ -88,7 +88,7 @@
     <div class="col-12">
       <div class="card">
         <div class="card-header">Diferencias (Cobertura - Demanda)</div>
-        <img class="card-img-bottom" alt="Diferencias" src="data:image/png;base64,{{ resultado.heatmaps.difference }}">
+        <img class="card-img-bottom" alt="Diferencias" src="{{ resultado.heatmaps.difference }}">
       </div>
     </div>
     {% endif %}

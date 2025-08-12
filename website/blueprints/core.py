@@ -1,7 +1,7 @@
 import os
 import json
-import base64
 import tempfile
+import uuid
 from functools import wraps
 from flask import (
     Blueprint,
@@ -12,6 +12,9 @@ from flask import (
     session,
     flash,
     jsonify,
+    send_file,
+    abort,
+    after_this_request,
 )
 from flask_wtf.csrf import CSRFError
 
@@ -109,13 +112,18 @@ def generador():
         if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
             return jsonify(result)
 
-        # Persist result in a temporary file and store path in session
+        # Persist result in a temporary file and store metadata in session
         tmp = tempfile.NamedTemporaryFile(
             delete=False, suffix=".json", mode="w", encoding="utf-8"
         )
         with tmp:
             json.dump(result, tmp)
+
+        job_id = uuid.uuid4().hex
         session["resultado_path"] = tmp.name
+        session["job_id"] = job_id
+        session["heatmap_paths"] = result.get("heatmaps", {})
+
         return redirect(url_for("core.resultados"))
 
     return render_template("generador.html")
@@ -132,13 +140,11 @@ def resultados():
         resultado = json.load(f)
 
     heatmaps = resultado.get("heatmaps", {})
-    for key, path in list(heatmaps.items()):
-        try:
-            with open(path, "rb") as img:
-                heatmaps[key] = base64.b64encode(img.read()).decode("utf-8")
-            os.remove(path)
-        except (OSError, FileNotFoundError):
-            heatmaps[key] = None
+    job_id = session.get("job_id")
+    resultado["heatmaps"] = {
+        key: url_for("core.resultado_heatmap", job_id=job_id, key=key)
+        for key in heatmaps
+    }
 
     session.pop("resultado_path", None)
     try:
@@ -147,6 +153,34 @@ def resultados():
         pass
 
     return render_template("resultados.html", resultado=resultado)
+
+
+@bp.route("/resultados/<job_id>/<key>.png")
+@login_required
+def resultado_heatmap(job_id, key):
+    if session.get("job_id") != job_id:
+        abort(404)
+
+    heatmap_paths = session.get("heatmap_paths", {})
+    path = heatmap_paths.get(key)
+    if not path or not os.path.exists(path):
+        abort(404)
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        heatmap_paths.pop(key, None)
+        if heatmap_paths:
+            session["heatmap_paths"] = heatmap_paths
+        else:
+            session.pop("heatmap_paths", None)
+            session.pop("job_id", None)
+        return response
+
+    return send_file(path, mimetype="image/png")
 
 
 @bp.route("/configuracion")
