@@ -3,13 +3,13 @@
 
   <div class="d-flex align-items-center justify-content-between mb-3">
     <h2 class="mb-0 fw-bold">Resultados</h2>
-    {% if resultado.download_url %}
+    {% if resultado and resultado.download_url %}
       <a class="btn btn-success" href="{{ resultado.download_url }}">Descargar Excel</a>
     {% endif %}
   </div>
 
   <!-- KPIs -->
-  {% if resultado.metrics %}
+  {% if resultado and resultado.metrics %}
   <div class="row g-3 mb-4 text-center">
     <div class="col-6 col-md-2">
       <div class="card card-body">
@@ -57,7 +57,7 @@
   {% endif %}
 
   <!-- Config efectiva (para auditar paridad) -->
-  {% if resultado.effective_config %}
+  {% if resultado and resultado.effective_config %}
   <details class="mb-4">
     <summary>Config efectiva</summary>
     <pre class="mb-0">{{ resultado.effective_config | tojson(indent=2) }}</pre>
@@ -66,7 +66,7 @@
 
   <!-- Heatmaps -->
   <div class="row g-4 mb-4">
-    {% if resultado.heatmaps and resultado.heatmaps.demand %}
+    {% if resultado and resultado.heatmaps and resultado.heatmaps.demand %}
     <div class="col-md-6">
       <div class="card">
         <div class="card-header">Demanda requerida</div>
@@ -75,7 +75,7 @@
     </div>
     {% endif %}
 
-    {% if resultado.heatmaps and resultado.heatmaps.coverage %}
+    {% if resultado and resultado.heatmaps and resultado.heatmaps.coverage %}
     <div class="col-md-6">
       <div class="card">
         <div class="card-header">Cobertura asignada</div>
@@ -84,7 +84,7 @@
     </div>
     {% endif %}
 
-    {% if resultado.heatmaps and resultado.heatmaps.difference %}
+    {% if resultado and resultado.heatmaps and resultado.heatmaps.difference %}
     <div class="col-12">
       <div class="card">
         <div class="card-header">Diferencias (Cobertura - Demanda)</div>
@@ -95,7 +95,7 @@
   </div>
 
   <!-- Asignaciones -->
-  {% if resultado.assignments %}
+  {% if resultado and resultado.assignments %}
   <div class="card mb-4">
     <div class="card-header">Turnos asignados</div>
     <div class="table-responsive">
@@ -111,7 +111,9 @@
   </div>
   {% endif %}
 
-  {% if not (resultado.metrics or resultado.heatmaps or resultado.assignments) %}
+  {% if not resultado %}
+  <div class="alert alert-warning">No hay resultados para mostrar. Vuelve al generador.</div>
+  {% elif not (resultado.metrics or resultado.heatmaps or resultado.assignments) %}
   <div class="alert alert-warning">No hay resultados para mostrar.</div>
   {% endif %}
 
