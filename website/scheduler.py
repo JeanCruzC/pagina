@@ -1574,12 +1574,18 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
 def solve_with_pulp(demand_matrix, patterns, config):
     """Solve assignment problem using PuLP.
 
+    This implementation streams bits from the packed pattern representation
+    instead of fully unpacking every pattern into a dense ``patterns_unpacked``
+    matrix.  It keeps memory usage bounded even when thousands of patterns are
+    evaluated.
+
     Parameters
     ----------
     demand_matrix : numpy.ndarray
         Required coverage for each day/hour.
     patterns : dict[str, numpy.ndarray]
-        Mapping of shift name to a flattened weekly pattern.
+        Mapping of shift name to a flattened weekly pattern packed with
+        :func:`numpy.packbits`.
     config : dict
         Configuration overrides.
 
@@ -1594,10 +1600,9 @@ def solve_with_pulp(demand_matrix, patterns, config):
     cfg = merge_config(config)
     hours = demand_matrix.shape[1]
     shifts = list(patterns.keys())
-    patterns_unpacked = {
-        s: np.unpackbits(p.reshape(7, -1), axis=1)[:, :hours]
-        for s, p in patterns.items()
-    }
+
+    # Reshape packed patterns for bit access without expanding the data.
+    patterns_packed = {s: p.reshape(7, -1) for s, p in patterns.items()}
 
     prob = pl.LpProblem("schedule_with_pulp", pl.LpMinimize)
     max_per_shift = int(demand_matrix.max() * cfg["agent_limit_factor"])
@@ -1624,8 +1629,12 @@ def solve_with_pulp(demand_matrix, patterns, config):
 
     for d in range(7):
         for h in range(hours):
+            byte_idx = h >> 3
+            bit_shift = 7 - (h & 7)
             coverage_expr = pl.lpSum(
-                shift_vars[s] * patterns_unpacked[s][d, h] for s in shifts
+                shift_vars[s]
+                * ((patterns_packed[s][d, byte_idx] >> bit_shift) & 1)
+                for s in shifts
             )
             demand = demand_matrix[d, h]
             prob += coverage_expr + deficit[(d, h)] >= demand
@@ -1642,16 +1651,24 @@ def solve_with_pulp(demand_matrix, patterns, config):
 
     coverage = np.zeros_like(demand_matrix, dtype=float)
     for s, count in assignments.items():
-        coverage += patterns_unpacked[s] * count
+        pat_matrix = np.unpackbits(patterns_packed[s], axis=1)[:, :hours]
+        coverage += pat_matrix * count
+        del pat_matrix
 
     total_agents_val = int(sum(assignments.values()))
     solver_status = pl.LpStatus.get(prob.status, str(prob.status))
-    return {
+    result = {
         "assignments": assignments,
         "coverage_matrix": coverage,
         "total_agents": total_agents_val,
         "status": solver_status,
     }
+
+    # Explicitly free temporary objects used to build the model.
+    del prob, shift_vars, deficit, excess, solver, patterns_packed
+    gc.collect()
+
+    return result
 
 
 def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, *, cfg=None, demand_packed=None):
