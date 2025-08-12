@@ -104,9 +104,12 @@ def generador():
 
         result = run_complete_optimization(excel_file, config=config)
 
-        if request.accept_mimetypes["application/json"] >= request.accept_mimetypes["text/html"]:
+        if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
             return jsonify(result)
-        return render_template("resultados.html", resultado=result)
+
+        # Persist a summary of the result so it can be retrieved later
+        session["resultado"] = result
+        return redirect(url_for("core.resultados"))
 
     return render_template("generador.html")
 
@@ -114,7 +117,12 @@ def generador():
 @bp.route("/resultados")
 @login_required
 def resultados():
-    return render_template("resultados.html")
+    resultado = session.get("resultado")
+    if not resultado:
+        return redirect(url_for("core.generador"))
+    # Optional: clear stored result to avoid stale data
+    session.pop("resultado", None)
+    return render_template("resultados.html", resultado=resultado)
 
 
 @bp.route("/configuracion")
