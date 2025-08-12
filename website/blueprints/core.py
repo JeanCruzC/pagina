@@ -1,4 +1,5 @@
 import os
+import json
 from functools import wraps
 from flask import (
     Blueprint,
@@ -8,6 +9,7 @@ from flask import (
     url_for,
     session,
     flash,
+    jsonify,
 )
 from flask_wtf.csrf import CSRFError
 
@@ -67,9 +69,45 @@ def register():
     return redirect(url_for("core.login"))
 
 
-@bp.route("/generador")
+@bp.route("/generador", methods=["GET", "POST"])
 @login_required
 def generador():
+    if request.method == "POST":
+        excel_file = request.files.get("excel")
+        if not excel_file:
+            flash("Se requiere un archivo Excel", "warning")
+            return render_template("generador.html"), 400
+
+        config = {}
+        for key, value in request.form.items():
+            if key == "csrf_token":
+                continue
+            low = value.lower()
+            if low in {"on", "true", "1"}:
+                config[key] = True
+            elif low in {"off", "false", "0"}:
+                config[key] = False
+            else:
+                try:
+                    config[key] = int(value) if value.isdigit() else float(value)
+                except ValueError:
+                    config[key] = value
+
+        jean_file = request.files.get("jean_file")
+        if jean_file and jean_file.filename:
+            try:
+                config.update(json.load(jean_file))
+            except Exception:
+                pass
+
+        from ..scheduler import run_complete_optimization
+
+        result = run_complete_optimization(excel_file, config=config)
+
+        if request.accept_mimetypes["application/json"] >= request.accept_mimetypes["text/html"]:
+            return jsonify(result)
+        return render_template("resultados.html", resultado=result)
+
     return render_template("generador.html")
 
 
