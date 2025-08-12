@@ -104,7 +104,7 @@ def generador():
 
         from ..scheduler import run_complete_optimization
 
-        result, excel_bytes = run_complete_optimization(excel_file, config=config)
+        result, excel_bytes, csv_bytes = run_complete_optimization(excel_file, config=config)
 
         job_id = uuid.uuid4().hex
 
@@ -116,6 +116,11 @@ def generador():
             xlsx_path = os.path.join("/tmp", f"{job_id}.xlsx")
             with open(xlsx_path, "wb") as f:
                 f.write(excel_bytes)
+
+        if csv_bytes:
+            csv_path = os.path.join("/tmp", f"{job_id}.csv")
+            with open(csv_path, "wb") as f:
+                f.write(csv_bytes)
 
         session["job_id"] = job_id
 
@@ -157,6 +162,11 @@ def resultados():
 
     try:
         os.remove(os.path.join("/tmp", f"{job_id}.xlsx"))
+    except OSError:
+        pass
+
+    try:
+        os.remove(os.path.join("/tmp", f"{job_id}.csv"))
     except OSError:
         pass
 
