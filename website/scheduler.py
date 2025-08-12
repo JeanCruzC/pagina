@@ -231,6 +231,7 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
                          critical_bonus=2.0, efficiency_bonus=1.0,
                          max_patterns_per_shift=None, smart_start_hours=False):
     """Load shift patterns from ``cfg`` and return them as a dict."""
+    print(f"[MEM] Before load_shift_patterns: {psutil.virtual_memory().percent:.2f}%")
     if isinstance(cfg, str):
         with open(cfg, "r") as fh:
             data = json.load(fh)
@@ -335,6 +336,7 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
             critical_bonus=critical_bonus,
             efficiency_bonus=efficiency_bonus,
         )
+    print(f"[MEM] After load_shift_patterns: {psutil.virtual_memory().percent:.2f}%")
     return shifts_coverage
 
 
@@ -494,6 +496,7 @@ def save_execution_result(demand_matrix, params, coverage, total_agents, executi
 
 def load_demand_excel(file_stream) -> np.ndarray:
     """Parse an Excel file exported from Ntech and return a matrix."""
+    print(f"[MEM] Before load_demand_excel: {psutil.virtual_memory().percent:.2f}%")
     df = pd.read_excel(file_stream)
     day_col = [c for c in df.columns if "Día" in c][0]
     demand_col = [c for c in df.columns if "Erlang" in c or "Requeridos" in c][-1]
@@ -503,6 +506,7 @@ def load_demand_excel(file_stream) -> np.ndarray:
     matrix = dm.to_numpy(dtype=int)
     if matrix.shape[1] != 24:
         matrix = np.pad(matrix, ((0, 0), (0, 24 - matrix.shape[1])), constant_values=0)
+    print(f"[MEM] After load_demand_excel: {psutil.virtual_memory().percent:.2f}%")
     return matrix
 
 
@@ -522,7 +526,7 @@ def heatmap(matrix: np.ndarray, title: str) -> BytesIO:
 
 def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
     """Return a 7x24 demand matrix from an Ntech formatted dataframe."""
-
+    print(f"[MEM] Before load_demand_matrix_from_df: {psutil.virtual_memory().percent:.2f}%")
     demand_matrix = np.zeros((7, 24), dtype=float)
 
     day_col = "Día"
@@ -557,7 +561,7 @@ def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
             demand_matrix[day_idx, hour] = demanda
         except (ValueError, TypeError, IndexError):
             continue
-
+    print(f"[MEM] After load_demand_matrix_from_df: {psutil.virtual_memory().percent:.2f}%")
     return demand_matrix
 
 
@@ -816,6 +820,7 @@ def generate_shift_patterns(demand_matrix=None, *, top_k=100, cfg=None):
     byte representation of the pattern.  The final result is returned as a list
     sorted by score in descending order.
     """
+    print(f"[MEM] Before generate_shift_patterns: {psutil.virtual_memory().percent:.2f}%")
     cfg = merge_config(cfg)
     use_ft = cfg["use_ft"]
     use_pt = cfg["use_pt"]
@@ -891,10 +896,12 @@ def generate_shift_patterns(demand_matrix=None, *, top_k=100, cfg=None):
 
     # Return heap contents sorted by score (highest first) and unpack patterns
     ordered = sorted(heap, reverse=True)
-    return [
+    result = [
         (score, name, np.frombuffer(packed, dtype=np.int8))
         for score, name, packed in ordered
     ]
+    print(f"[MEM] After generate_shift_patterns: {psutil.virtual_memory().percent:.2f}%")
+    return result
 
 
 def get_valid_break_times(start_hour: float, duration: int, *, cfg=None) -> list:
@@ -1560,6 +1567,7 @@ def solve_with_pulp(demand_matrix, patterns, config):
     dict
         Dictionary with assignments, coverage matrix, total agents and status.
     """
+    print(f"[MEM] Before solve_with_pulp: {psutil.virtual_memory().percent:.2f}%")
     if not PULP_AVAILABLE:
         raise RuntimeError("PuLP is not available")
 
@@ -1618,12 +1626,14 @@ def solve_with_pulp(demand_matrix, patterns, config):
 
     total_agents_val = int(sum(assignments.values()))
     solver_status = pl.LpStatus.get(prob.status, str(prob.status))
-    return {
+    result = {
         "assignments": assignments,
         "coverage_matrix": coverage,
         "total_agents": total_agents_val,
         "status": solver_status,
     }
+    print(f"[MEM] After solve_with_pulp: {psutil.virtual_memory().percent:.2f}%")
+    return result
 
 
 def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, *, cfg=None, demand_packed=None):
@@ -1631,6 +1641,7 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
 
     Based on ``solve_in_chunks_optimized`` from ``legacy/app1.py``.
     """
+    print(f"[MEM] Before solve_in_chunks_optimized: {psutil.virtual_memory().percent:.2f}%")
     scored = []
     seen = set()
     if demand_packed is None:
@@ -1663,6 +1674,7 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
         emergency_cleanup()
         if not np.any(np.maximum(0, demand_matrix - coverage)):
             break
+    print(f"[MEM] After solve_in_chunks_optimized: {psutil.virtual_memory().percent:.2f}%")
     return assignments_total, coverage
 
 
@@ -1731,7 +1743,9 @@ def _extract_start_hour(name: str) -> float:
 
 def export_detailed_schedule(assignments, shifts_coverage):
     """Return an Excel workbook detailing the generated schedule."""
+    print(f"[MEM] Before export_detailed_schedule: {psutil.virtual_memory().percent:.2f}%")
     if not assignments:
+        print(f"[MEM] After export_detailed_schedule: {psutil.virtual_memory().percent:.2f}%")
         return None
     detailed_data = []
     agent_id = 1
@@ -1843,7 +1857,9 @@ def export_detailed_schedule(assignments, shifts_coverage):
             {'Turno': shift, 'Agentes': count} for shift, count in assignments.items()
         ])
         df_shifts.to_excel(writer, sheet_name='Turnos_Asignados', index=False)
-    return output.getvalue()
+    result = output.getvalue()
+    print(f"[MEM] After export_detailed_schedule: {psutil.virtual_memory().percent:.2f}%")
+    return result
 
 
 def run_complete_optimization(file_stream, config=None):
@@ -1858,17 +1874,20 @@ def run_complete_optimization(file_stream, config=None):
         cfg = apply_configuration(config)
 
         print("\U0001F4D6 [SCHEDULER] Leyendo archivo Excel...")
+        print(f"[MEM] Before demand load: {psutil.virtual_memory().percent:.2f}%")
         df = pd.read_excel(file_stream)
         print("\u2705 [SCHEDULER] Archivo Excel leído correctamente")
 
         print("\U0001F4CA [SCHEDULER] Procesando matriz de demanda...")
         demand_matrix = load_demand_matrix_from_df(df)
+        print(f"[MEM] After demand load: {psutil.virtual_memory().percent:.2f}%")
         analysis = analyze_demand_matrix(demand_matrix)
         demand_packed = np.packbits(demand_matrix > 0, axis=1).astype(np.uint8)
         CONTEXT["demand_packed"] = demand_packed
         print("\u2705 [SCHEDULER] Matriz de demanda procesada")
 
         print("\U0001F501 [SCHEDULER] Generando patrones de turnos...")
+        print(f"[MEM] Before pattern generation: {psutil.virtual_memory().percent:.2f}%")
         patterns = {}
         if cfg.get("optimization_profile") == "JEAN Personalizado":
             slot_minutes = int(cfg.get("slot_duration_minutes", 30))
@@ -1907,8 +1926,10 @@ def run_complete_optimization(file_stream, config=None):
                 if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
                     break
         print("[SCHEDULER] Patrones generados")
+        print(f"[MEM] After pattern generation: {psutil.virtual_memory().percent:.2f}%")
 
         print("[SCHEDULER] Iniciando optimizacion...")
+        print(f"[MEM] Before solve: {psutil.virtual_memory().percent:.2f}%")
 
         if PULP_AVAILABLE:
             print("[OPTIMIZER] Resolviendo con PuLP (CBC)…")
@@ -1928,13 +1949,16 @@ def run_complete_optimization(file_stream, config=None):
             )
             status = "GREEDY"
             total_agents = sum(assignments.values())
+        print(f"[MEM] After solve: {psutil.virtual_memory().percent:.2f}%")
 
         print(f"[OPTIMIZER] Status: {status}")
         print(f"[OPTIMIZER] Total agents: {total_agents}")
         print("\u2705 [SCHEDULER] Optimización completada")
 
         metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
+        print(f"[MEM] Before export: {psutil.virtual_memory().percent:.2f}%")
         excel_bytes = export_detailed_schedule(assignments, patterns)
+        print(f"[MEM] After export: {psutil.virtual_memory().percent:.2f}%")
 
         heatmaps = {}
         if metrics:
