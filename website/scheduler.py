@@ -1892,16 +1892,8 @@ def export_detailed_schedule(assignments, shifts_coverage):
     csv_bytes = csv_buffer.getvalue().encode("utf-8")
     return excel_bytes, csv_bytes
 
-
-def run_optimization(file_stream, config=None):
-    """Execute the optimization pipeline without generating side effects.
-
-    This function performs the core optimization steps: reading the demand
-    matrix, generating shift patterns, solving the optimization problem and
-    computing metrics.  It returns the assignments, the generated patterns, the
-    metrics dictionary and the demand matrix.  No files or charts are produced
-    here; that is delegated to ``generate_excel`` and ``generate_heatmaps``.
-    """
+def run_complete_optimization(file_stream, config=None):
+    """Run the optimization pipeline and return raw results."""
 
     cfg = apply_configuration(config)
 
@@ -1982,118 +1974,51 @@ def run_optimization(file_stream, config=None):
     print("\u2705 [SCHEDULER] Optimización completada")
 
     metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
-    return assignments, patterns, metrics, demand_matrix
+    analysis = analyze_demand_matrix(demand_matrix)
 
+    def _convert(obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, dict):
+            return {k: _convert(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_convert(v) for v in obj]
+        return obj
 
-def generate_excel(assignments, patterns):
-    """Generate Excel and CSV schedules from ``assignments`` and ``patterns``."""
-
-    return export_detailed_schedule(assignments, patterns)
-
-
-def generate_heatmaps(demand_matrix, metrics=None):
-    """Generate heatmap images for demand and coverage matrices."""
-
-    heatmaps = {}
-    if metrics:
-        maps = generate_all_heatmaps(
-            demand_matrix, metrics.get("total_coverage"), metrics.get("diff_matrix")
-        )
-    else:
-        maps = generate_all_heatmaps(demand_matrix)
-    for key, fig in maps.items():
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-        fig.savefig(tmp.name, format="png", bbox_inches="tight")
-        tmp.flush()
-        tmp.close()
-        heatmaps[key] = tmp.name
-        plt.close("all")
-    return heatmaps
-
-
-def run_complete_optimization(
-    file_stream, config=None, export_excel=True, generate_charts=False
-):
-    """Run the optimization and optionally export schedules or charts."""
-
-    print("\U0001F50D [SCHEDULER] Iniciando run_complete_optimization")
-    print(f"\U0001F50D [SCHEDULER] Config recibido: {config}")
-
-    try:
-        cfg = apply_configuration(config)
-        assignments, patterns, metrics, demand_matrix = run_optimization(
-            file_stream, config
-        )
-        analysis = analyze_demand_matrix(demand_matrix)
-
-        excel_bytes, csv_bytes = (None, None)
-        if export_excel:
-            excel_bytes, csv_bytes = generate_excel(assignments, patterns)
-
-        heatmaps = {}
-        if generate_charts:
-            heatmaps = generate_heatmaps(demand_matrix, metrics)
-
-        def _convert(obj):
-            """Recursively convert numpy arrays within ``obj`` to Python lists."""
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            if isinstance(obj, dict):
-                return {k: _convert(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_convert(v) for v in obj]
-            return obj
-
-        result = {
-            "analysis": _convert(analysis),
-            "assignments": assignments,
-            "metrics": _convert(metrics),
-            "heatmaps": heatmaps,
-        }
-        result["effective_config"] = _convert(cfg)
-        print("\u2705 [SCHEDULER] Resultados preparados - RETORNANDO")
-        return result, excel_bytes, csv_bytes
-
-    except Exception as e:
-        print(f"\u274C [SCHEDULER] ERROR CRÍTICO: {str(e)}")
+    return {
+        "analysis": _convert(analysis),
+        "assignments": assignments,
+        "metrics": _convert(metrics),
+        "patterns": _convert(patterns),
+        "demand_matrix": _convert(demand_matrix),
+        "effective_config": _convert(cfg),
+    }
 
 
 def run_optimization(file_stream, config=None):
-    """Run optimization without generating files or charts."""
-    result, _, _ = run_complete_optimization(
-        file_stream, config=config, generate_charts=False
-    )
-    return result
+    """Backward-compatible alias for ``run_complete_optimization``."""
+    return run_complete_optimization(file_stream, config=config)
 
 
-def generate_excel(data):
-    """Create a simple Excel file summarising assignments."""
-    assignments = data.get("assignments", {})
+def generate_excel(assignments, patterns):
+    """Create Excel and CSV schedules from precomputed data."""
+
     if not assignments:
-        return None
-    from openpyxl import Workbook
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Turnos_Asignados"
-    ws.append(["Turno", "Agentes"])
-    for shift, count in assignments.items():
-        ws.append([shift, count])
-    bio = BytesIO()
-    wb.save(bio)
-    return bio.getvalue()
+        return None, None
+    patterns_np = {k: np.array(v, dtype=np.uint8) for k, v in patterns.items()}
+    return export_detailed_schedule(assignments, patterns_np)
 
 
-def generate_heatmaps(data):
-    """Generate heatmaps from stored metrics and return a ZIP archive."""
-    metrics = data.get("metrics", {})
+def generate_heatmaps(demand_matrix, metrics):
+    """Generate heatmaps from demand and metrics and return a ZIP archive."""
+
     coverage = metrics.get("total_coverage")
     diff = metrics.get("diff_matrix")
-    if coverage is None:
+    if coverage is None or demand_matrix is None:
         return None
+    demand = np.array(demand_matrix)
     coverage = np.array(coverage)
     diff = np.array(diff) if diff is not None else None
-    demand = coverage - diff if diff is not None else coverage
     maps = generate_all_heatmaps(demand, coverage, diff)
     bio = BytesIO()
     with ZipFile(bio, "w") as zf:
