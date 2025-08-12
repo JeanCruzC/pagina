@@ -6,6 +6,7 @@ import gc
 import hashlib
 from io import BytesIO
 from itertools import combinations, permutations
+import heapq
 
 from flask import session
 import tempfile
@@ -55,7 +56,7 @@ DEFAULT_CONFIG = {
 
 def merge_config(cfg=None):
     """Return a configuration dictionary overlaying defaults with ``cfg``."""
-    merged = DEFAULT_CONFIG.copy()
+    merged = dict(DEFAULT_CONFIG)
     if cfg:
         merged.update({k: v for k, v in cfg.items() if v is not None})
     return merged
@@ -72,7 +73,7 @@ def _build_pattern(days, durations, start_hour, break_len, break_from_start,
     Returns a flattened :class:`numpy.ndarray` of shape ``7 * slots_per_day``.
     """
     slots_per_day = 24 * slot_factor
-    pattern = np.zeros((7, slots_per_day), dtype=np.int8)
+    pattern = np.zeros((7, slots_per_day), dtype=np.uint8)
     for day, dur in zip(days, durations):
         for s in range(int(dur * slot_factor)):
             slot = int(start_hour * slot_factor) + s
@@ -139,9 +140,8 @@ def get_smart_start_hours(demand_matrix, max_hours=12):
 def score_pattern(pattern, demand_matrix):
     """Return the total coverage achieved by ``pattern`` against demand."""
     dm = demand_matrix.flatten()
-    pat = pattern.astype(int)
-    lim = min(len(dm), len(pat))
-    return int(np.minimum(pat[:lim], dm[:lim]).sum())
+    lim = min(len(dm), len(pattern))
+    return int(np.minimum(pattern[:lim], dm[:lim]).sum())
 
 
 def _resize_matrix(matrix, target_cols):
@@ -155,12 +155,12 @@ def _resize_matrix(matrix, target_cols):
     return matrix.reshape(matrix.shape[0], target_cols, factor).max(axis=2)
 
 
-def score_and_filter_patterns(patterns, demand_matrix, *, keep_percentage=0.3,
+def score_and_filter_patterns(names, patterns, demand_matrix, *, keep_percentage=0.3,
                               peak_bonus=1.5, critical_bonus=2.0,
                               efficiency_bonus=1.0):
     """Score patterns against demand and keep the best ones."""
-    if demand_matrix is None or not patterns:
-        return patterns
+    if demand_matrix is None or not names:
+        return dict(zip(names, patterns))
     dm = np.asarray(demand_matrix, dtype=float)
     days, hours = dm.shape
     daily_totals = dm.sum(axis=1)
@@ -173,7 +173,7 @@ def score_and_filter_patterns(patterns, demand_matrix, *, keep_percentage=0.3,
     else:
         peak_hours = []
     scores = []
-    for name, pat in patterns.items():
+    for idx, pat in enumerate(patterns):
         cols = len(pat) // 7
         pat_mat = pat.reshape(7, cols)
         dm_resized = _resize_matrix(dm, cols)
@@ -189,11 +189,10 @@ def score_and_filter_patterns(patterns, demand_matrix, *, keep_percentage=0.3,
             ph = [h for h in peak_hours if h < cols]
             if ph:
                 score += coverage[:, ph].sum() * peak_bonus
-        scores.append((name, score))
-    scores.sort(key=lambda x: x[1], reverse=True)
+        scores.append((score, idx))
     keep_n = max(1, int(len(scores) * keep_percentage))
-    top = {name for name, _ in scores[:keep_n]}
-    return {k: patterns[k] for k in top}
+    top_idx = [idx for _, idx in heapq.nlargest(keep_n, scores)]
+    return {names[i]: patterns[i] for i in top_idx}
 
 
 def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
@@ -215,7 +214,7 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
     if max_patterns is None:
         max_patterns = memory_limit_patterns(slots_per_day)
     shifts_coverage = {}
-    unique_patterns = {}
+    seen_patterns = set()
     for shift in data.get("shifts", []):
         name = shift.get("name", "SHIFT")
         pat = shift.get("pattern", {})
@@ -261,46 +260,54 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
             brk_len = float(brk)
             brk_start = break_from_start
             brk_end = break_from_end
-        shift_patterns = {}
+        shift_names = []
+        shift_arrays = []
         for days_sel in day_combos:
             for perm in set(permutations(segments, len(days_sel))):
                 for sh in sh_hours:
                     pattern = _build_pattern(days_sel, perm, sh, brk_len, brk_start, brk_end, slot_factor)
                     pat_key = pattern.tobytes()
-                    if pat_key in unique_patterns:
+                    if pat_key in seen_patterns:
                         continue
                     day_str = "".join(map(str, days_sel))
                     seg_str = "_".join(map(str, perm))
                     shift_name = f"{name}_{sh:04.1f}_{day_str}_{seg_str}"
-                    shift_patterns[shift_name] = pattern
-                    unique_patterns[pat_key] = shift_name
-                    if max_patterns_per_shift and len(shift_patterns) >= max_patterns_per_shift:
+                    shift_names.append(shift_name)
+                    shift_arrays.append(pattern)
+                    seen_patterns.add(pat_key)
+                    if max_patterns_per_shift and len(shift_names) >= max_patterns_per_shift:
                         break
-                    if max_patterns is not None and len(shifts_coverage) + len(shift_patterns) >= max_patterns:
+                    if max_patterns is not None and len(shifts_coverage) + len(shift_names) >= max_patterns:
                         break
-                if max_patterns_per_shift and len(shift_patterns) >= max_patterns_per_shift:
+                if max_patterns_per_shift and len(shift_names) >= max_patterns_per_shift:
                     break
-                if max_patterns is not None and len(shifts_coverage) + len(shift_patterns) >= max_patterns:
+                if max_patterns is not None and len(shifts_coverage) + len(shift_names) >= max_patterns:
                     break
-            if max_patterns_per_shift and len(shift_patterns) >= max_patterns_per_shift:
+            if max_patterns_per_shift and len(shift_names) >= max_patterns_per_shift:
                 break
         if demand_matrix is not None:
-            shift_patterns = score_and_filter_patterns(
-                shift_patterns,
+            selected = score_and_filter_patterns(
+                shift_names,
+                shift_arrays,
                 demand_matrix,
                 keep_percentage=keep_percentage,
                 peak_bonus=peak_bonus,
                 critical_bonus=critical_bonus,
                 efficiency_bonus=efficiency_bonus,
             )
-        shifts_coverage.update(shift_patterns)
+        else:
+            selected = dict(zip(shift_names, shift_arrays))
+        shifts_coverage.update(selected)
         monitor_memory_usage()
         gc.collect()
         if max_patterns is not None and len(shifts_coverage) >= max_patterns:
             return shifts_coverage
     if demand_matrix is not None:
+        names = list(shifts_coverage.keys())
+        arrays = list(shifts_coverage.values())
         shifts_coverage = score_and_filter_patterns(
-            shifts_coverage,
+            names,
+            arrays,
             demand_matrix,
             keep_percentage=keep_percentage,
             peak_bonus=peak_bonus,
@@ -835,8 +842,11 @@ def generate_shift_patterns(demand_matrix=None, *, keep_percentage=0.3, peak_bon
                             shifts_coverage[f"PT5_{start_hour:04.1f}_DAYS{''.join(map(str,combo))}"] = pattern
 
     if demand_matrix is not None:
+        names = list(shifts_coverage.keys())
+        arrays = list(shifts_coverage.values())
         shifts_coverage = score_and_filter_patterns(
-            shifts_coverage,
+            names,
+            arrays,
             demand_matrix,
             keep_percentage=keep_percentage,
             peak_bonus=peak_bonus,
@@ -863,7 +873,7 @@ def generate_weekly_pattern_with_break(start_hour: float, duration: int, working
                                         break_start: float, break_len: int = 1, *, cfg=None) -> np.ndarray:
     """Generate a weekly pattern placing the break at ``break_start``."""
     cfg = merge_config(cfg)
-    pattern = np.zeros((7, 24), dtype=np.int8)
+    pattern = np.zeros((7, 24), dtype=np.uint8)
     for day in working_days:
         if day == dso_day:
             continue
@@ -881,7 +891,7 @@ def generate_weekly_pattern_with_break(start_hour: float, duration: int, working
 def generate_weekly_pattern_advanced(start_hour: float, duration: int, working_days: list, break_position: float, *, cfg=None) -> np.ndarray:
     """Generate a weekly pattern with a break at ``break_position`` percentage of the shift."""
     cfg = merge_config(cfg)
-    pattern = np.zeros((7, 24), dtype=np.int8)
+    pattern = np.zeros((7, 24), dtype=np.uint8)
     for day in working_days:
         for h in range(duration):
             hour_idx = int(start_hour + h) % 24
@@ -916,7 +926,7 @@ def generate_weekly_pattern(start_hour, duration, working_days, dso_day=None, br
     cfg = merge_config(cfg)
     break_from_start = cfg["break_from_start"]
     break_from_end = cfg["break_from_end"]
-    pattern = np.zeros((7, 24), dtype=np.int8)
+    pattern = np.zeros((7, 24), dtype=np.uint8)
     for day in working_days:
         if day != dso_day:
             for h in range(duration):
@@ -941,7 +951,7 @@ def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break
     cfg = merge_config(cfg)
     break_from_start = cfg["break_from_start"]
     break_from_end = cfg["break_from_end"]
-    pattern = np.zeros((7, 24), dtype=np.int8)
+    pattern = np.zeros((7, 24), dtype=np.uint8)
     for day in working_days:
         duration = 8 if day == eight_hour_day else 10
         for h in range(duration):
@@ -963,7 +973,7 @@ def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break
 
 def generate_weekly_pattern_simple(start_hour, duration, working_days):
     """Simple pattern without breaks."""
-    pattern = np.zeros((7, 24), dtype=np.int8)
+    pattern = np.zeros((7, 24), dtype=np.uint8)
     for day in working_days:
         for h in range(duration):
             t = start_hour + h
@@ -974,7 +984,7 @@ def generate_weekly_pattern_simple(start_hour, duration, working_days):
 
 def generate_weekly_pattern_pt5(start_hour, working_days):
     """Five 5h days with the last reduced to 4h."""
-    pattern = np.zeros((7, 24), dtype=np.int8)
+    pattern = np.zeros((7, 24), dtype=np.uint8)
     if not working_days:
         return pattern.flatten()
     four_hour_day = working_days[-1]
