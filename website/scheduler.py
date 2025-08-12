@@ -820,6 +820,9 @@ def get_optimal_break_time(start_hour: float, shift_duration: int, day: int, dem
 def generate_shift_patterns(demand_matrix=None, *, top_k=100, cfg=None):
     """Generate patterns and keep only the ``top_k`` highest scoring ones.
 
+    ``demand_matrix`` is the uncompressed 7x24 demand array.  It is packed
+    internally once and the packed representation is reused for scoring.
+
     Patterns are evaluated against ``demand_matrix`` as they are produced and a
     min-heap is used to retain only the best ``top_k`` entries.  Each heap entry
     stores ``(score, name, pat_packed)`` where ``pat_packed`` is the flattened
@@ -838,10 +841,12 @@ def generate_shift_patterns(demand_matrix=None, *, top_k=100, cfg=None):
 
     first_hour = 6
     last_hour = 22
+    demand_packed = None
     if demand_matrix is not None:
         analysis = analyze_demand_matrix(demand_matrix)
         first_hour = analysis["first_hour"]
         last_hour = analysis["last_hour"]
+        demand_packed = np.packbits(demand_matrix > 0, axis=1).astype(np.uint8)
 
     start_hours = np.arange(max(6, first_hour), min(last_hour - 2, 20), 0.5)
     heap = []
@@ -849,7 +854,7 @@ def generate_shift_patterns(demand_matrix=None, *, top_k=100, cfg=None):
     def push_pattern(name: str, pattern: np.ndarray) -> None:
         """Score and push ``pattern`` onto the heap, keeping only ``top_k``."""
         pat = pattern.astype(np.int8)
-        score = score_pattern(pat, demand_matrix) if demand_matrix is not None else 0
+        score = score_pattern(pat, demand_packed) if demand_packed is not None else 0
         packed = pat.tobytes()
         entry = (score, name, packed)
         if len(heap) < top_k:

@@ -26,11 +26,12 @@ def test_generate_shift_patterns_top_k():
         "allow_10h8": False,
         "ACTIVE_DAYS": [0, 1],
     }
+    dm_packed = np.packbits(dm > 0, axis=1).astype(np.uint8)
     # all patterns
     all_patterns = generate_shift_patterns(dm, top_k=20, cfg=cfg)
     scores = [s for s, _, _ in all_patterns]
     assert scores == sorted(scores, reverse=True)
-    max_score = max(score_pattern(pat, dm) for _, _, pat in all_patterns)
+    max_score = max(score_pattern(pat, dm_packed) for _, _, pat in all_patterns)
     assert all_patterns[0][0] == max_score
     # top 3 should all have max_score and be drawn from the highest scoring set
     top3 = generate_shift_patterns(dm, top_k=3, cfg=cfg)
