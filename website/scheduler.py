@@ -609,6 +609,42 @@ def generate_all_heatmaps(demand, coverage=None, diff=None) -> dict:
     return maps
 
 
+def generate_heatmap_files(demand_matrix, metrics) -> dict:
+    """Create and persist heatmaps to temporary files.
+
+    Parameters
+    ----------
+    demand_matrix: array-like
+        Demand matrix used to create the demand heatmap.
+    metrics: dict
+        Metrics dict which may contain ``total_coverage`` and ``diff_matrix``.
+
+    Returns
+    -------
+    dict
+        Mapping of heatmap name to the path of the generated image file.
+    """
+
+    demand = np.array(demand_matrix)
+    coverage = metrics.get("total_coverage") if metrics else None
+    diff = metrics.get("diff_matrix") if metrics else None
+    if coverage is not None:
+        coverage = np.array(coverage)
+    if diff is not None:
+        diff = np.array(diff)
+
+    maps = generate_all_heatmaps(demand, coverage, diff)
+    heatmaps = {}
+    for key, fig in maps.items():
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        fig.savefig(tmp.name, format="png", bbox_inches="tight")
+        tmp.flush()
+        tmp.close()
+        plt.close('all')
+        heatmaps[key] = tmp.name
+    return heatmaps
+
+
 PROFILES = {
     "Equilibrado (Recomendado)": {
         "agent_limit_factor": 12,
@@ -1758,7 +1794,7 @@ def export_detailed_schedule(assignments, shifts_coverage):
     return output.getvalue()
 
 
-def run_complete_optimization(file_stream, config=None):
+def run_complete_optimization(file_stream, config=None, generate_charts=False):
     """Run the full optimization pipeline and return serialized results.
 
     The logic mirrors the interactive workflow in ``legacy/app1.py``.
@@ -1853,21 +1889,8 @@ def run_complete_optimization(file_stream, config=None):
             session["last_excel_file"] = None
 
         heatmaps = {}
-        if metrics:
-            maps = generate_all_heatmaps(
-                demand_matrix,
-                metrics.get("total_coverage"),
-                metrics.get("diff_matrix"),
-            )
-        else:
-            maps = generate_all_heatmaps(demand_matrix)
-        for key, fig in maps.items():
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-            fig.savefig(tmp.name, format="png", bbox_inches="tight")
-            plt.close(fig)
-            tmp.flush()
-            tmp.close()
-            heatmaps[key] = tmp.name
+        if generate_charts and metrics:
+            heatmaps = generate_heatmap_files(demand_matrix, metrics)
 
         print("\U0001F4E4 [SCHEDULER] Preparando resultados...")
 
@@ -1886,6 +1909,7 @@ def run_complete_optimization(file_stream, config=None):
             "assignments": assignments,
             "metrics": _convert(metrics),
             "heatmaps": heatmaps,
+            "demand_matrix": demand_matrix.tolist(),
         }
         result["effective_config"] = _convert(cfg)
         print("\u2705 [SCHEDULER] Resultados preparados - RETORNANDO")

@@ -104,7 +104,11 @@ def generador():
 
         from ..scheduler import run_complete_optimization
 
-        result = run_complete_optimization(excel_file, config=config)
+        result = run_complete_optimization(
+            excel_file,
+            config=config,
+            generate_charts=config.get("generate_charts", False),
+        )
 
         if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
             return jsonify(result)
