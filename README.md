@@ -235,6 +235,11 @@ optimization.  `monitor_memory_usage()` reports the current RAM usage,
 loader can also derive optimal start hours via `get_smart_start_hours()`
 and limit permutations per shift with `max_patterns_per_shift`.
 
+The PuLP-based optimizer now streams packed shift patterns directly
+without unpacking them into dense arrays.  Bits are evaluated on demand
+and temporary solver objects are freed with `gc.collect()` once the model
+finishes, keeping memory usage low even for large problem instances.
+
 ## Testing
 
 After installing the dependencies, run the test suite with:
