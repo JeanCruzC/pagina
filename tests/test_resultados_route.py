@@ -65,3 +65,40 @@ def test_generador_stores_and_renders_result():
     response_again = client.get('/resultados')
     assert response_again.status_code == 302
     assert response_again.headers['Location'].endswith('/generador')
+
+
+def test_download_routes_cleanup():
+    client = app.test_client()
+    login(client)
+
+    sys.modules['website.scheduler'].run_complete_optimization = (
+        lambda *a, **k: ({}, b'x', b'y')
+    )
+
+    token = _csrf_token(client, '/generador')
+    data = {'excel': (BytesIO(b'data'), 'test.xlsx'), 'csrf_token': token}
+    response = client.post(
+        '/generador',
+        data=data,
+        content_type='multipart/form-data',
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+
+    with client.session_transaction() as sess:
+        job_id = sess['job_id']
+
+    xlsx_path = os.path.join('/tmp', f'{job_id}.xlsx')
+    csv_path = os.path.join('/tmp', f'{job_id}.csv')
+    assert os.path.exists(xlsx_path)
+    assert os.path.exists(csv_path)
+
+    client.get('/resultados')
+
+    resp_excel = client.get(f'/download_excel/{job_id}')
+    assert resp_excel.status_code == 200
+    assert not os.path.exists(xlsx_path)
+
+    resp_csv = client.get(f'/download_csv/{job_id}')
+    assert resp_csv.status_code == 200
+    assert not os.path.exists(csv_path)

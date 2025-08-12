@@ -169,18 +169,16 @@ def resultados():
         else:
             heatmaps[key] = None
 
+    xlsx_path = os.path.join("/tmp", f"{job_id}.xlsx")
+    if os.path.exists(xlsx_path):
+        resultado["download_url"] = url_for("core.download_excel", job_id=job_id)
+
+    csv_path = os.path.join("/tmp", f"{job_id}.csv")
+    if os.path.exists(csv_path):
+        resultado["download_csv_url"] = url_for("core.download_csv", job_id=job_id)
+
     try:
         os.remove(json_path)
-    except OSError:
-        pass
-
-    try:
-        os.remove(os.path.join("/tmp", f"{job_id}.xlsx"))
-    except OSError:
-        pass
-
-    try:
-        os.remove(os.path.join("/tmp", f"{job_id}.csv"))
     except OSError:
         pass
 
@@ -206,6 +204,52 @@ def heatmap(job_id, filename):
         return response
 
     return send_file(path, mimetype="image/png")
+
+
+@bp.route("/download_excel/<job_id>")
+@login_required
+def download_excel(job_id):
+    path = os.path.join("/tmp", f"{job_id}.xlsx")
+    if not os.path.exists(path):
+        abort(404)
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return response
+
+    return send_file(
+        path,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name="resultado.xlsx",
+    )
+
+
+@bp.route("/download_csv/<job_id>")
+@login_required
+def download_csv(job_id):
+    path = os.path.join("/tmp", f"{job_id}.csv")
+    if not os.path.exists(path):
+        abort(404)
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return response
+
+    return send_file(
+        path,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name="resultado.csv",
+    )
 
 
 
