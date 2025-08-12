@@ -4,19 +4,27 @@ import time
 import os
 import gc
 import hashlib
-from io import BytesIO
+from io import BytesIO, StringIO
 from itertools import combinations, permutations
 import heapq
 
 import tempfile
+import csv
 
 import numpy as np
-import pandas as pd
-import matplotlib
-matplotlib.use("Agg")  # Use a non-GUI backend for server-side generation
-import matplotlib.pyplot as plt
-import seaborn as sns
-import psutil
+try:
+    import matplotlib
+    matplotlib.use("Agg")  # Use a non-GUI backend for server-side generation
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+except Exception:  # pragma: no cover - optional dependency
+    matplotlib = None
+    plt = None
+    sns = None
+try:
+    import psutil
+except Exception:  # pragma: no cover - optional dependency
+    psutil = None
 
 # Lookup table for population count and global context
 POP = np.fromiter((bin(i).count("1") for i in range(256)), dtype=np.uint8)
@@ -494,6 +502,8 @@ def save_execution_result(demand_matrix, params, coverage, total_agents, executi
 
 def load_demand_excel(file_stream) -> np.ndarray:
     """Parse an Excel file exported from Ntech and return a matrix."""
+    import pandas as pd
+
     df = pd.read_excel(file_stream)
     day_col = [c for c in df.columns if "Día" in c][0]
     demand_col = [c for c in df.columns if "Erlang" in c or "Requeridos" in c][-1]
@@ -520,7 +530,7 @@ def heatmap(matrix: np.ndarray, title: str) -> BytesIO:
     return buf
 
 
-def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
+def load_demand_matrix_from_df(df) -> np.ndarray:
     """Return a 7x24 demand matrix from an Ntech formatted dataframe."""
 
     demand_matrix = np.zeros((7, 24), dtype=float)
@@ -1730,10 +1740,38 @@ def _extract_start_hour(name: str) -> float:
 
 
 def export_detailed_schedule(assignments, shifts_coverage):
-    """Return an Excel workbook detailing the generated schedule."""
+    """Return schedule data in Excel and CSV formats.
+
+    The Excel workbook is created using ``openpyxl`` in write-only mode and
+    populated row by row.  A CSV version of the detailed schedule is generated
+    simultaneously using the :mod:`csv` module.  The function returns a tuple
+    ``(excel_bytes, csv_bytes)``.  If ``assignments`` is empty, ``(None, None)``
+    is returned.
+    """
+
     if not assignments:
-        return None
-    detailed_data = []
+        return None, None
+
+    from openpyxl import Workbook
+    from collections import defaultdict
+
+    DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
+    wb = Workbook(write_only=True)
+    ws_details = wb.create_sheet('Horarios_Semanales')
+    ws_summary = wb.create_sheet('Resumen_Agentes')
+    ws_shifts = wb.create_sheet('Turnos_Asignados')
+
+    ws_details.append(['Agente', 'Dia', 'Horario', 'Break', 'Turno', 'Tipo'])
+    ws_summary.append(['Agente', 'Turno', 'Dias_Trabajo'])
+    ws_shifts.append(['Turno', 'Agentes'])
+
+    csv_buffer = StringIO()
+    csv_writer = csv.writer(csv_buffer)
+    csv_writer.writerow(['Agente', 'Dia', 'Horario', 'Break', 'Turno', 'Tipo'])
+
+    summary_counts = defaultdict(int)
+
     agent_id = 1
     for shift_name, count in assignments.items():
         weekly_pattern = shifts_coverage[shift_name]
@@ -1777,7 +1815,8 @@ def export_detailed_schedule(assignments, shifts_coverage):
             shift_type = 'FT'
             shift_duration = 8
             total_hours = 9
-        for agent_num in range(count):
+
+        for _ in range(count):
             for day in range(7):
                 day_pattern = pattern_matrix[day]
                 work_hours = np.where(day_pattern == 1)[0]
@@ -1799,9 +1838,7 @@ def export_detailed_schedule(assignments, shifts_coverage):
                         break_hours = all_expected - actual_hours
                         if break_hours:
                             break_hour = min(break_hours) % 24
-                            break_end = (break_hour + 1) % 24
-                            if break_end == 0:
-                                break_end = 24
+                            break_end = (break_hour + 1) % 24 or 24
                             break_time = f"{break_hour:02d}:00-{break_end:02d}:00"
                         else:
                             break_time = ""
@@ -1815,35 +1852,26 @@ def export_detailed_schedule(assignments, shifts_coverage):
                             break_time = f"{break_hour % 24:02d}:00-{((break_hour + 1) % 24) or 24:02d}:00"
                         else:
                             break_time = ""
-                    detailed_data.append({
-                        'Agente': f"AGT_{agent_id:03d}",
-                        'Dia': ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][day],
-                        'Horario': horario,
-                        'Break': break_time,
-                        'Turno': shift_name,
-                        'Tipo': shift_type,
-                    })
+                    row = [f"AGT_{agent_id:03d}", DAYS[day], horario, break_time, shift_name, shift_type]
                 else:
-                    detailed_data.append({
-                        'Agente': f"AGT_{agent_id:03d}",
-                        'Dia': ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][day],
-                        'Horario': "DSO",
-                        'Break': "",
-                        'Turno': shift_name,
-                        'Tipo': 'DSO',
-                    })
+                    row = [f"AGT_{agent_id:03d}", DAYS[day], "DSO", "", shift_name, "DSO"]
+                ws_details.append(row)
+                csv_writer.writerow(row)
+                summary_counts[(agent_id, shift_name)] += 1
             agent_id += 1
-    df_detailed = pd.DataFrame(detailed_data)
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_detailed.to_excel(writer, sheet_name='Horarios_Semanales', index=False)
-        df_summary = df_detailed.groupby(['Agente', 'Turno']).size().reset_index(name='Dias_Trabajo')
-        df_summary.to_excel(writer, sheet_name='Resumen_Agentes', index=False)
-        df_shifts = pd.DataFrame([
-            {'Turno': shift, 'Agentes': count} for shift, count in assignments.items()
-        ])
-        df_shifts.to_excel(writer, sheet_name='Turnos_Asignados', index=False)
-    return output.getvalue()
+
+    for (agent_idx, shift_name), cnt in summary_counts.items():
+        ws_summary.append([f"AGT_{agent_idx:03d}", shift_name, cnt])
+
+    for shift, count in assignments.items():
+        ws_shifts.append([shift, count])
+
+    excel_io = BytesIO()
+    wb.save(excel_io)
+    excel_bytes = excel_io.getvalue()
+
+    csv_bytes = csv_buffer.getvalue().encode("utf-8")
+    return excel_bytes, csv_bytes
 
 
 def run_complete_optimization(file_stream, config=None):
@@ -1858,6 +1886,7 @@ def run_complete_optimization(file_stream, config=None):
         cfg = apply_configuration(config)
 
         print("\U0001F4D6 [SCHEDULER] Leyendo archivo Excel...")
+        import pandas as pd
         df = pd.read_excel(file_stream)
         print("\u2705 [SCHEDULER] Archivo Excel leído correctamente")
 
@@ -1934,7 +1963,7 @@ def run_complete_optimization(file_stream, config=None):
         print("\u2705 [SCHEDULER] Optimización completada")
 
         metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
-        excel_bytes = export_detailed_schedule(assignments, patterns)
+        excel_bytes, csv_bytes = export_detailed_schedule(assignments, patterns)
 
         heatmaps = {}
         if metrics:
@@ -1973,7 +2002,7 @@ def run_complete_optimization(file_stream, config=None):
         }
         result["effective_config"] = _convert(cfg)
         print("\u2705 [SCHEDULER] Resultados preparados - RETORNANDO")
-        return result, excel_bytes
+        return result, excel_bytes, csv_bytes
 
     except Exception as e:
         print(f"\u274C [SCHEDULER] ERROR CRÍTICO: {str(e)}")

@@ -51,7 +51,7 @@ def test_generador_stores_and_renders_result():
     client = app.test_client()
     login(client)
     sys.modules['website.scheduler'].run_complete_optimization = (
-        lambda *a, **k: ({'metrics': {}}, b'')
+        lambda *a, **k: ({'metrics': {}}, b'', b'')
     )
     token = _csrf_token(client, '/generador')
     data = {'excel': (BytesIO(b'data'), 'test.xlsx'), 'csrf_token': token}
