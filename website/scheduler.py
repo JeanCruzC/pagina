@@ -13,6 +13,7 @@ import csv
 from zipfile import ZipFile
 
 import numpy as np
+import builtins
 try:
     import matplotlib
     matplotlib.use("Agg")  # Use a non-GUI backend for server-side generation
@@ -26,6 +27,14 @@ try:
     import psutil
 except Exception:  # pragma: no cover - optional dependency
     psutil = None
+
+VERBOSE = os.getenv("SCHEDULER_VERBOSE", "0") == "1"
+
+def _print(*args, **kwargs):
+    if VERBOSE:
+        builtins.print(*args, **kwargs)
+
+print = _print
 
 # Lookup table for population count and global context
 POP = np.fromiter((bin(i).count("1") for i in range(256)), dtype=np.uint8)
