@@ -82,6 +82,7 @@ DEFAULT_CONFIG = {
     "break_from_end": 2.5,
     "optimization_profile": "Equilibrado (Recomendado)",
     "ACTIVE_DAYS": list(range(7)),
+    "K": 1000,
 }
 
 
@@ -1129,6 +1130,10 @@ def generate_shifts_coverage_optimized(
 
     Logic mirrors ``generate_shifts_coverage_optimized`` in ``legacy/app1.py``
     but omits any Streamlit UI elements.
+
+    Configuration keys:
+        K (int): maximum number of high-scoring patterns kept when the
+            ``JEAN Personalizado`` profile is active.
     """
     cfg = merge_config(cfg)
     if demand_packed is None:
@@ -1150,11 +1155,18 @@ def generate_shifts_coverage_optimized(
             efficiency_bonus=cfg.get('efficiency_bonus', 1.0),
             max_patterns=cfg.get('max_patterns')
         )
-        if not cfg.get('use_ft', True):
-            patterns = {k: v for k, v in patterns.items() if not k.startswith('FT')}
-        if not cfg.get('use_pt', True):
-            patterns = {k: v for k, v in patterns.items() if not k.startswith('PT')}
-        yield patterns
+        k = cfg.get('K')
+        heap = []
+        for name, pat in patterns.items():
+            if not cfg.get('use_ft', True) and name.startswith('FT'):
+                continue
+            if not cfg.get('use_pt', True) and name.startswith('PT'):
+                continue
+            score = score_pattern(pat, demand_packed)
+            heapq.heappush(heap, (score, name, pat))
+            if k and len(heap) > k:
+                heapq.heappop(heap)
+        yield {name: pat for _, name, pat in heap}
         return
     selected = 0
     seen = set()
@@ -1641,7 +1653,7 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
 
     Based on ``solve_in_chunks_optimized`` from ``legacy/app1.py``.
     """
-    scored = []
+    heap = []
     seen = set()
     if demand_packed is None:
         demand_packed = np.packbits(demand_matrix > 0, axis=1).astype(np.uint8)
@@ -1650,14 +1662,14 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
         if key in seen:
             continue
         seen.add(key)
-        scored.append((name, pat, score_pattern(pat, demand_packed)))
-    scored.sort(key=lambda x: x[2], reverse=True)
+        score = score_pattern(pat, demand_packed)
+        heapq.heappush(heap, (-score, name, pat))
     assignments_total = {}
     coverage = np.zeros_like(demand_matrix)
-    idx = 0
-    while idx < len(scored):
+    while heap:
         chunk_size = adaptive_chunk_size(base_chunk_size)
-        chunk_dict = {n: p for n, p, _ in scored[idx:idx + chunk_size]}
+        chunk = heapq.nsmallest(min(chunk_size, len(heap)), heap)
+        chunk_dict = {n: p for _, n, p in chunk}
         remaining = np.maximum(0, demand_matrix - coverage)
         if not np.any(remaining):
             break
@@ -1668,7 +1680,8 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
             assignments_total[n] = assignments_total.get(n, 0) + val
             pat_matrix = np.unpackbits(chunk_dict[n].reshape(7, -1), axis=1)[:, :demand_matrix.shape[1]]
             coverage += pat_matrix * val
-        idx += chunk_size
+        for _ in range(len(chunk)):
+            heapq.heappop(heap)
         gc.collect()
         emergency_cleanup()
         if not np.any(np.maximum(0, demand_matrix - coverage)):

@@ -221,6 +221,10 @@ memory and caps generation automatically.  Patterns are generated and solved
 in batches (2000 patterns by default), sorted by a quick heuristic score, so even 50&nbsp;000+ combinations
 can be handled without exhausting RAM.  `generate_shifts_coverage_optimized()`
 still honours the `batch_size` option to emit patterns in smaller chunks.
+The configuration also exposes a `K` parameter that bounds how many of the
+best scoring patterns are kept in memory.  A heap is used internally to retain
+only the top `K` entries, discarding lower scored ones to further reduce the
+memory footprint.
 
 ## Memory-aware Generation
 
