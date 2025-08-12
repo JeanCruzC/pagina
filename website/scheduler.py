@@ -26,6 +26,21 @@ except Exception:
 
 print(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
 
+from threading import RLock
+from functools import wraps
+
+_MODEL_LOCK = RLock()
+
+
+def single_model(func):
+    """Ensure that only one optimization model is built/solved at a time."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with _MODEL_LOCK:
+            return func(*args, **kwargs)
+
+    return wrapper
+
 # Default configuration values used when no override is supplied
 DEFAULT_CONFIG = {
     # Streamlit legacy defaults from ``legacy/app1.py``
@@ -1106,6 +1121,7 @@ def generate_shifts_coverage_optimized(
             break
 
 
+@single_model
 def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=None):
     """Precision solver with greedy fallback.
 
@@ -1309,6 +1325,7 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None):
     return {**ft_assignments, **pt_assignments}, "FT_NO_EXCESS_THEN_PT"
 
 
+@single_model
 def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
     """Linear program focusing on full-time coverage only."""
     cfg = merge_config(cfg)
@@ -1333,7 +1350,7 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
             demand = demand_matrix[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage <= demand
-    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
+    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=1))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in ft_shifts:
@@ -1343,6 +1360,7 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
     return assignments
 
 
+@single_model
 def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
     """Solve for part-time assignments covering ``remaining_demand``."""
     cfg = merge_config(cfg)
@@ -1374,7 +1392,7 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
             demand = remaining_demand[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage - excess_vars[(d, h)] <= demand
-    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
+    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=1))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in pt_shifts:
@@ -1466,6 +1484,7 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
     return assignments, "GREEDY_FALLBACK"
 
 
+@single_model
 def solve_with_pulp(demand_matrix, patterns, config):
     """Solve assignment problem using PuLP.
 
@@ -1522,7 +1541,7 @@ def solve_with_pulp(demand_matrix, patterns, config):
             prob += coverage_expr + deficit[(d, h)] >= demand
             prob += coverage_expr - excess[(d, h)] <= demand
 
-    solver = pl.PULP_CBC_CMD(msg=0, timeLimit=cfg["TIME_SOLVER"])
+    solver = pl.PULP_CBC_CMD(msg=0, timeLimit=cfg["TIME_SOLVER"], threads=1)
     status = prob.solve(solver)
 
     assignments = {
