@@ -65,8 +65,9 @@
   {% endif %}
 
   <!-- Heatmaps -->
+  {% if resultado and resultado.heatmaps %}
   <div class="row g-4 mb-4">
-    {% if resultado and resultado.heatmaps and resultado.heatmaps.demand %}
+    {% if resultado.heatmaps.demand %}
     <div class="col-md-6">
       <div class="card">
         <div class="card-header">Demanda requerida</div>
@@ -75,7 +76,7 @@
     </div>
     {% endif %}
 
-    {% if resultado and resultado.heatmaps and resultado.heatmaps.coverage %}
+    {% if resultado.heatmaps.coverage %}
     <div class="col-md-6">
       <div class="card">
         <div class="card-header">Cobertura asignada</div>
@@ -84,7 +85,7 @@
     </div>
     {% endif %}
 
-    {% if resultado and resultado.heatmaps and resultado.heatmaps.difference %}
+    {% if resultado.heatmaps.difference %}
     <div class="col-12">
       <div class="card">
         <div class="card-header">Diferencias (Cobertura - Demanda)</div>
@@ -93,6 +94,7 @@
     </div>
     {% endif %}
   </div>
+  {% endif %}
 
   <!-- Asignaciones -->
   {% if resultado and resultado.assignments %}

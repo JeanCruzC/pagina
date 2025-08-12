@@ -84,7 +84,7 @@ def generador():
 
         config = {}
         for key, value in request.form.items():
-            if key == "csrf_token":
+            if key in {"csrf_token", "generate_charts"}:
                 continue
             low = value.lower()
             if low in {"on", "true", "1"}:
@@ -104,9 +104,15 @@ def generador():
             except Exception:
                 pass
 
+        generate_charts = (
+            request.form.get("generate_charts", "false").lower() in {"on", "true", "1"}
+        )
+
         from ..scheduler import run_complete_optimization
 
-        result, excel_bytes, csv_bytes = run_complete_optimization(excel_file, config=config)
+        result, excel_bytes, csv_bytes = run_complete_optimization(
+            excel_file, config=config, generate_charts=generate_charts
+        )
 
         job_id = uuid.uuid4().hex
 
