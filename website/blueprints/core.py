@@ -85,7 +85,7 @@ def generador():
 
         config = {}
         for key, value in request.form.items():
-            if key in {"csrf_token", "generate_charts"}:
+            if key == "csrf_token":
                 continue
             low = value.lower()
             if low in {"on", "true", "1"}:
