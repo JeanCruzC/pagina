@@ -106,6 +106,13 @@ def monitor_memory_usage():
     return psutil.virtual_memory().percent
 
 
+def log_memory(stage: str) -> float:
+    """Log and return current memory usage percentage."""
+    percent = psutil.virtual_memory().percent
+    print(f"[MEMORY] {stage}: {percent:.2f}%")
+    return percent
+
+
 def adaptive_chunk_size(base=5000):
     """Adjust chunk size based on memory usage."""
     usage = monitor_memory_usage()
@@ -161,6 +168,7 @@ def score_and_filter_patterns(patterns, demand_matrix, *, keep_percentage=0.3,
     """Score patterns against demand and keep the best ones."""
     if demand_matrix is None or not patterns:
         return patterns
+    log_memory("Before Top-K selection")
     dm = np.asarray(demand_matrix, dtype=float)
     days, hours = dm.shape
     daily_totals = dm.sum(axis=1)
@@ -193,6 +201,7 @@ def score_and_filter_patterns(patterns, demand_matrix, *, keep_percentage=0.3,
     scores.sort(key=lambda x: x[1], reverse=True)
     keep_n = max(1, int(len(scores) * keep_percentage))
     top = {name for name, _ in scores[:keep_n]}
+    log_memory("After Top-K selection")
     return {k: patterns[k] for k in top}
 
 
@@ -203,6 +212,7 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
                          critical_bonus=2.0, efficiency_bonus=1.0,
                          max_patterns_per_shift=None, smart_start_hours=False):
     """Load shift patterns from ``cfg`` and return them as a dict."""
+    log_memory("Before pattern generation")
     if isinstance(cfg, str):
         with open(cfg, "r") as fh:
             data = json.load(fh)
@@ -307,6 +317,7 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
             critical_bonus=critical_bonus,
             efficiency_bonus=efficiency_bonus,
         )
+    log_memory("After pattern generation")
     return shifts_coverage
 
 
@@ -494,6 +505,7 @@ def heatmap(matrix: np.ndarray, title: str) -> BytesIO:
 
 def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
     """Return a 7x24 demand matrix from an Ntech formatted dataframe."""
+    log_memory("Before demand load")
 
     demand_matrix = np.zeros((7, 24), dtype=float)
 
@@ -530,6 +542,7 @@ def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
         except (ValueError, TypeError, IndexError):
             continue
 
+    log_memory("After demand load")
     return demand_matrix
 
 
@@ -1774,11 +1787,14 @@ def run_complete_optimization(file_stream, config=None):
         print("\u2705 [SCHEDULER] Archivo Excel leído correctamente")
 
         print("\U0001F4CA [SCHEDULER] Procesando matriz de demanda...")
+        log_memory("Before demand load")
         demand_matrix = load_demand_matrix_from_df(df)
+        log_memory("After demand load")
         analysis = analyze_demand_matrix(demand_matrix)
         print("\u2705 [SCHEDULER] Matriz de demanda procesada")
 
         print("\U0001F501 [SCHEDULER] Generando patrones de turnos...")
+        log_memory("Before pattern generation")
         patterns = {}
         if cfg.get("optimization_profile") == "JEAN Personalizado":
             slot_minutes = int(cfg.get("slot_duration_minutes", 30))
@@ -1815,9 +1831,11 @@ def run_complete_optimization(file_stream, config=None):
                 patterns.update(batch)
                 if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
                     break
+        log_memory("After pattern generation")
         print("[SCHEDULER] Patrones generados")
 
         print("[SCHEDULER] Iniciando optimizacion...")
+        log_memory("Before solve")
 
         if PULP_AVAILABLE:
             print("[OPTIMIZER] Resolviendo con PuLP (CBC)…")
@@ -1836,13 +1854,16 @@ def run_complete_optimization(file_stream, config=None):
             )
             status = "GREEDY"
             total_agents = sum(assignments.values())
+        log_memory("After solve")
 
         print(f"[OPTIMIZER] Status: {status}")
         print(f"[OPTIMIZER] Total agents: {total_agents}")
         print("\u2705 [SCHEDULER] Optimización completada")
 
         metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
+        log_memory("Before export")
         excel_bytes = export_detailed_schedule(assignments, patterns)
+        log_memory("After export")
         if excel_bytes:
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
             tmp.write(excel_bytes)
