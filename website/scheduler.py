@@ -8,7 +8,6 @@ from io import BytesIO
 from itertools import combinations, permutations
 
 from flask import session
-import base64
 import tempfile
 
 import numpy as np
@@ -1863,11 +1862,12 @@ def run_complete_optimization(file_stream, config=None):
         else:
             maps = generate_all_heatmaps(demand_matrix)
         for key, fig in maps.items():
-            buf = BytesIO()
-            fig.savefig(buf, format="png", bbox_inches="tight")
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            fig.savefig(tmp.name, format="png", bbox_inches="tight")
             plt.close(fig)
-            buf.seek(0)
-            heatmaps[key] = base64.b64encode(buf.getvalue()).decode("utf-8")
+            tmp.flush()
+            tmp.close()
+            heatmaps[key] = tmp.name
 
         print("\U0001F4E4 [SCHEDULER] Preparando resultados...")
 

@@ -1,5 +1,7 @@
 import os
 import json
+import base64
+import tempfile
 from functools import wraps
 from flask import (
     Blueprint,
@@ -107,8 +109,13 @@ def generador():
         if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
             return jsonify(result)
 
-        # Persist a summary of the result so it can be retrieved later
-        session["resultado"] = result
+        # Persist result in a temporary file and store path in session
+        tmp = tempfile.NamedTemporaryFile(
+            delete=False, suffix=".json", mode="w", encoding="utf-8"
+        )
+        with tmp:
+            json.dump(result, tmp)
+        session["resultado_path"] = tmp.name
         return redirect(url_for("core.resultados"))
 
     return render_template("generador.html")
@@ -117,11 +124,28 @@ def generador():
 @bp.route("/resultados")
 @login_required
 def resultados():
-    resultado = session.get("resultado")
-    if not resultado:
+    resultado_path = session.get("resultado_path")
+    if not resultado_path or not os.path.exists(resultado_path):
         return redirect(url_for("core.generador"))
-    # Optional: clear stored result to avoid stale data
-    session.pop("resultado", None)
+
+    with open(resultado_path) as f:
+        resultado = json.load(f)
+
+    heatmaps = resultado.get("heatmaps", {})
+    for key, path in list(heatmaps.items()):
+        try:
+            with open(path, "rb") as img:
+                heatmaps[key] = base64.b64encode(img.read()).decode("utf-8")
+            os.remove(path)
+        except (OSError, FileNotFoundError):
+            heatmaps[key] = None
+
+    session.pop("resultado_path", None)
+    try:
+        os.remove(resultado_path)
+    except OSError:
+        pass
+
     return render_template("resultados.html", resultado=resultado)
 
 
