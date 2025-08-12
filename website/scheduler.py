@@ -18,6 +18,15 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import psutil
 
+# Lookup table for population count and global context
+POP = np.fromiter((bin(i).count("1") for i in range(256)), dtype=np.uint8)
+CONTEXT = {}
+
+
+def unpack_pattern(packed: np.ndarray, cols: int) -> np.ndarray:
+    """Unpack a packed weekly pattern to shape (7, cols)."""
+    return np.unpackbits(packed.reshape(7, -1), axis=1)[:, :cols]
+
 try:
     import pulp as pl
     PULP_AVAILABLE = True
@@ -89,7 +98,8 @@ def _build_pattern(days, durations, start_hour, break_len, break_from_start,
                 slot = b_slot + b
                 d_off, idx = divmod(slot, slots_per_day)
                 pattern[(day + d_off) % 7, idx] = 0
-    return pattern.flatten()
+    pattern = np.packbits(pattern.astype(bool), axis=1).astype(np.uint8)
+    return pattern.reshape(-1)
 
 
 def memory_limit_patterns(slots_per_day):
@@ -136,12 +146,11 @@ def get_smart_start_hours(demand_matrix, max_hours=12):
     return hours
 
 
-def score_pattern(pattern, demand_matrix):
-    """Return the total coverage achieved by ``pattern`` against demand."""
-    dm = demand_matrix.flatten()
-    pat = pattern.astype(int)
-    lim = min(len(dm), len(pat))
-    return int(np.minimum(pat[:lim], dm[:lim]).sum())
+def score_pattern(pattern_packed: np.ndarray, demand_packed: np.ndarray) -> int:
+    """Return coverage count for packed ``pattern`` vs packed demand."""
+    pat_bytes = pattern_packed.reshape(7, -1)
+    dm_bytes = demand_packed[:, :pat_bytes.shape[1]]
+    return int(POP[pat_bytes & dm_bytes].sum())
 
 
 def _resize_matrix(matrix, target_cols):
@@ -162,6 +171,7 @@ def score_and_filter_patterns(patterns, demand_matrix, *, keep_percentage=0.3,
     if demand_matrix is None or not patterns:
         return patterns
     dm = np.asarray(demand_matrix, dtype=float)
+    dm_packed = np.packbits(dm > 0, axis=1).astype(np.uint8)
     days, hours = dm.shape
     daily_totals = dm.sum(axis=1)
     hourly_totals = dm.sum(axis=0)
@@ -174,21 +184,24 @@ def score_and_filter_patterns(patterns, demand_matrix, *, keep_percentage=0.3,
         peak_hours = []
     scores = []
     for name, pat in patterns.items():
-        cols = len(pat) // 7
-        pat_mat = pat.reshape(7, cols)
+        pat_bytes = pat.reshape(7, -1)
+        cols = pat_bytes.shape[1] * 8
         dm_resized = _resize_matrix(dm, cols)
-        coverage = np.minimum(pat_mat, dm_resized)
-        score = coverage.sum()
-        total_hours = pat_mat.sum()
+        coverage_val = POP[pat_bytes & dm_packed[:, :pat_bytes.shape[1]]].sum()
+        total_hours = POP[pat_bytes].sum()
+        score = float(coverage_val)
         if total_hours > 0:
-            efficiency = coverage.sum() / total_hours
+            efficiency = coverage_val / total_hours
             score += efficiency * efficiency_bonus
-        if len(critical_days) > 0:
-            score += coverage[critical_days].sum() * critical_bonus
-        if len(peak_hours) > 0:
-            ph = [h for h in peak_hours if h < cols]
-            if ph:
-                score += coverage[:, ph].sum() * peak_bonus
+        if len(critical_days) > 0 or len(peak_hours) > 0:
+            pat_full = np.unpackbits(pat_bytes, axis=1)[:, :cols]
+            coverage = np.minimum(pat_full, dm_resized)
+            if len(critical_days) > 0:
+                score += coverage[critical_days].sum() * critical_bonus
+            if len(peak_hours) > 0:
+                ph = [h for h in peak_hours if h < cols]
+                if ph:
+                    score += coverage[:, ph].sum() * peak_bonus
         scores.append((name, score))
     scores.sort(key=lambda x: x[1], reverse=True)
     keep_n = max(1, int(len(scores) * keep_percentage))
@@ -875,7 +888,8 @@ def generate_weekly_pattern_with_break(start_hour: float, duration: int, working
             t = break_start + b
             d_off, idx = divmod(int(t), 24)
             pattern[(day + d_off) % 7, idx] = 0
-    return pattern.flatten()
+    pattern = np.packbits(pattern.astype(bool), axis=1).astype(np.uint8)
+    return pattern.reshape(-1)
 
 
 def generate_weekly_pattern_advanced(start_hour: float, duration: int, working_days: list, break_position: float, *, cfg=None) -> np.ndarray:
@@ -895,7 +909,8 @@ def generate_weekly_pattern_advanced(start_hour: float, duration: int, working_d
             and brk_hour < 24
         ):
             pattern[day, brk_hour] = 0
-    return pattern.flatten()
+    pattern = np.packbits(pattern.astype(bool), axis=1).astype(np.uint8)
+    return pattern.reshape(-1)
 
 
 def evaluate_solution_quality(coverage_matrix: np.ndarray, demand_matrix: np.ndarray) -> float:
@@ -933,7 +948,8 @@ def generate_weekly_pattern(start_hour, duration, working_days, dso_day=None, br
                 t = break_hour + b
                 d_off, idx = divmod(int(t), 24)
                 pattern[(day + d_off) % 7, idx] = 0
-    return pattern.flatten()
+    pattern = np.packbits(pattern.astype(bool), axis=1).astype(np.uint8)
+    return pattern.reshape(-1)
 
 
 def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break_len=1, *, cfg=None):
@@ -958,7 +974,8 @@ def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break
             t = break_hour + b
             d_off, idx = divmod(int(t), 24)
             pattern[(day + d_off) % 7, idx] = 0
-    return pattern.flatten()
+    pattern = np.packbits(pattern.astype(bool), axis=1).astype(np.uint8)
+    return pattern.reshape(-1)
 
 
 def generate_weekly_pattern_simple(start_hour, duration, working_days):
@@ -969,14 +986,16 @@ def generate_weekly_pattern_simple(start_hour, duration, working_days):
             t = start_hour + h
             d_off, idx = divmod(int(t), 24)
             pattern[(day + d_off) % 7, idx] = 1
-    return pattern.flatten()
+    pattern = np.packbits(pattern.astype(bool), axis=1).astype(np.uint8)
+    return pattern.reshape(-1)
 
 
 def generate_weekly_pattern_pt5(start_hour, working_days):
     """Five 5h days with the last reduced to 4h."""
     pattern = np.zeros((7, 24), dtype=np.int8)
     if not working_days:
-        return pattern.flatten()
+        pattern = np.packbits(pattern.astype(bool), axis=1).astype(np.uint8)
+        return pattern.reshape(-1)
     four_hour_day = working_days[-1]
     for day in working_days:
         hours = 4 if day == four_hour_day else 5
@@ -984,7 +1003,8 @@ def generate_weekly_pattern_pt5(start_hour, working_days):
             t = start_hour + h
             d_off, idx = divmod(int(t), 24)
             pattern[(day + d_off) % 7, idx] = 1
-    return pattern.flatten()
+    pattern = np.packbits(pattern.astype(bool), axis=1).astype(np.uint8)
+    return pattern.reshape(-1)
 
 
 def generate_shifts_coverage_corrected(*, max_patterns=None, batch_size=None, cfg=None):
@@ -1054,6 +1074,7 @@ def generate_shifts_coverage_optimized(
     batch_size=2000,
     quality_threshold=0,
     cfg=None,
+    demand_packed=None,
 ):
     """Yield scored pattern batches.
 
@@ -1061,6 +1082,8 @@ def generate_shifts_coverage_optimized(
     but omits any Streamlit UI elements.
     """
     cfg = merge_config(cfg)
+    if demand_packed is None:
+        demand_packed = np.packbits(demand_matrix > 0, axis=1).astype(np.uint8)
     profile = cfg.get('optimization_profile', 'Equilibrado (Recomendado)')
     if profile == 'JEAN Personalizado':
         slot_minutes = int(cfg.get('slot_duration_minutes', 30))
@@ -1094,7 +1117,7 @@ def generate_shifts_coverage_optimized(
             if key in seen:
                 continue
             seen.add(key)
-            if score_pattern(pat, demand_matrix) >= quality_threshold:
+            if score_pattern(pat, demand_packed) >= quality_threshold:
                 batch[name] = pat
                 selected += 1
                 if max_patterns is not None and selected >= max_patterns:
@@ -1157,6 +1180,10 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         deficit_vars = {}
         excess_vars = {}
         hours = demand_matrix.shape[1]
+        patterns_unpacked = {
+            s: np.unpackbits(p.reshape(7, -1), axis=1)[:, :hours]
+            for s, p in shifts_coverage.items()
+        }
         for day in range(7):
             for hour in range(hours):
                 deficit_vars[(day, hour)] = pl.LpVariable(f"deficit_{day}_{hour}", 0, None)
@@ -1177,7 +1204,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         for day in range(7):
             for hour in range(hours):
                 coverage = pl.lpSum([
-                    shift_vars[shift] * shifts_coverage[shift][day * hours + hour]
+                    shift_vars[shift] * patterns_unpacked[shift][day, hour]
                     for shift in shifts_list
                 ])
                 demand = demand_matrix[day, hour]
@@ -1247,7 +1274,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         for d in range(7):
             for h in range(hours):
                 coverage = pl.lpSum(
-                    shift_vars[s] * shifts_coverage[s][d * hours + h] for s in shifts_list
+                    shift_vars[s] * patterns_unpacked[s][d, h] for s in shifts_list
                 )
                 demand = demand_matrix[d, h]
                 prob += coverage + deficit_vars[(d, h)] >= demand
@@ -1270,8 +1297,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
             day_demand = demand_matrix[d].sum()
             if day_demand > 0:
                 day_coverage = pl.lpSum(
-                    shift_vars[s]
-                    * np.sum(np.array(shifts_coverage[s]).reshape(7, hours)[d])
+                    shift_vars[s] * np.sum(patterns_unpacked[s][d])
                     for s in shifts_list
                 )
                 prob += day_coverage <= day_demand * 1.15
@@ -1301,8 +1327,7 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None):
     ft_assignments = optimize_ft_no_excess(ft_shifts, demand_matrix, cfg=cfg)
     ft_coverage = np.zeros_like(demand_matrix)
     for name, count in ft_assignments.items():
-        slots = len(ft_shifts[name]) // 7
-        pattern = np.array(ft_shifts[name]).reshape(7, slots)
+        pattern = np.unpackbits(ft_shifts[name].reshape(7, -1), axis=1)[:, :demand_matrix.shape[1]]
         ft_coverage += pattern * count
     remaining_demand = np.maximum(0, demand_matrix - ft_coverage)
     pt_assignments = optimize_pt_complete(pt_shifts, remaining_demand, cfg=cfg)
@@ -1321,6 +1346,10 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
     ft_vars = {s: pl.LpVariable(f"ft_{s}", 0, max_ft_per_shift, pl.LpInteger) for s in ft_shifts}
     deficit_vars = {}
     hours = demand_matrix.shape[1]
+    patterns_unpacked = {
+        s: np.unpackbits(p.reshape(7, -1), axis=1)[:, :hours]
+        for s, p in ft_shifts.items()
+    }
     for d in range(7):
         for h in range(hours):
             deficit_vars[(d, h)] = pl.LpVariable(f"ft_deficit_{d}_{h}", 0, None)
@@ -1329,7 +1358,7 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
     prob += total_deficit * 1000 + total_ft_agents * 1
     for d in range(7):
         for h in range(hours):
-            coverage = pl.lpSum(ft_vars[s] * ft_shifts[s][d * hours + h] for s in ft_shifts)
+            coverage = pl.lpSum(ft_vars[s] * patterns_unpacked[s][d, h] for s in ft_shifts)
             demand = demand_matrix[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage <= demand
@@ -1358,6 +1387,10 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
     deficit_vars = {}
     excess_vars = {}
     hours = remaining_demand.shape[1]
+    patterns_unpacked = {
+        s: np.unpackbits(p.reshape(7, -1), axis=1)[:, :hours]
+        for s, p in pt_shifts.items()
+    }
     for d in range(7):
         for h in range(hours):
             deficit_vars[(d, h)] = pl.LpVariable(f"pt_deficit_{d}_{h}", 0, None)
@@ -1370,7 +1403,7 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
         prob += total_excess == 0
     for d in range(7):
         for h in range(hours):
-            coverage = pl.lpSum(pt_vars[s] * pt_shifts[s][d * hours + h] for s in pt_shifts)
+            coverage = pl.lpSum(pt_vars[s] * patterns_unpacked[s][d, h] for s in pt_shifts)
             demand = remaining_demand[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage - excess_vars[(d, h)] <= demand
@@ -1418,8 +1451,9 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
         best_score = -float("inf")
 
         for name in shifts_list:
-            slots = len(shifts_coverage[name]) // 7
-            pattern = np.array(shifts_coverage[name]).reshape(7, slots)
+            pattern = np.unpackbits(
+                shifts_coverage[name].reshape(7, -1), axis=1
+            )[:, :demand_matrix.shape[1]]
             new_cov = coverage + pattern
 
             current_def = np.maximum(0, demand_matrix - coverage)
@@ -1489,6 +1523,10 @@ def solve_with_pulp(demand_matrix, patterns, config):
     cfg = merge_config(config)
     hours = demand_matrix.shape[1]
     shifts = list(patterns.keys())
+    patterns_unpacked = {
+        s: np.unpackbits(p.reshape(7, -1), axis=1)[:, :hours]
+        for s, p in patterns.items()
+    }
 
     prob = pl.LpProblem("schedule_with_pulp", pl.LpMinimize)
     max_per_shift = int(demand_matrix.max() * cfg["agent_limit_factor"])
@@ -1516,7 +1554,7 @@ def solve_with_pulp(demand_matrix, patterns, config):
     for d in range(7):
         for h in range(hours):
             coverage_expr = pl.lpSum(
-                shift_vars[s] * patterns[s][d * hours + h] for s in shifts
+                shift_vars[s] * patterns_unpacked[s][d, h] for s in shifts
             )
             demand = demand_matrix[d, h]
             prob += coverage_expr + deficit[(d, h)] >= demand
@@ -1533,7 +1571,7 @@ def solve_with_pulp(demand_matrix, patterns, config):
 
     coverage = np.zeros_like(demand_matrix, dtype=float)
     for s, count in assignments.items():
-        coverage += patterns[s].reshape(7, hours) * count
+        coverage += patterns_unpacked[s] * count
 
     total_agents_val = int(sum(assignments.values()))
     solver_status = pl.LpStatus.get(prob.status, str(prob.status))
@@ -1545,19 +1583,21 @@ def solve_with_pulp(demand_matrix, patterns, config):
     }
 
 
-def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, *, cfg=None):
+def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, *, cfg=None, demand_packed=None):
     """Solve batches sorted by score.
 
     Based on ``solve_in_chunks_optimized`` from ``legacy/app1.py``.
     """
     scored = []
     seen = set()
+    if demand_packed is None:
+        demand_packed = np.packbits(demand_matrix > 0, axis=1).astype(np.uint8)
     for name, pat in shifts_coverage.items():
         key = hashlib.md5(pat).digest()
         if key in seen:
             continue
         seen.add(key)
-        scored.append((name, pat, score_pattern(pat, demand_matrix)))
+        scored.append((name, pat, score_pattern(pat, demand_packed)))
     scored.sort(key=lambda x: x[2], reverse=True)
     assignments_total = {}
     coverage = np.zeros_like(demand_matrix)
@@ -1573,8 +1613,8 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
         print("\u2705 [OPTIMIZER] optimize_with_precision_targeting completada")
         for n, val in assigns.items():
             assignments_total[n] = assignments_total.get(n, 0) + val
-            slots = len(chunk_dict[n]) // 7
-            coverage += chunk_dict[n].reshape(7, slots) * val
+            pat_matrix = np.unpackbits(chunk_dict[n].reshape(7, -1), axis=1)[:, :demand_matrix.shape[1]]
+            coverage += pat_matrix * val
         idx += chunk_size
         gc.collect()
         emergency_cleanup()
@@ -1591,7 +1631,9 @@ def analyze_results(assignments, shifts_coverage, demand_matrix, coverage_matrix
     compute_coverage = coverage_matrix is None
     if compute_coverage:
         slots_per_day = (
-            len(next(iter(shifts_coverage.values()))) // 7 if shifts_coverage else 24
+            (len(next(iter(shifts_coverage.values()))) // 7) * 8
+            if shifts_coverage
+            else 24
         )
         coverage_matrix = np.zeros((7, slots_per_day), dtype=np.int16)
     else:
@@ -1608,8 +1650,9 @@ def analyze_results(assignments, shifts_coverage, demand_matrix, coverage_matrix
             pt_agents += count
         if compute_coverage:
             weekly_pattern = shifts_coverage[shift_name]
-            slots_per_day = len(weekly_pattern) // 7
-            pattern_matrix = np.array(weekly_pattern).reshape(7, slots_per_day)
+            pattern_matrix = np.unpackbits(
+                weekly_pattern.reshape(7, -1), axis=1
+            )[:, :slots_per_day]
             coverage_matrix += pattern_matrix * count
 
     total_demand = demand_matrix.sum()
@@ -1651,8 +1694,10 @@ def export_detailed_schedule(assignments, shifts_coverage):
     agent_id = 1
     for shift_name, count in assignments.items():
         weekly_pattern = shifts_coverage[shift_name]
-        slots_per_day = len(weekly_pattern) // 7
-        pattern_matrix = np.array(weekly_pattern).reshape(7, slots_per_day)
+        slots_per_day = (len(weekly_pattern) // 7) * 8
+        pattern_matrix = np.unpackbits(
+            weekly_pattern.reshape(7, -1), axis=1
+        )[:, :slots_per_day]
         parts = shift_name.split('_')
         start_hour = _extract_start_hour(shift_name)
         if shift_name.startswith('FT10p8'):
@@ -1776,6 +1821,8 @@ def run_complete_optimization(file_stream, config=None):
         print("\U0001F4CA [SCHEDULER] Procesando matriz de demanda...")
         demand_matrix = load_demand_matrix_from_df(df)
         analysis = analyze_demand_matrix(demand_matrix)
+        demand_packed = np.packbits(demand_matrix > 0, axis=1).astype(np.uint8)
+        CONTEXT["demand_packed"] = demand_packed
         print("\u2705 [SCHEDULER] Matriz de demanda procesada")
 
         print("\U0001F501 [SCHEDULER] Generando patrones de turnos...")
@@ -1811,6 +1858,7 @@ def run_complete_optimization(file_stream, config=None):
                 batch_size=cfg.get("batch_size", 2000),
                 quality_threshold=cfg.get("quality_threshold", 0),
                 cfg=cfg,
+                demand_packed=demand_packed,
             ):
                 patterns.update(batch)
                 if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
@@ -1833,6 +1881,7 @@ def run_complete_optimization(file_stream, config=None):
                 demand_matrix,
                 base_chunk_size=cfg.get("base_chunk_size", 10000),
                 cfg=cfg,
+                demand_packed=demand_packed,
             )
             status = "GREEDY"
             total_agents = sum(assignments.values())
