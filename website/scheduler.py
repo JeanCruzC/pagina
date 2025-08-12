@@ -1874,10 +1874,20 @@ def export_detailed_schedule(assignments, shifts_coverage):
     return excel_bytes, csv_bytes
 
 
-def run_complete_optimization(file_stream, config=None):
+def run_complete_optimization(file_stream, config=None, generate_charts=False):
     """Run the full optimization pipeline and return serialized results.
 
     The logic mirrors the interactive workflow in ``legacy/app1.py``.
+
+    Parameters
+    ----------
+    file_stream: File-like object
+        Excel file containing demand data.
+    config: dict, optional
+        Additional configuration options.
+    generate_charts: bool, optional
+        When ``True`` heatmaps for demand and coverage are generated. This
+        is disabled by default to save processing time and memory.
     """
     print("\U0001F50D [SCHEDULER] Iniciando run_complete_optimization")
     print(f"\U0001F50D [SCHEDULER] Config recibido: {config}")
@@ -1966,21 +1976,22 @@ def run_complete_optimization(file_stream, config=None):
         excel_bytes, csv_bytes = export_detailed_schedule(assignments, patterns)
 
         heatmaps = {}
-        if metrics:
-            maps = generate_all_heatmaps(
-                demand_matrix,
-                metrics.get("total_coverage"),
-                metrics.get("diff_matrix"),
-            )
-        else:
-            maps = generate_all_heatmaps(demand_matrix)
-        for key, fig in maps.items():
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-            fig.savefig(tmp.name, format="png", bbox_inches="tight")
-            plt.close(fig)
-            tmp.flush()
-            tmp.close()
-            heatmaps[key] = tmp.name
+        if generate_charts:
+            if metrics:
+                maps = generate_all_heatmaps(
+                    demand_matrix,
+                    metrics.get("total_coverage"),
+                    metrics.get("diff_matrix"),
+                )
+            else:
+                maps = generate_all_heatmaps(demand_matrix)
+            for key, fig in maps.items():
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+                fig.savefig(tmp.name, format="png", bbox_inches="tight")
+                tmp.flush()
+                tmp.close()
+                heatmaps[key] = tmp.name
+                plt.close("all")
 
         print("\U0001F4E4 [SCHEDULER] Preparando resultados...")
 
