@@ -1,6 +1,5 @@
 import os
 import json
-import base64
 import uuid
 from functools import wraps
 from flask import (
@@ -12,6 +11,9 @@ from flask import (
     session,
     flash,
     jsonify,
+    send_file,
+    abort,
+    after_this_request,
 )
 from flask_wtf.csrf import CSRFError
 
@@ -108,6 +110,20 @@ def generador():
 
         job_id = uuid.uuid4().hex
 
+        heatmaps = result.get("heatmaps", {})
+        if heatmaps:
+            heatmap_dir = os.path.join("/tmp", job_id)
+            os.makedirs(heatmap_dir, exist_ok=True)
+            for key, path in list(heatmaps.items()):
+                try:
+                    new_name = f"{key}.png"
+                    dest = os.path.join(heatmap_dir, new_name)
+                    os.replace(path, dest)
+                    heatmaps[key] = new_name
+                except OSError:
+                    heatmaps[key] = None
+            result["heatmaps"] = heatmaps
+
         json_path = os.path.join("/tmp", f"{job_id}.json")
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(result, f)
@@ -142,12 +158,10 @@ def resultados():
         resultado = json.load(f)
 
     heatmaps = resultado.get("heatmaps", {})
-    for key, path in list(heatmaps.items()):
-        try:
-            with open(path, "rb") as img:
-                heatmaps[key] = base64.b64encode(img.read()).decode("utf-8")
-            os.remove(path)
-        except (OSError, FileNotFoundError):
+    for key, fname in list(heatmaps.items()):
+        if fname:
+            heatmaps[key] = url_for("core.heatmap", job_id=job_id, filename=fname)
+        else:
             heatmaps[key] = None
 
     try:
@@ -163,6 +177,25 @@ def resultados():
     session.pop("job_id", None)
 
     return render_template("resultados.html", resultado=resultado)
+
+
+@bp.route("/heatmap/<job_id>/<path:filename>")
+@login_required
+def heatmap(job_id, filename):
+    path = os.path.join("/tmp", job_id, filename)
+    if not os.path.exists(path):
+        abort(404)
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            os.remove(path)
+            os.rmdir(os.path.join("/tmp", job_id))
+        except OSError:
+            pass
+        return response
+
+    return send_file(path, mimetype="image/png")
 
 
 
