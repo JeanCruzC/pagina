@@ -1995,11 +1995,6 @@ def run_complete_optimization(file_stream, config=None):
     }
 
 
-def run_optimization(file_stream, config=None):
-    """Backward-compatible alias for ``run_complete_optimization``."""
-    return run_complete_optimization(file_stream, config=config)
-
-
 def generate_excel(assignments, patterns):
     """Create Excel and CSV schedules from precomputed data."""
 
