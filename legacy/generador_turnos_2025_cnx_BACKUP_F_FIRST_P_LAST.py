@@ -3,7 +3,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import math
-from io import BytesIO
+from io import BytesIO, StringIO
+import csv
+from openpyxl import Workbook
 from pyworkforce.scheduling import MinAbsDifference
 from itertools import combinations, permutations, product
 import matplotlib.pyplot as plt
@@ -2647,23 +2649,36 @@ def _extract_start_hour(name: str) -> float:
     return 0.0
 
 def export_detailed_schedule(assignments, shifts_coverage):
-    """Exporta horarios semanales detallados - ROBUSTO"""
+    """Exporta horarios y devuelve bytes de Excel y CSV."""
     if not assignments:
-        return None
+        return None, None
 
-    detailed_data = []
+    wb = Workbook(write_only=True)
+    ws_detail = wb.create_sheet("Horarios_Semanales")
+    ws_summary = wb.create_sheet("Resumen_Agentes")
+    ws_shifts = wb.create_sheet("Turnos_Asignados")
+
+    header = ["Agente", "Dia", "Horario", "Break", "Turno", "Tipo"]
+    ws_detail.append(header)
+    ws_summary.append(["Agente", "Turno", "Dias_Trabajo"])
+    ws_shifts.append(["Turno", "Agentes"])
+
+    csv_buffer = StringIO()
+    csv_writer = csv.writer(csv_buffer)
+    csv_writer.writerow(header)
+
+    summary_counter = {}
     agent_id = 1
+    days_names = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
 
     for shift_name, count in assignments.items():
         weekly_pattern = shifts_coverage[shift_name]
         slots_per_day = len(weekly_pattern) // 7
         pattern_matrix = np.array(weekly_pattern).reshape(7, slots_per_day)
 
-        # Parsing robusto del nombre del turno
         parts = shift_name.split('_')
         start_hour = _extract_start_hour(shift_name)
 
-        # Determinar tipo y duración del turno
         if shift_name.startswith('FT10p8'):
             shift_type = 'FT'
             shift_duration = 10
@@ -2700,38 +2715,26 @@ def export_detailed_schedule(assignments, shifts_coverage):
             total_hours = 9
 
         for agent_num in range(count):
+            agent_label = f"AGT_{agent_id:03d}"
             for day in range(7):
                 day_pattern = pattern_matrix[day]
                 work_hours = np.where(day_pattern == 1)[0]
-
                 if len(work_hours) > 0:
                     start_idx = int(start_hour)
-                    # Calcular horario específico para cada tipo
-                    if shift_name.startswith('PT'):
-                        # Para PT usar las horas reales trabajadas según el patrón
-                        end_idx = (int(work_hours[-1]) + 1) % 24
-                        next_day = end_idx <= start_idx
-                        horario = f"{start_idx:02d}:00-{end_idx:02d}:00" + ("+1" if next_day else "")
-                    elif shift_name.startswith('FT10p8'):
+                    if shift_name.startswith('PT') or shift_name.startswith('FT10p8'):
                         end_idx = (int(work_hours[-1]) + 1) % 24
                         next_day = end_idx <= start_idx
                         horario = f"{start_idx:02d}:00-{end_idx:02d}:00" + ("+1" if next_day else "")
                     else:
-                        # Otros turnos normales
                         end_idx = int(work_hours[-1]) + 1
                         next_day = end_idx <= start_idx
-                        horario = (
-                            f"{start_idx:02d}:00-{end_idx % 24:02d}:00" + ("+1" if next_day else "")
-                        )
-
-                    # Calcular break específico
+                        horario = f"{start_idx:02d}:00-{end_idx % 24:02d}:00" + ("+1" if next_day else "")
                     if shift_name.startswith('PT'):
                         break_time = ""
                     elif shift_name.startswith('FT10p8'):
                         all_expected = set(range(int(start_hour), int(start_hour + total_hours)))
                         actual_hours = set(work_hours)
                         break_hours = all_expected - actual_hours
-
                         if break_hours:
                             break_hour = min(break_hours) % 24
                             break_end = (break_hour + 1) % 24
@@ -2741,52 +2744,34 @@ def export_detailed_schedule(assignments, shifts_coverage):
                         else:
                             break_time = ""
                     else:
-                        # Otros turnos con break de 1 hora
                         expected = list(range(start_idx, end_idx))
                         if next_day:
                             expected = list(range(start_idx, 24)) + list(range(0, end_idx % 24))
                         break_hours = set(expected) - set(work_hours)
-
                         if break_hours:
                             break_hour = min(break_hours)
                             break_time = f"{break_hour % 24:02d}:00-{((break_hour + 1) % 24) or 24:02d}:00"
                         else:
                             break_time = ""
-
-                    detailed_data.append({
-                        'Agente': f"AGT_{agent_id:03d}",
-                        'Dia': ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][day],
-                        'Horario': horario,
-                        'Break': break_time,
-                        'Turno': shift_name,
-                        'Tipo': shift_type
-                    })
+                    row = [agent_label, days_names[day], horario, break_time, shift_name, shift_type]
                 else:
-                    detailed_data.append({
-                        'Agente': f"AGT_{agent_id:03d}",
-                        'Dia': ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][day],
-                        'Horario': "DSO",
-                        'Break': "",
-                        'Turno': shift_name,
-                        'Tipo': 'DSO'
-                    })
+                    row = [agent_label, days_names[day], "DSO", "", shift_name, "DSO"]
+                ws_detail.append(row)
+                csv_writer.writerow(row)
+                summary_counter[(agent_label, shift_name)] = summary_counter.get((agent_label, shift_name), 0) + 1
             agent_id += 1
 
-    df_detailed = pd.DataFrame(detailed_data)
+    for (agent_label, shift_name), days in summary_counter.items():
+        ws_summary.append([agent_label, shift_name, days])
+
+    for shift, count in assignments.items():
+        ws_shifts.append([shift, count])
+
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_detailed.to_excel(writer, sheet_name='Horarios_Semanales', index=False)
-
-        df_summary = df_detailed.groupby(['Agente', 'Turno']).size().reset_index(name='Dias_Trabajo')
-        df_summary.to_excel(writer, sheet_name='Resumen_Agentes', index=False)
-
-        df_shifts = pd.DataFrame([
-            {'Turno': shift, 'Agentes': count}
-            for shift, count in assignments.items()
-        ])
-        df_shifts.to_excel(writer, sheet_name='Turnos_Asignados', index=False)
-
-    return output.getvalue()
+    wb.save(output)
+    excel_bytes = output.getvalue()
+    csv_bytes = csv_buffer.getvalue().encode('utf-8')
+    return excel_bytes, csv_bytes
 def solve_in_chunks_optimized(
     shifts_coverage: Dict[str, np.ndarray],
     demand_matrix: np.ndarray,
@@ -3026,13 +3011,20 @@ if st.button("🚀 Ejecutar Optimización", type="primary", use_container_width=
         
         # Exportación
         st.subheader("📥 Exportar Resultados")
-        excel_data = export_detailed_schedule(assignments, shifts_coverage)
+        excel_data, csv_data = export_detailed_schedule(assignments, shifts_coverage)
         if excel_data:
             st.download_button(
                 label="📊 Descargar Horarios Detallados",
                 data=excel_data,
                 file_name="horarios_semanales_detallados.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        if csv_data:
+            st.download_button(
+                label="📄 Descargar Horarios Detallados (CSV)",
+                data=csv_data,
+                file_name="horarios_semanales_detallados.csv",
+                mime="text/csv"
             )
     else:
         st.error("❌ Error al analizar los resultados")
