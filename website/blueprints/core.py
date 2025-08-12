@@ -1,7 +1,7 @@
 import os
 import json
 import base64
-import tempfile
+import uuid
 from functools import wraps
 from flask import (
     Blueprint,
@@ -104,18 +104,24 @@ def generador():
 
         from ..scheduler import run_complete_optimization
 
-        result = run_complete_optimization(excel_file, config=config)
+        result, excel_bytes = run_complete_optimization(excel_file, config=config)
+
+        job_id = uuid.uuid4().hex
+
+        json_path = os.path.join("/tmp", f"{job_id}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(result, f)
+
+        if excel_bytes:
+            xlsx_path = os.path.join("/tmp", f"{job_id}.xlsx")
+            with open(xlsx_path, "wb") as f:
+                f.write(excel_bytes)
+
+        session["job_id"] = job_id
 
         if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
-            return jsonify(result)
+            return jsonify({"job_id": job_id, **result})
 
-        # Persist result in a temporary file and store path in session
-        tmp = tempfile.NamedTemporaryFile(
-            delete=False, suffix=".json", mode="w", encoding="utf-8"
-        )
-        with tmp:
-            json.dump(result, tmp)
-        session["resultado_path"] = tmp.name
         return redirect(url_for("core.resultados"))
 
     return render_template("generador.html")
@@ -124,11 +130,15 @@ def generador():
 @bp.route("/resultados")
 @login_required
 def resultados():
-    resultado_path = session.get("resultado_path")
-    if not resultado_path or not os.path.exists(resultado_path):
+    job_id = session.get("job_id")
+    if not job_id:
         return redirect(url_for("core.generador"))
 
-    with open(resultado_path) as f:
+    json_path = os.path.join("/tmp", f"{job_id}.json")
+    if not os.path.exists(json_path):
+        return redirect(url_for("core.generador"))
+
+    with open(json_path) as f:
         resultado = json.load(f)
 
     heatmaps = resultado.get("heatmaps", {})
@@ -140,13 +150,20 @@ def resultados():
         except (OSError, FileNotFoundError):
             heatmaps[key] = None
 
-    session.pop("resultado_path", None)
     try:
-        os.remove(resultado_path)
+        os.remove(json_path)
     except OSError:
         pass
 
+    try:
+        os.remove(os.path.join("/tmp", f"{job_id}.xlsx"))
+    except OSError:
+        pass
+
+    session.pop("job_id", None)
+
     return render_template("resultados.html", resultado=resultado)
+
 
 
 @bp.route("/configuracion")

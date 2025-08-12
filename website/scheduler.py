@@ -7,7 +7,6 @@ import hashlib
 from io import BytesIO
 from itertools import combinations, permutations
 
-from flask import session
 import tempfile
 
 import numpy as np
@@ -1843,14 +1842,6 @@ def run_complete_optimization(file_stream, config=None):
 
         metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
         excel_bytes = export_detailed_schedule(assignments, patterns)
-        if excel_bytes:
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-            tmp.write(excel_bytes)
-            tmp.flush()
-            tmp.close()
-            session["last_excel_file"] = tmp.name
-        else:
-            session["last_excel_file"] = None
 
         heatmaps = {}
         if metrics:
@@ -1889,10 +1880,7 @@ def run_complete_optimization(file_stream, config=None):
         }
         result["effective_config"] = _convert(cfg)
         print("\u2705 [SCHEDULER] Resultados preparados - RETORNANDO")
-        return result
+        return result, excel_bytes
 
     except Exception as e:
         print(f"\u274C [SCHEDULER] ERROR CRÍTICO: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise e

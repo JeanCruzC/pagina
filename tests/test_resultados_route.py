@@ -50,7 +50,9 @@ def test_resultados_redirects_without_result():
 def test_generador_stores_and_renders_result():
     client = app.test_client()
     login(client)
-    sys.modules['website.scheduler'].run_complete_optimization = lambda *a, **k: {'metrics': {}}
+    sys.modules['website.scheduler'].run_complete_optimization = (
+        lambda *a, **k: ({'metrics': {}}, b'')
+    )
     token = _csrf_token(client, '/generador')
     data = {'excel': (BytesIO(b'data'), 'test.xlsx'), 'csrf_token': token}
     response = client.post('/generador', data=data, content_type='multipart/form-data', follow_redirects=False)
