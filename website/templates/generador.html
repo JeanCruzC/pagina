@@ -6,7 +6,7 @@
     <span class="text-muted small">Replica mejorada del app1 (Streamlit)</span>
   </div>
 
-  <form id="genForm" class="needs-validation" novalidate method="post" enctype="multipart/form-data">
+  <form id="genForm" class="needs-validation" novalidate action="{{ url_for('core.generador') }}" method="post" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <!-- Archivo + Perfil -->
     <div class="card mb-4">
