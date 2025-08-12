@@ -105,9 +105,11 @@ def generador():
             except Exception:
                 pass
 
-        from ..scheduler import run_optimization
+        from ..scheduler import run_complete_optimization
 
-        result = run_optimization(excel_file, config=config)
+        result, _, _ = run_complete_optimization(
+            excel_file, config=config, export_excel=False, generate_charts=False
+        )
         job_id = uuid.uuid4().hex
         json_path = os.path.join("/tmp", f"{job_id}.json")
         with open(json_path, "w", encoding="utf-8") as f:

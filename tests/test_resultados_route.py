@@ -50,8 +50,8 @@ def test_resultados_redirects_without_result():
 def test_generador_stores_and_renders_result():
     client = app.test_client()
     login(client)
-    sys.modules['website.scheduler'].run_optimization = (
-        lambda *a, **k: {'metrics': {}, 'assignments': {}}
+    sys.modules['website.scheduler'].run_complete_optimization = (
+        lambda *a, **k: ({'metrics': {}, 'assignments': {}}, None, None)
     )
     token = _csrf_token(client, '/generador')
     data = {'excel': (BytesIO(b'data'), 'test.xlsx'), 'csrf_token': token}

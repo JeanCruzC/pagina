@@ -2058,14 +2058,6 @@ def run_complete_optimization(
         print(f"\u274C [SCHEDULER] ERROR CRÍTICO: {str(e)}")
 
 
-def run_optimization(file_stream, config=None):
-    """Run optimization without generating files or charts."""
-    result, _, _ = run_complete_optimization(
-        file_stream, config=config, generate_charts=False
-    )
-    return result
-
-
 def generate_excel(data):
     """Create a simple Excel file summarising assignments."""
     assignments = data.get("assignments", {})
