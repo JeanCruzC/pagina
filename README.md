@@ -28,6 +28,16 @@ This project creates optimized work schedules using Flask.
 
    When prompted on /generador upload the demand Excel file.
 
+   Para despliegues de producción utiliza Gunicorn y establece las opciones
+   recomendadas mediante `GUNICORN_CMD_ARGS`:
+
+   ```bash
+   export GUNICORN_CMD_ARGS="--timeout 600 --graceful-timeout 600 --workers 1 --threads 2 --worker-tmp-dir /dev/shm"
+   gunicorn run:app
+   ```
+
+   Estas opciones inician un único worker para evitar duplicar la memoria.
+
 
 4. The generator request times out after **240 s** by default. To use a different value set the `data-timeout` attribute (milliseconds) on the `<form id="genForm">` element in `generador.html`.
 5. Choose the **JEAN** profile from the sidebar to minimise the sum of excess and deficit while keeping coverage near 100%.
