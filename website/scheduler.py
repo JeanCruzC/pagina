@@ -1892,132 +1892,146 @@ def export_detailed_schedule(assignments, shifts_coverage):
     return excel_bytes, csv_bytes
 
 
-def run_complete_optimization(file_stream, config=None, generate_charts=False):
-    """Run the full optimization pipeline and return serialized results.
+def run_optimization(file_stream, config=None):
+    """Execute the optimization pipeline without generating side effects.
 
-    The logic mirrors the interactive workflow in ``legacy/app1.py``.
-
-    Parameters
-    ----------
-    file_stream: File-like object
-        Excel file containing demand data.
-    config: dict, optional
-        Additional configuration options.
-    generate_charts: bool, optional
-        When ``True`` heatmaps for demand and coverage are generated. This
-        is disabled by default to save processing time and memory.
+    This function performs the core optimization steps: reading the demand
+    matrix, generating shift patterns, solving the optimization problem and
+    computing metrics.  It returns the assignments, the generated patterns, the
+    metrics dictionary and the demand matrix.  No files or charts are produced
+    here; that is delegated to ``generate_excel`` and ``generate_heatmaps``.
     """
+
+    cfg = apply_configuration(config)
+
+    print(f"[MEM] Antes de carga de demanda: {monitor_memory_usage():.1f}%")
+    print("\U0001F4D6 [SCHEDULER] Leyendo archivo Excel...")
+    import pandas as pd
+    df = pd.read_excel(file_stream)
+    print("\u2705 [SCHEDULER] Archivo Excel leído correctamente")
+
+    print("\U0001F4CA [SCHEDULER] Procesando matriz de demanda...")
+    demand_matrix = load_demand_matrix_from_df(df)
+    demand_packed = np.packbits(demand_matrix > 0, axis=1).astype(np.uint8)
+    CONTEXT["demand_packed"] = demand_packed
+    print("\u2705 [SCHEDULER] Matriz de demanda procesada")
+    print(f"[MEM] Después de empaquetar demanda: {monitor_memory_usage():.1f}%")
+
+    print(f"[MEM] Antes de generación de patrones: {monitor_memory_usage():.1f}%")
+    print("\U0001F501 [SCHEDULER] Generando patrones de turnos...")
+    patterns = {}
+    if cfg.get("optimization_profile") == "JEAN Personalizado":
+        slot_minutes = int(cfg.get("slot_duration_minutes", 30))
+        start_hours = [h for h in np.arange(0, 24, slot_minutes / 60) if h <= 23.5]
+        patterns = load_shift_patterns(
+            cfg,
+            start_hours=start_hours,
+            break_from_start=cfg.get("break_from_start", DEFAULT_CONFIG["break_from_start"]),
+            break_from_end=cfg.get("break_from_end", DEFAULT_CONFIG["break_from_end"]),
+            slot_duration_minutes=slot_minutes,
+            demand_matrix=demand_matrix,
+            keep_percentage=cfg.get("keep_percentage", 0.3),
+            peak_bonus=cfg.get("peak_bonus", 1.5),
+            critical_bonus=cfg.get("critical_bonus", 2.0),
+            efficiency_bonus=cfg.get("efficiency_bonus", 1.0),
+            max_patterns=cfg.get("max_patterns"),
+        )
+        if not cfg.get("use_ft", True):
+            patterns = {k: v for k, v in patterns.items() if not k.startswith("FT")}
+        if not cfg.get("use_pt", True):
+            patterns = {k: v for k, v in patterns.items() if not k.startswith("PT")}
+    else:
+        for batch in generate_shifts_coverage_optimized(
+            demand_matrix,
+            max_patterns=cfg.get("max_patterns"),
+            batch_size=cfg.get("batch_size", 2000),
+            quality_threshold=cfg.get("quality_threshold", 0),
+            cfg=cfg,
+            demand_packed=demand_packed,
+        ):
+            patterns.update(batch)
+            if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
+                break
+    print("[SCHEDULER] Patrones generados")
+    print(f"[MEM] Después de generación de patrones: {monitor_memory_usage():.1f}%")
+
+    print("[SCHEDULER] Iniciando optimizacion...")
+    print(f"[MEM] Antes de resolver: {monitor_memory_usage():.1f}%")
+    if PULP_AVAILABLE:
+        print("[OPTIMIZER] Resolviendo con PuLP (CBC)…")
+        pulp_out = solve_with_pulp(demand_matrix, patterns, cfg)
+        assignments = pulp_out["assignments"]
+        coverage_matrix = pulp_out["coverage_matrix"]
+        status = pulp_out["status"]
+        total_agents = pulp_out["total_agents"]
+    else:
+        print("[OPTIMIZER] PuLP no disponible, usando greedy")
+        assignments, coverage_matrix = solve_in_chunks_optimized(
+            patterns,
+            demand_matrix,
+            base_chunk_size=cfg.get("base_chunk_size", 10000),
+            cfg=cfg,
+            demand_packed=demand_packed,
+        )
+        status = "GREEDY"
+        total_agents = sum(assignments.values())
+    print(f"[MEM] Después de resolver: {monitor_memory_usage():.1f}%")
+    print(f"[OPTIMIZER] Status: {status}")
+    print(f"[OPTIMIZER] Total agents: {total_agents}")
+    print("\u2705 [SCHEDULER] Optimización completada")
+
+    metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
+    return assignments, patterns, metrics, demand_matrix
+
+
+def generate_excel(assignments, patterns):
+    """Generate Excel and CSV schedules from ``assignments`` and ``patterns``."""
+
+    return export_detailed_schedule(assignments, patterns)
+
+
+def generate_heatmaps(demand_matrix, metrics=None):
+    """Generate heatmap images for demand and coverage matrices."""
+
+    heatmaps = {}
+    if metrics:
+        maps = generate_all_heatmaps(
+            demand_matrix, metrics.get("total_coverage"), metrics.get("diff_matrix")
+        )
+    else:
+        maps = generate_all_heatmaps(demand_matrix)
+    for key, fig in maps.items():
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        fig.savefig(tmp.name, format="png", bbox_inches="tight")
+        tmp.flush()
+        tmp.close()
+        heatmaps[key] = tmp.name
+        plt.close("all")
+    return heatmaps
+
+
+def run_complete_optimization(
+    file_stream, config=None, export_excel=True, generate_charts=False
+):
+    """Run the optimization and optionally export schedules or charts."""
+
     print("\U0001F50D [SCHEDULER] Iniciando run_complete_optimization")
     print(f"\U0001F50D [SCHEDULER] Config recibido: {config}")
 
     try:
         cfg = apply_configuration(config)
-
-        print(f"[MEM] Antes de carga de demanda: {monitor_memory_usage():.1f}%")
-        print("\U0001F4D6 [SCHEDULER] Leyendo archivo Excel...")
-        import pandas as pd
-        df = pd.read_excel(file_stream)
-        print("\u2705 [SCHEDULER] Archivo Excel leído correctamente")
-
-        print("\U0001F4CA [SCHEDULER] Procesando matriz de demanda...")
-        demand_matrix = load_demand_matrix_from_df(df)
+        assignments, patterns, metrics, demand_matrix = run_optimization(
+            file_stream, config
+        )
         analysis = analyze_demand_matrix(demand_matrix)
-        demand_packed = np.packbits(demand_matrix > 0, axis=1).astype(np.uint8)
-        CONTEXT["demand_packed"] = demand_packed
-        print("\u2705 [SCHEDULER] Matriz de demanda procesada")
-        print(f"[MEM] Después de empaquetar demanda: {monitor_memory_usage():.1f}%")
 
-        print(f"[MEM] Antes de generación de patrones: {monitor_memory_usage():.1f}%")
-        print("\U0001F501 [SCHEDULER] Generando patrones de turnos...")
-        patterns = {}
-        if cfg.get("optimization_profile") == "JEAN Personalizado":
-            slot_minutes = int(cfg.get("slot_duration_minutes", 30))
-            start_hours = [h for h in np.arange(0, 24, slot_minutes / 60) if h <= 23.5]
-            patterns = load_shift_patterns(
-                cfg,
-                start_hours=start_hours,
-                break_from_start=cfg.get(
-                    "break_from_start", DEFAULT_CONFIG["break_from_start"]
-                ),
-                break_from_end=cfg.get(
-                    "break_from_end", DEFAULT_CONFIG["break_from_end"]
-                ),
-                slot_duration_minutes=slot_minutes,
-                demand_matrix=demand_matrix,
-                keep_percentage=cfg.get("keep_percentage", 0.3),
-                peak_bonus=cfg.get("peak_bonus", 1.5),
-                critical_bonus=cfg.get("critical_bonus", 2.0),
-                efficiency_bonus=cfg.get("efficiency_bonus", 1.0),
-                max_patterns=cfg.get("max_patterns"),
-            )
-            if not cfg.get("use_ft", True):
-                patterns = {k: v for k, v in patterns.items() if not k.startswith("FT")}
-            if not cfg.get("use_pt", True):
-                patterns = {k: v for k, v in patterns.items() if not k.startswith("PT")}
-        else:
-            for batch in generate_shifts_coverage_optimized(
-                demand_matrix,
-                max_patterns=cfg.get("max_patterns"),
-                batch_size=cfg.get("batch_size", 2000),
-                quality_threshold=cfg.get("quality_threshold", 0),
-                cfg=cfg,
-                demand_packed=demand_packed,
-            ):
-                patterns.update(batch)
-                if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
-                    break
-        print("[SCHEDULER] Patrones generados")
-        print(f"[MEM] Después de generación de patrones: {monitor_memory_usage():.1f}%")
-
-        print("[SCHEDULER] Iniciando optimizacion...")
-        print(f"[MEM] Antes de resolver: {monitor_memory_usage():.1f}%")
-        if PULP_AVAILABLE:
-            print("[OPTIMIZER] Resolviendo con PuLP (CBC)…")
-            pulp_out = solve_with_pulp(demand_matrix, patterns, cfg)
-            assignments = pulp_out["assignments"]
-            coverage_matrix = pulp_out["coverage_matrix"]
-            status = pulp_out["status"]
-            total_agents = pulp_out["total_agents"]
-        else:
-            print("[OPTIMIZER] PuLP no disponible, usando greedy")
-            assignments, coverage_matrix = solve_in_chunks_optimized(
-                patterns,
-                demand_matrix,
-                base_chunk_size=cfg.get("base_chunk_size", 10000),
-                cfg=cfg,
-                demand_packed=demand_packed,
-            )
-            status = "GREEDY"
-            total_agents = sum(assignments.values())
-        print(f"[MEM] Después de resolver: {monitor_memory_usage():.1f}%")
-        print(f"[OPTIMIZER] Status: {status}")
-        print(f"[OPTIMIZER] Total agents: {total_agents}")
-        print("\u2705 [SCHEDULER] Optimización completada")
-
-        print(f"[MEM] Antes de exportar resultados: {monitor_memory_usage():.1f}%")
-        metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
-        excel_bytes, csv_bytes = export_detailed_schedule(assignments, patterns)
+        excel_bytes, csv_bytes = (None, None)
+        if export_excel:
+            excel_bytes, csv_bytes = generate_excel(assignments, patterns)
 
         heatmaps = {}
         if generate_charts:
-            if metrics:
-                maps = generate_all_heatmaps(
-                    demand_matrix,
-                    metrics.get("total_coverage"),
-                    metrics.get("diff_matrix"),
-                )
-            else:
-                maps = generate_all_heatmaps(demand_matrix)
-            for key, fig in maps.items():
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                fig.savefig(tmp.name, format="png", bbox_inches="tight")
-                tmp.flush()
-                tmp.close()
-                heatmaps[key] = tmp.name
-                plt.close("all")
-        print(f"[MEM] Después de exportar resultados: {monitor_memory_usage():.1f}%")
-
-        print("\U0001F4E4 [SCHEDULER] Preparando resultados...")
+            heatmaps = generate_heatmaps(demand_matrix, metrics)
 
         def _convert(obj):
             """Recursively convert numpy arrays within ``obj`` to Python lists."""
