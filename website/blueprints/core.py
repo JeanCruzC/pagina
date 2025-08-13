@@ -201,9 +201,7 @@ def generate_excel(job_id):
     with open(json_path) as f:
         data = json.load(f)
     from ..scheduler import generate_excel as gen_excel
-    assignments = data.get("assignments", {})
-    patterns = data.get("patterns", {})
-    excel_bytes, _ = gen_excel(assignments, patterns)
+    excel_bytes = gen_excel(data)
     if not excel_bytes:
         abort(404)
     return send_file(
@@ -223,9 +221,7 @@ def generate_charts(job_id):
     with open(json_path) as f:
         data = json.load(f)
     from ..scheduler import generate_heatmaps
-    demand_matrix = data.get("demand_matrix")
-    metrics = data.get("metrics", {})
-    zip_bytes = generate_heatmaps(demand_matrix, metrics)
+    zip_bytes = generate_heatmaps(data)
     if not zip_bytes:
         abort(404)
     return send_file(
