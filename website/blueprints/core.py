@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import tempfile
 from functools import wraps
 from flask import (
     Blueprint,
@@ -20,6 +21,9 @@ from flask_wtf.csrf import CSRFError
 from ..utils.allowlist import verify_user
 
 bp = Blueprint("core", __name__)
+
+# Default temporary directory
+temp_dir = tempfile.gettempdir()
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +122,7 @@ def generador():
 
         heatmaps = result.get("heatmaps", {})
         if heatmaps:
-            heatmap_dir = os.path.join("/tmp", job_id)
+            heatmap_dir = os.path.join(temp_dir, job_id)
             os.makedirs(heatmap_dir, exist_ok=True)
             for key, path in list(heatmaps.items()):
                 try:
@@ -131,18 +135,18 @@ def generador():
             result["heatmaps"] = heatmaps
 
         if excel_bytes:
-            xlsx_path = os.path.join("/tmp", f"{job_id}.xlsx")
+            xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
             with open(xlsx_path, "wb") as f:
                 f.write(excel_bytes)
             result["download_url"] = url_for("core.download_excel", job_id=job_id)
 
         if csv_bytes:
-            csv_path = os.path.join("/tmp", f"{job_id}.csv")
+            csv_path = os.path.join(temp_dir, f"{job_id}.csv")
             with open(csv_path, "wb") as f:
                 f.write(csv_bytes)
             result["csv_url"] = url_for("core.download_csv", job_id=job_id)
 
-        json_path = os.path.join("/tmp", f"{job_id}.json")
+        json_path = os.path.join(temp_dir, f"{job_id}.json")
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(result, f)
 
@@ -163,7 +167,7 @@ def resultados():
     if not job_id:
         return redirect(url_for("core.generador"))
 
-    json_path = os.path.join("/tmp", f"{job_id}.json")
+    json_path = os.path.join(temp_dir, f"{job_id}.json")
     if not os.path.exists(json_path):
         return redirect(url_for("core.generador"))
 
@@ -190,7 +194,7 @@ def resultados():
 @bp.route("/download/<job_id>")
 @login_required
 def download_excel(job_id):
-    path = os.path.join("/tmp", f"{job_id}.xlsx")
+    path = os.path.join(temp_dir, f"{job_id}.xlsx")
     if not os.path.exists(path):
         abort(404)
 
@@ -208,7 +212,7 @@ def download_excel(job_id):
 @bp.route("/download/csv/<job_id>")
 @login_required
 def download_csv(job_id):
-    path = os.path.join("/tmp", f"{job_id}.csv")
+    path = os.path.join(temp_dir, f"{job_id}.csv")
     if not os.path.exists(path):
         abort(404)
 
@@ -226,7 +230,7 @@ def download_csv(job_id):
 @bp.route("/heatmap/<job_id>/<path:filename>")
 @login_required
 def heatmap(job_id, filename):
-    path = os.path.join("/tmp", job_id, filename)
+    path = os.path.join(temp_dir, job_id, filename)
     if not os.path.exists(path):
         abort(404)
 
@@ -234,7 +238,7 @@ def heatmap(job_id, filename):
     def cleanup(response):
         try:
             os.remove(path)
-            os.rmdir(os.path.join("/tmp", job_id))
+            os.rmdir(os.path.join(temp_dir, job_id))
         except OSError:
             pass
         return response
