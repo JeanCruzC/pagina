@@ -1892,10 +1892,15 @@ def export_detailed_schedule(assignments, shifts_coverage):
     return excel_bytes, csv_bytes
 
 
-def run_complete_optimization(file_stream, config=None, generate_charts=False):
-    """Run the full optimization pipeline and return serialized results.
-
-    The logic mirrors the interactive workflow in ``legacy/app1.py``.
+def run_complete_optimization(
+    file_stream,
+    config=None,
+    generate_charts=False,
+    *,
+    export=True,
+    return_context=False,
+):
+    """Run the optimization pipeline and optionally export results.
 
     Parameters
     ----------
@@ -1906,6 +1911,10 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
     generate_charts: bool, optional
         When ``True`` heatmaps for demand and coverage are generated. This
         is disabled by default to save processing time and memory.
+    export: bool, optional
+        When ``True`` Excel/CSV exports are generated.
+    return_context: bool, optional
+        When ``True`` return internal data needed for later exports.
     """
     print("\U0001F50D [SCHEDULER] Iniciando run_complete_optimization")
     print(f"\U0001F50D [SCHEDULER] Config recibido: {config}")
@@ -1971,6 +1980,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
 
         print("[SCHEDULER] Iniciando optimizacion...")
         print(f"[MEM] Antes de resolver: {monitor_memory_usage():.1f}%")
+        opt_start = time.perf_counter()
         if PULP_AVAILABLE:
             print("[OPTIMIZER] Resolviendo con PuLP (CBC)…")
             pulp_out = solve_with_pulp(demand_matrix, patterns, cfg)
@@ -1989,17 +1999,23 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
             )
             status = "GREEDY"
             total_agents = sum(assignments.values())
+        opt_time = time.perf_counter() - opt_start
         print(f"[MEM] Después de resolver: {monitor_memory_usage():.1f}%")
         print(f"[OPTIMIZER] Status: {status}")
         print(f"[OPTIMIZER] Total agents: {total_agents}")
         print("\u2705 [SCHEDULER] Optimización completada")
-
         print(f"[MEM] Antes de exportar resultados: {monitor_memory_usage():.1f}%")
         metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
-        excel_bytes, csv_bytes = export_detailed_schedule(assignments, patterns)
 
+        excel_bytes = csv_bytes = None
+        export_time = charts_time = None
         heatmaps = {}
+        if export and assignments:
+            exp_start = time.perf_counter()
+            excel_bytes, csv_bytes = export_detailed_schedule(assignments, patterns)
+            export_time = time.perf_counter() - exp_start
         if generate_charts:
+            charts_start = time.perf_counter()
             if metrics:
                 maps = generate_all_heatmaps(
                     demand_matrix,
@@ -2015,6 +2031,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
                 tmp.close()
                 heatmaps[key] = tmp.name
                 plt.close("all")
+            charts_time = time.perf_counter() - charts_start
         print(f"[MEM] Después de exportar resultados: {monitor_memory_usage():.1f}%")
 
         print("\U0001F4E4 [SCHEDULER] Preparando resultados...")
@@ -2034,10 +2051,55 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
             "assignments": assignments,
             "metrics": _convert(metrics),
             "heatmaps": heatmaps,
+            "timing": {"optimización": opt_time},
         }
+        if export_time is not None:
+            result["timing"]["export_excel"] = export_time
+        if charts_time is not None:
+            result["timing"]["charts"] = charts_time
         result["effective_config"] = _convert(cfg)
         print("\u2705 [SCHEDULER] Resultados preparados - RETORNANDO")
+        if return_context:
+            context = {
+                "assignments": assignments,
+                "patterns": patterns,
+                "demand_matrix": demand_matrix,
+                "metrics": metrics,
+            }
+            return result, excel_bytes, csv_bytes, context
         return result, excel_bytes, csv_bytes
 
     except Exception as e:
         print(f"\u274C [SCHEDULER] ERROR CRÍTICO: {str(e)}")
+
+
+def run_optimization(file_stream, config=None):
+    """Run optimization and return result plus context for exports."""
+    result, _, _, context = run_complete_optimization(
+        file_stream,
+        config=config,
+        generate_charts=False,
+        export=False,
+        return_context=True,
+    )
+    return result, context
+
+
+def export_excel(context):
+    """Generate Excel/CSV exports for a previously optimized context."""
+    start = time.perf_counter()
+    excel_bytes, csv_bytes = export_detailed_schedule(
+        context["assignments"], context["patterns"]
+    )
+    return excel_bytes, csv_bytes, {"export_excel": time.perf_counter() - start}
+
+
+def generate_charts(context):
+    """Generate heatmaps on demand for a previously optimized context."""
+    start = time.perf_counter()
+    maps = generate_all_heatmaps(
+        context["demand_matrix"],
+        context["metrics"].get("total_coverage"),
+        context["metrics"].get("diff_matrix"),
+    )
+    return maps, {"charts": time.perf_counter() - start}

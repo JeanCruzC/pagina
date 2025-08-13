@@ -1,7 +1,9 @@
 import os
 import json
 import uuid
+import pickle
 from functools import wraps
+from io import BytesIO
 from flask import (
     Blueprint,
     render_template,
@@ -13,7 +15,6 @@ from flask import (
     jsonify,
     send_file,
     abort,
-    after_this_request,
 )
 from flask_wtf.csrf import CSRFError
 
@@ -104,47 +105,22 @@ def generador():
             except Exception:
                 pass
 
-        generate_charts = (
-            request.form.get("generate_charts", "false").lower() in {"on", "true", "1"}
-        )
+        from ..scheduler import run_optimization
 
-        from ..scheduler import run_complete_optimization
-
-        result, excel_bytes, csv_bytes = run_complete_optimization(
-            excel_file, config=config, generate_charts=generate_charts
-        )
+        result, context = run_optimization(excel_file, config=config)
 
         job_id = uuid.uuid4().hex
-
-        heatmaps = result.get("heatmaps", {})
-        if heatmaps:
-            heatmap_dir = os.path.join("/tmp", job_id)
-            os.makedirs(heatmap_dir, exist_ok=True)
-            for key, path in list(heatmaps.items()):
-                try:
-                    new_name = f"{key}.png"
-                    dest = os.path.join(heatmap_dir, new_name)
-                    os.replace(path, dest)
-                    heatmaps[key] = new_name
-                except OSError:
-                    heatmaps[key] = None
-            result["heatmaps"] = heatmaps
-
-        if excel_bytes:
-            xlsx_path = os.path.join("/tmp", f"{job_id}.xlsx")
-            with open(xlsx_path, "wb") as f:
-                f.write(excel_bytes)
-            result["download_url"] = url_for("core.download_excel", job_id=job_id)
-
-        if csv_bytes:
-            csv_path = os.path.join("/tmp", f"{job_id}.csv")
-            with open(csv_path, "wb") as f:
-                f.write(csv_bytes)
-            result["csv_url"] = url_for("core.download_csv", job_id=job_id)
 
         json_path = os.path.join("/tmp", f"{job_id}.json")
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(result, f)
+
+        context_path = os.path.join("/tmp", f"{job_id}_ctx.pkl")
+        with open(context_path, "wb") as f:
+            pickle.dump(context, f)
+
+        result["download_url"] = url_for("core.download_excel", job_id=job_id)
+        result["csv_url"] = url_for("core.download_csv", job_id=job_id)
 
         session["job_id"] = job_id
 
@@ -170,12 +146,13 @@ def resultados():
     with open(json_path) as f:
         resultado = json.load(f)
 
-    heatmaps = resultado.get("heatmaps", {})
-    for key, fname in list(heatmaps.items()):
-        if fname:
-            heatmaps[key] = url_for("core.heatmap", job_id=job_id, filename=fname)
-        else:
-            heatmaps[key] = None
+    ctx_path = os.path.join("/tmp", f"{job_id}_ctx.pkl")
+    if os.path.exists(ctx_path):
+        resultado["heatmaps"] = {
+            "demand": url_for("core.heatmap", job_id=job_id, map_type="demand"),
+            "coverage": url_for("core.heatmap", job_id=job_id, map_type="coverage"),
+            "difference": url_for("core.heatmap", job_id=job_id, map_type="difference"),
+        }
 
     try:
         os.remove(json_path)
@@ -190,56 +167,56 @@ def resultados():
 @bp.route("/download/<job_id>")
 @login_required
 def download_excel(job_id):
-    path = os.path.join("/tmp", f"{job_id}.xlsx")
-    if not os.path.exists(path):
+    ctx_path = os.path.join("/tmp", f"{job_id}_ctx.pkl")
+    if not os.path.exists(ctx_path):
         abort(404)
+    with open(ctx_path, "rb") as f:
+        context = pickle.load(f)
+    from ..scheduler import export_excel
 
-    @after_this_request
-    def cleanup(response):
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-        return response
-
-    return send_file(path, as_attachment=True)
+    excel_bytes, _, timing = export_excel(context)
+    print(f"[TIMING] export_excel: {timing['export_excel']:.2f}s")
+    bio = BytesIO(excel_bytes)
+    bio.seek(0)
+    return send_file(bio, as_attachment=True, download_name=f"{job_id}.xlsx")
 
 
 @bp.route("/download/csv/<job_id>")
 @login_required
 def download_csv(job_id):
-    path = os.path.join("/tmp", f"{job_id}.csv")
-    if not os.path.exists(path):
+    ctx_path = os.path.join("/tmp", f"{job_id}_ctx.pkl")
+    if not os.path.exists(ctx_path):
         abort(404)
+    with open(ctx_path, "rb") as f:
+        context = pickle.load(f)
+    from ..scheduler import export_excel
 
-    @after_this_request
-    def cleanup(response):
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-        return response
-
-    return send_file(path, as_attachment=True)
+    _, csv_bytes, timing = export_excel(context)
+    print(f"[TIMING] export_excel: {timing['export_excel']:.2f}s")
+    bio = BytesIO(csv_bytes)
+    bio.seek(0)
+    return send_file(bio, as_attachment=True, download_name=f"{job_id}.csv", mimetype="text/csv")
 
 
-@bp.route("/heatmap/<job_id>/<path:filename>")
+@bp.route("/heatmap/<job_id>/<map_type>")
 @login_required
-def heatmap(job_id, filename):
-    path = os.path.join("/tmp", job_id, filename)
-    if not os.path.exists(path):
+def heatmap(job_id, map_type):
+    ctx_path = os.path.join("/tmp", f"{job_id}_ctx.pkl")
+    if not os.path.exists(ctx_path):
         abort(404)
+    with open(ctx_path, "rb") as f:
+        context = pickle.load(f)
+    from ..scheduler import generate_charts
 
-    @after_this_request
-    def cleanup(response):
-        try:
-            os.remove(path)
-            os.rmdir(os.path.join("/tmp", job_id))
-        except OSError:
-            pass
-        return response
-
-    return send_file(path, mimetype="image/png")
+    maps, timing = generate_charts(context)
+    print(f"[TIMING] charts: {timing['charts']:.2f}s")
+    fig = maps.get(map_type)
+    if fig is None:
+        abort(404)
+    bio = BytesIO()
+    fig.savefig(bio, format="png", bbox_inches="tight")
+    bio.seek(0)
+    return send_file(bio, mimetype="image/png")
 
 
 
