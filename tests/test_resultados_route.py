@@ -50,7 +50,7 @@ def test_resultados_redirects_without_result():
 def test_generador_stores_and_renders_result():
     client = app.test_client()
     login(client)
-    sys.modules['website.scheduler'].run_complete_optimization = (
+    sys.modules['website.scheduler'].run_optimization = (
         lambda *a, **k: {'metrics': {}, 'assignments': {}}
     )
     token = _csrf_token(client, '/generador')
