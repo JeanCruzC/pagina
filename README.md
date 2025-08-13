@@ -23,13 +23,10 @@ This project creates optimized work schedules using Flask.
 
 3. Launch the Flask application:
    ```bash
-   python run.py                     # production (no reloader)
-   FLASK_DEBUG=1 python run.py       # development with auto-reload
+   flask --app website.app run
    ```
 
-   `FLASK_DEBUG` enables the reloader and debugger when set to `1`. By default
-   the server runs silently without extra logging. Set `SCHEDULER_VERBOSE=1`
-   to display detailed progress from the optimizer.
+   When prompted on /generador upload the demand Excel file.
 
    Para despliegues de producción utiliza Gunicorn y establece las opciones
    recomendadas mediante `GUNICORN_CMD_ARGS`:
