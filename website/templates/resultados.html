@@ -4,9 +4,11 @@
   <div class="d-flex align-items-center justify-content-between mb-3">
     <h2 class="mb-0 fw-bold">Resultados</h2>
     <div class="d-flex gap-2">
-      {% if job_id %}
-        <a class="btn btn-success" href="{{ url_for('core.generate_excel', job_id=job_id) }}">Generar Excel</a>
-        <a class="btn btn-secondary" href="{{ url_for('core.generate_charts', job_id=job_id) }}">Generar Gráficas</a>
+      {% if resultado and resultado.csv_url %}
+        <a class="btn btn-secondary" href="{{ resultado.csv_url }}">Descargar CSV</a>
+      {% endif %}
+      {% if resultado and resultado.download_url %}
+        <a class="btn btn-success" href="{{ resultado.download_url }}">Descargar Excel</a>
       {% endif %}
     </div>
   </div>

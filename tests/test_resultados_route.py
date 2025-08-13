@@ -50,8 +50,8 @@ def test_resultados_redirects_without_result():
 def test_generador_stores_and_renders_result():
     client = app.test_client()
     login(client)
-    sys.modules['website.scheduler'].run_optimization = (
-        lambda *a, **k: {'metrics': {}, 'assignments': {}}
+    sys.modules['website.scheduler'].run_complete_optimization = (
+        lambda *a, **k: ({'metrics': {}}, b'', b'')
     )
     token = _csrf_token(client, '/generador')
     data = {'excel': (BytesIO(b'data'), 'test.xlsx'), 'csrf_token': token}
@@ -61,6 +61,7 @@ def test_generador_stores_and_renders_result():
     result_page = client.get('/resultados')
     assert result_page.status_code == 200
     assert b'Resultados' in result_page.data
-    # Result should remain available across requests
+    # After rendering once, the result should be cleared
     response_again = client.get('/resultados')
-    assert response_again.status_code == 200
+    assert response_again.status_code == 302
+    assert response_again.headers['Location'].endswith('/generador')

@@ -10,7 +10,6 @@ import heapq
 
 import tempfile
 import csv
-from zipfile import ZipFile
 
 import numpy as np
 try:
@@ -2056,50 +2055,3 @@ def run_complete_optimization(
 
     except Exception as e:
         print(f"\u274C [SCHEDULER] ERROR CRÍTICO: {str(e)}")
-
-
-def run_optimization(file_stream, config=None):
-    """Run optimization without generating files or charts."""
-    result, _, _ = run_complete_optimization(
-        file_stream, config=config, generate_charts=False
-    )
-    return result
-
-
-def generate_excel(data):
-    """Create a simple Excel file summarising assignments."""
-    assignments = data.get("assignments", {})
-    if not assignments:
-        return None
-    from openpyxl import Workbook
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Turnos_Asignados"
-    ws.append(["Turno", "Agentes"])
-    for shift, count in assignments.items():
-        ws.append([shift, count])
-    bio = BytesIO()
-    wb.save(bio)
-    return bio.getvalue()
-
-
-def generate_heatmaps(data):
-    """Generate heatmaps from stored metrics and return a ZIP archive."""
-    metrics = data.get("metrics", {})
-    coverage = metrics.get("total_coverage")
-    diff = metrics.get("diff_matrix")
-    if coverage is None:
-        return None
-    coverage = np.array(coverage)
-    diff = np.array(diff) if diff is not None else None
-    demand = coverage - diff if diff is not None else coverage
-    maps = generate_all_heatmaps(demand, coverage, diff)
-    bio = BytesIO()
-    with ZipFile(bio, "w") as zf:
-        for key, fig in maps.items():
-            buf = BytesIO()
-            fig.savefig(buf, format="png", bbox_inches="tight")
-            plt.close(fig)
-            zf.writestr(f"{key}.png", buf.getvalue())
-    return bio.getvalue()
