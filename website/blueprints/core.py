@@ -86,6 +86,11 @@ def generador():
             flash("Se requiere un archivo Excel", "warning")
             return render_template("generador.html"), 400
 
+        # Save the uploaded file to a temporary directory for processing
+        job_id = uuid.uuid4().hex
+        excel_path = os.path.join(temp_dir, f"{job_id}_upload.xlsx")
+        excel_file.save(excel_path)
+
         config = {}
         for key, value in request.form.items():
             if key in {"csrf_token", "generate_charts"}:
@@ -114,11 +119,10 @@ def generador():
 
         from ..scheduler import run_complete_optimization
 
+        # Run optimization using the saved file
         result, excel_bytes, csv_bytes = run_complete_optimization(
-            excel_file, config=config, generate_charts=generate_charts
+            excel_path, config=config, generate_charts=generate_charts
         )
-
-        job_id = uuid.uuid4().hex
 
         heatmaps = result.get("heatmaps", {})
         if heatmaps:
@@ -202,6 +206,9 @@ def download_excel(job_id):
     def cleanup(response):
         try:
             os.remove(path)
+            upload_path = os.path.join(temp_dir, f"{job_id}_upload.xlsx")
+            if os.path.exists(upload_path):
+                os.remove(upload_path)
         except OSError:
             pass
         return response
@@ -220,6 +227,9 @@ def download_csv(job_id):
     def cleanup(response):
         try:
             os.remove(path)
+            upload_path = os.path.join(temp_dir, f"{job_id}_upload.xlsx")
+            if os.path.exists(upload_path):
+                os.remove(upload_path)
         except OSError:
             pass
         return response

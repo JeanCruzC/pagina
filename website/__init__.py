@@ -12,6 +12,8 @@ def create_app(config=None):
     load_dotenv()
 
     app = Flask(__name__)
+    # Limit uploads to 10 MB to avoid exhausting server resources
+    app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB
 
     if config is not None:
         app.config.from_object(config)
