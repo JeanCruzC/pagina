@@ -116,7 +116,7 @@ def predictivo():
     )
 
 
-@bp.route("/predictivo/download/<job_id>")
+@apps_bp.route("/predictivo/download/<job_id>")
 def predictivo_download(job_id: str):
     """Serve the generated forecast file and remove it afterwards."""
 
