@@ -149,7 +149,12 @@ def erlang_demo() -> str:
 
 @apps_bp.route("/predictivo", methods=["GET", "POST"])
 def predictivo():
-    """Execute the predictive model workflow."""
+    """Execute the predictive model workflow.
+
+    When a file is processed successfully a temporary CSV is generated in the
+    system's temp directory.  ``download_url`` holds the link for the user to
+    retrieve that file.
+    """
 
     metrics = {}
     table = []
@@ -691,11 +696,14 @@ def staffing():
 
 @apps_bp.route("/erlang/batch", methods=["GET", "POST"])
 def batch():
-    """Batch processing of contact centre scenarios."""
+    """Batch processing of contact centre scenarios.
+
+    ``download_url`` is a mapping of file extensions to their respective
+    temporary download links generated after processing.
+    """
 
     table = []
-    download_url_csv = None
-    download_url_xlsx = None
+    download_url: Dict[str, str] = {}
 
     if request.method == "POST":
         file = request.files.get("file")
@@ -730,22 +738,20 @@ def batch():
                 f.write(csv_bytes)
             with open(xlsx_path, "wb") as f:
                 f.write(xlsx_bytes)
-            download_url_csv = url_for("apps.batch_download", job_id=job_id, ext="csv")
-            download_url_xlsx = url_for("apps.batch_download", job_id=job_id, ext="xlsx")
+            download_url["csv"] = url_for("apps.batch_download", job_id=job_id, ext="csv")
+            download_url["xlsx"] = url_for("apps.batch_download", job_id=job_id, ext="xlsx")
 
         if request.headers.get("HX-Request"):
             return render_template(
                 "partials/batch_results.html",
                 table=table,
-                download_url_csv=download_url_csv,
-                download_url_xlsx=download_url_xlsx,
+                download_url=download_url,
             )
 
     return render_template(
         "apps/batch.html",
         table=table,
-        download_url_csv=download_url_csv,
-        download_url_xlsx=download_url_xlsx,
+        download_url=download_url,
     )
 
 

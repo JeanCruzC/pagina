@@ -9,10 +9,10 @@
     {% endfor %}
   </tbody>
 </table>
-{% if download_url_csv %}
-<a href="{{ download_url_csv }}" class="btn btn-success">Descargar CSV</a>
+{% if download_url.csv %}
+<a href="{{ download_url.csv }}" class="btn btn-success">Descargar CSV</a>
 {% endif %}
-{% if download_url_xlsx %}
-<a href="{{ download_url_xlsx }}" class="btn btn-success ms-2">Descargar Excel</a>
+{% if download_url.xlsx %}
+<a href="{{ download_url.xlsx }}" class="btn btn-success ms-2">Descargar Excel</a>
 {% endif %}
 {% endif %}
