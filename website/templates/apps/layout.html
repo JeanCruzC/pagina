@@ -16,7 +16,6 @@
         <a href="{{ url_for('apps.erlang_o_view') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.erlang_o_view' else '' }}">Erlang O</a>
       </div>
       {% endif %}
-      <a href="{{ url_for('apps.kpis') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.kpis' else '' }}">KPIs</a>
       <a href="{{ url_for('apps.series') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint in ['apps.series', 'apps.timeseries'] else '' }}">Series</a>
       <a href="{{ url_for('apps.predictivo') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.predictivo' else '' }}">Predictivo</a>
     </div>
