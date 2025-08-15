@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Erlang</h2>
+
+{% if messages %}
+<div class="alert alert-warning">
+  <ul class="mb-0">
+  {% for msg in messages %}
+    <li>{{ msg }}</li>
+  {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if metrics %}
+<h3>Métricas</h3>
+<ul>
+  {% for key, value in metrics.items() %}
+  <li><strong>{{ key }}:</strong> {{ value }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if figures %}
+<h3>Gráficas</h3>
+{% for name, fig_json in figures.items() %}
+<pre id="fig-{{ name }}">{{ fig_json }}</pre>
+{% endfor %}
+{% endif %}
+
+{% endblock %}
