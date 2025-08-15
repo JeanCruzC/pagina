@@ -9,7 +9,7 @@ from flask import Blueprint, redirect, render_template, request, url_for, sessio
 import json
 import plotly.graph_objects as go
 
-from ..other import timeseries_core, erlang_core
+from ..other import timeseries_core, erlang_core, modelo_predictivo_core
 
 bp = Blueprint("apps", __name__, url_prefix="/apps")
 
@@ -48,10 +48,30 @@ def erlang():
     return render_template("apps/erlang.html", metrics=metrics)
 
 
-@bp.route("/predictivo")
+@bp.route("/predictivo", methods=["GET", "POST"])
 def predictivo():
-    """Placeholder for the Predictive app."""
-    return "Predictive app coming soon"
+    """Execute the predictive model workflow."""
+
+    metrics = {}
+    table = []
+    download = None
+
+    if request.method == "POST":
+        file = request.files.get("file")
+        steps = request.form.get("steps_horizon", type=int, default=1)
+        if file:
+            result = modelo_predictivo_core.run(file, steps)
+            metrics = result.get("metrics", {}) if isinstance(result, dict) else {}
+            table = result.get("table", []) if isinstance(result, dict) else []
+            file_bytes = result.get("file_bytes") if isinstance(result, dict) else None
+            if file_bytes:
+                import base64
+
+                download = base64.b64encode(file_bytes).decode("utf-8")
+
+    return render_template(
+        "apps/predictivo.html", metrics=metrics, table=table, download=download
+    )
 
 
 @bp.route("/timeseries", methods=["GET", "POST"])
