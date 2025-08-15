@@ -11,6 +11,7 @@ import json
 import plotly.graph_objects as go
 
 from ..other import timeseries_core, erlang_core, modelo_predictivo_core
+from ..logic import erlang as erlang_logic
 
 bp = Blueprint("apps", __name__, url_prefix="/apps")
 
@@ -56,6 +57,105 @@ def erlang():
         )
 
     return render_template("apps/erlang.html", metrics=metrics)
+
+
+@bp.route("/erlang_cx", methods=["GET", "POST"])
+def erlang_cx():
+    """Advanced Erlang calculator with optional abandonment."""
+
+    metrics: Dict[str, Any] = {}
+    table: Dict[str, Any] = {}
+    chart_json = None
+    target_sl = 0.80
+
+    if request.method == "POST":
+        forecast = request.form.get("forecast", type=float, default=0.0) or 0.0
+        interval = request.form.get("interval", type=float, default=3600.0) or 3600.0
+        aht = request.form.get("aht", type=float, default=0.0) or 0.0
+        agents = request.form.get("agents", type=int, default=0) or 0
+        awt = request.form.get("awt", type=float, default=0.0) or 0.0
+        target_sl = request.form.get("target_sl", type=float, default=0.80) or 0.80
+        use_advanced = request.form.get("use_advanced") == "on"
+        lines = request.form.get("lines", type=int, default=0) or 0
+        patience = request.form.get("patience", type=float, default=0.0) or 0.0
+
+        arrival_rate = forecast / interval if interval else 0.0
+
+        sl = erlang_logic.service_level_erlang_c(arrival_rate, aht, agents, awt)
+        asa = erlang_logic.waiting_time_erlang_c(arrival_rate, aht, agents)
+        occupancy = erlang_logic.occupancy_erlang_c(arrival_rate, aht, agents)
+
+        metrics = {
+            "service_level": sl,
+            "asa": asa,
+            "occupancy": occupancy,
+        }
+
+        if use_advanced:
+            abandonment = erlang_logic.erlang_x_abandonment(
+                arrival_rate, aht, agents, lines or agents, patience or 1
+            )
+            metrics["abandonment"] = abandonment
+
+        recommended = erlang_core.required_agents_for_service_level(
+            arrival_rate, aht, awt, target_sl, max_agents=max(agents * 2, agents + 1)
+        )
+        table = {
+            "recommended": recommended,
+            "current": agents,
+            "difference": recommended - agents,
+            "calls_per_agent": forecast / agents if agents else 0.0,
+        }
+
+        max_agents_plot = max(recommended, agents) + 10
+        agent_range = list(range(1, max_agents_plot + 1))
+        sl_values = [
+            erlang_logic.service_level_erlang_c(arrival_rate, aht, a, awt)
+            for a in agent_range
+        ]
+        asa_values = [
+            erlang_logic.waiting_time_erlang_c(arrival_rate, aht, a)
+            for a in agent_range
+        ]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=agent_range, y=sl_values, name="SL"))
+        fig.add_trace(
+            go.Scatter(x=agent_range, y=asa_values, name="ASA", yaxis="y2")
+        )
+        fig.update_layout(
+            xaxis_title="Agentes",
+            yaxis=dict(title="SL", range=[0, 1]),
+            yaxis2=dict(title="ASA (s)", overlaying="y", side="right"),
+            shapes=[
+                dict(
+                    type="line",
+                    x0=agents,
+                    x1=agents,
+                    y0=0,
+                    y1=1,
+                    yref="paper",
+                    line=dict(color="red", dash="dot"),
+                ),
+                dict(
+                    type="line",
+                    x0=recommended,
+                    x1=recommended,
+                    y0=0,
+                    y1=1,
+                    yref="paper",
+                    line=dict(color="green", dash="dot"),
+                ),
+            ],
+        )
+        chart_json = fig.to_json()
+
+    return render_template(
+        "apps/erlang_cx.html",
+        metrics=metrics,
+        table=table,
+        chart_json=chart_json,
+        target_sl=target_sl,
+    )
 
 
 @bp.route("/predictivo", methods=["GET", "POST"])

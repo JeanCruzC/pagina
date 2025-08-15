@@ -1,0 +1,143 @@
+{% extends 'apps/layout.html' %}
+
+{% block app_content %}
+<h2 class="fw-bold mb-4">Erlang CX</h2>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" class="row g-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-4">
+        <label for="forecast" class="form-label">Forecast</label>
+        <input type="number" step="any" class="form-control" id="forecast" name="forecast" required>
+      </div>
+      <div class="col-md-4">
+        <label for="interval" class="form-label">Intervalo (seg)</label>
+        <input type="number" step="any" class="form-control" id="interval" name="interval" required>
+      </div>
+      <div class="col-md-4">
+        <label for="aht" class="form-label">AHT (seg)</label>
+        <input type="number" step="any" class="form-control" id="aht" name="aht" required>
+      </div>
+      <div class="col-md-4">
+        <label for="agents" class="form-label">Agentes</label>
+        <input type="number" class="form-control" id="agents" name="agents" required>
+      </div>
+      <div class="col-md-4">
+        <label for="awt" class="form-label">AWT (seg)</label>
+        <input type="number" step="any" class="form-control" id="awt" name="awt" required>
+      </div>
+      <div class="col-12">
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="use_advanced" name="use_advanced">
+          <label class="form-check-label" for="use_advanced">Parámetros avanzados</label>
+        </div>
+      </div>
+      <div id="advanced-fields" style="display:none;">
+        <div class="row g-3 mt-0">
+          <div class="col-md-6">
+            <label for="lines" class="form-label">Líneas</label>
+            <input type="number" class="form-control" id="lines" name="lines">
+          </div>
+          <div class="col-md-6">
+            <label for="patience" class="form-label">Patience (seg)</label>
+            <input type="number" step="any" class="form-control" id="patience" name="patience">
+          </div>
+        </div>
+      </div>
+      <div class="col-12">
+        <label for="target_sl" class="form-label">SL objetivo: <span id="sl-display">{{ (target_sl*100)|round(0) }}</span>%</label>
+        <input type="range" class="form-range" id="target_sl" name="target_sl" min="0.70" max="0.95" step="0.01" value="{{ target_sl }}">
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary">Calcular</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if metrics %}
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card text-center">
+      <div class="card-body">
+        <h5 class="card-title">SL %</h5>
+        <p class="card-text">{{ (metrics.service_level * 100) | round(2) }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-center">
+      <div class="card-body">
+        <h5 class="card-title">ASA (s)</h5>
+        <p class="card-text">{{ metrics.asa | round(2) }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card text-center">
+      <div class="card-body">
+        <h5 class="card-title">Ocupación %</h5>
+        <p class="card-text">{{ (metrics.occupancy * 100) | round(2) }}</p>
+      </div>
+    </div>
+  </div>
+  {% if metrics.abandonment is defined %}
+  <div class="col-md-3">
+    <div class="card text-center">
+      <div class="card-body">
+        <h5 class="card-title">Abandonment %</h5>
+        <p class="card-text">{{ (metrics.abandonment * 100) | round(2) }}</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="mb-4">
+  <h3>Análisis de Dimensionamiento</h3>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Recomendados</th>
+        <th>Actuales</th>
+        <th>Diferencia</th>
+        <th>Calls/Agent</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>{{ table.recommended }}</td>
+        <td>{{ table.current }}</td>
+        <td>{{ table.difference }}</td>
+        <td>{{ table.calls_per_agent | round(2) }}</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+{% if chart_json %}
+<div id="sensitivity-chart" class="mb-4"></div>
+<script>
+  var fig = {{ chart_json|safe }};
+  Plotly.react('sensitivity-chart', fig.data, fig.layout);
+</script>
+{% endif %}
+{% endif %}
+
+<script>
+const advToggle = document.getElementById('use_advanced');
+const advFields = document.getElementById('advanced-fields');
+function toggleAdv(){
+  advFields.style.display = advToggle.checked ? 'block' : 'none';
+}
+advToggle.addEventListener('change', toggleAdv);
+toggleAdv();
+const slInput = document.getElementById('target_sl');
+const slDisplay = document.getElementById('sl-display');
+if(slInput){
+  slInput.addEventListener('input', function(){ slDisplay.textContent = (this.value*100).toFixed(0); });
+}
+</script>
+
+{% endblock %}
