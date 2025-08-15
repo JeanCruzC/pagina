@@ -3,11 +3,16 @@
   <thead><tr>{% for k in table[0].keys() %}<th>{{ k }}</th>{% endfor %}</tr></thead>
   <tbody>
     {% for row in table %}
-    <tr>{% for v in row.values() %}<td>{{ v }}</td>{% endfor %}</tr>
+    <tr class="{% if row['Status_SL'] == 'OK' %}table-success{% else %}table-danger{% endif %}">
+      {% for v in row.values() %}<td>{{ v }}</td>{% endfor %}
+    </tr>
     {% endfor %}
   </tbody>
 </table>
-{% if download_url %}
-<a href="{{ download_url }}" class="btn btn-success">Descargar CSV</a>
+{% if download_url_csv %}
+<a href="{{ download_url_csv }}" class="btn btn-success">Descargar CSV</a>
+{% endif %}
+{% if download_url_xlsx %}
+<a href="{{ download_url_xlsx }}" class="btn btn-success ms-2">Descargar Excel</a>
 {% endif %}
 {% endif %}
