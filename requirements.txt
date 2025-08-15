@@ -10,3 +10,4 @@ requests==2.31.0
 python-dotenv==1.0.0
 Flask-WTF==1.2.2
 gunicorn==21.2.0
+plotly==5.18.0

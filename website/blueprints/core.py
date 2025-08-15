@@ -122,16 +122,6 @@ def generador():
 
         heatmaps = result.get("heatmaps", {})
         if heatmaps:
-            heatmap_dir = os.path.join(temp_dir, job_id)
-            os.makedirs(heatmap_dir, exist_ok=True)
-            for key, path in list(heatmaps.items()):
-                try:
-                    new_name = f"{key}.png"
-                    dest = os.path.join(heatmap_dir, new_name)
-                    os.replace(path, dest)
-                    heatmaps[key] = new_name
-                except OSError:
-                    heatmaps[key] = None
             result["heatmaps"] = heatmaps
 
         if excel_bytes:
@@ -175,11 +165,9 @@ def resultados():
         resultado = json.load(f)
 
     heatmaps = resultado.get("heatmaps", {})
-    for key, fname in list(heatmaps.items()):
-        if fname:
-            heatmaps[key] = url_for("core.heatmap", job_id=job_id, filename=fname)
-        else:
-            heatmaps[key] = None
+    for key, val in list(heatmaps.items()):
+        if isinstance(val, str):
+            heatmaps[key] = url_for("core.heatmap", job_id=job_id, filename=val)
 
     try:
         os.remove(json_path)
