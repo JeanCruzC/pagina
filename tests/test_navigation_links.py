@@ -6,6 +6,34 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
+sys.modules.setdefault('plotly', types.SimpleNamespace(graph_objects=types.SimpleNamespace(Figure=object)))
+sys.modules.setdefault('plotly.graph_objects', sys.modules['plotly'].graph_objects)
+sys.modules.setdefault('website.other.timeseries_core', types.SimpleNamespace())
+sys.modules.setdefault('website.other.erlang_core', types.SimpleNamespace())
+sys.modules.setdefault('website.other.modelo_predictivo_core', types.SimpleNamespace())
+sys.modules.setdefault('website.utils.kpis_core', types.SimpleNamespace())
+
+from flask import Blueprint
+
+_apps_bp = Blueprint("apps", __name__, url_prefix="/apps")
+
+@_apps_bp.route("/erlang")
+def erlang():
+    return ""
+
+@_apps_bp.route("/timeseries")
+def timeseries():
+    return ""
+
+@_apps_bp.route("/predictivo")
+def predictivo():
+    return ""
+
+@_apps_bp.route("/kpis")
+def kpis():
+    return ""
+
+sys.modules.setdefault('website.blueprints.apps', types.SimpleNamespace(apps_bp=_apps_bp))
 
 from website import create_app
 from website.utils import allowlist as allowlist_module
@@ -45,5 +73,7 @@ def test_nav_links_authenticated():
     assert response.status_code == 200
     html = response.get_data(as_text=True)
     assert '/apps/erlang' in html
+    assert 'Apps</a>' in html
     assert '/apps/timeseries' in html
     assert '/apps/predictivo' in html
+    assert '/apps/kpis' in html
