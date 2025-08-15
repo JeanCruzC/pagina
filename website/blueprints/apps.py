@@ -12,23 +12,24 @@ import plotly.graph_objects as go
 
 from ..other import timeseries_core, erlang_core, modelo_predictivo_core
 
-bp = Blueprint("apps", __name__, url_prefix="/apps")
+# Public blueprint used by the main application factory
+apps_bp = Blueprint("apps", __name__, url_prefix="/apps")
 
 
-@bp.before_request
+@apps_bp.before_request
 def require_login():  # pragma: no cover - simple auth gate
     """Redirect users to the login page when not authenticated."""
     if "user" not in session:
         return redirect(url_for("core.login"))
 
 
-@bp.route("/")
+@apps_bp.route("/")
 def index():
     """Redirect to the default app or show a menu."""
     return redirect(url_for("apps.erlang"))
 
 
-@bp.route("/erlang", methods=["GET", "POST"])
+@apps_bp.route("/erlang", methods=["GET", "POST"])
 def erlang():
     """Render a minimal Erlang calculator."""
 
@@ -58,7 +59,7 @@ def erlang():
     return render_template("apps/erlang.html", metrics=metrics)
 
 
-@bp.route("/predictivo", methods=["GET", "POST"])
+@apps_bp.route("/predictivo", methods=["GET", "POST"])
 def predictivo():
     """Execute the predictive model workflow."""
 
@@ -84,7 +85,7 @@ def predictivo():
     )
 
 
-@bp.route("/timeseries", methods=["GET", "POST"])
+@apps_bp.route("/timeseries", methods=["GET", "POST"])
 def timeseries():
     """Render the time series exploration interface.
 
@@ -136,19 +137,19 @@ def timeseries():
     )
 
 
-@bp.route("/series", methods=["GET", "POST"])
+@apps_bp.route("/series", methods=["GET", "POST"])
 def series():
     """Alias route that reuses :func:`timeseries`."""
     return timeseries()
 
 
-@bp.route("/erlang/<path:submodule>", methods=["GET", "POST"])
+@apps_bp.route("/erlang/<path:submodule>", methods=["GET", "POST"])
 def erlang_submodule(submodule: str):
     """Dispatch any Erlang submodule to the main view."""
     return erlang()
 
 
-@bp.route("/kpis", methods=["GET", "POST"])
+@apps_bp.route("/kpis", methods=["GET", "POST"])
 def kpis():
     """Simple placeholder view for KPI experiments."""
     message = None
