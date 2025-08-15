@@ -9,6 +9,7 @@ import json
 import os
 import tempfile
 import uuid
+from io import BytesIO
 from typing import Any, Dict
 
 import pandas as pd
@@ -110,7 +111,8 @@ def predictivo():
 
     metrics = {}
     table = []
-    download_url = None
+    download_url_csv = None
+    download_url_xlsx = None
 
     if request.method == "POST":
         file = request.files.get("file")
@@ -633,7 +635,8 @@ def batch():
     """Batch processing of contact centre scenarios."""
 
     table = []
-    download_url = None
+    download_url_csv = None
+    download_url_xlsx = None
 
     if request.method == "POST":
         file = request.files.get("file")
@@ -655,27 +658,42 @@ def batch():
                 processed_rows.append({**row, **metrics})
             result_df = pd.DataFrame(processed_rows)
             table = result_df.to_dict("records")
-            csv_bytes = batch_core.export_results(result_df).to_csv(index=False).encode("utf-8")
+            export_df = batch_core.export_results(result_df)
+            csv_bytes = export_df.to_csv(index=False).encode("utf-8")
+            xlsx_io = BytesIO()
+            with pd.ExcelWriter(xlsx_io, engine="openpyxl") as writer:
+                export_df.to_excel(writer, index=False)
+            xlsx_bytes = xlsx_io.getvalue()
             job_id = uuid.uuid4().hex
-            path = os.path.join(temp_dir, f"{job_id}.csv")
-            with open(path, "wb") as f:
+            csv_path = os.path.join(temp_dir, f"{job_id}.csv")
+            xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
+            with open(csv_path, "wb") as f:
                 f.write(csv_bytes)
-            download_url = url_for("apps.batch_download", job_id=job_id)
+            with open(xlsx_path, "wb") as f:
+                f.write(xlsx_bytes)
+            download_url_csv = url_for("apps.batch_download", job_id=job_id, ext="csv")
+            download_url_xlsx = url_for("apps.batch_download", job_id=job_id, ext="xlsx")
 
         if request.headers.get("HX-Request"):
             return render_template(
-                "partials/batch_results.html", table=table, download_url=download_url
+                "partials/batch_results.html",
+                table=table,
+                download_url_csv=download_url_csv,
+                download_url_xlsx=download_url_xlsx,
             )
 
     return render_template(
-        "apps/batch.html", table=table, download_url=download_url
+        "apps/batch.html",
+        table=table,
+        download_url_csv=download_url_csv,
+        download_url_xlsx=download_url_xlsx,
     )
 
 
-@apps_bp.route("/batch/download/<job_id>")
-def batch_download(job_id: str):
-    """Send processed batch results."""
-    path = os.path.join(temp_dir, f"{job_id}.csv")
+@apps_bp.route("/batch/download/<job_id>.<ext>")
+def batch_download(job_id: str, ext: str):
+    """Send processed batch results in the requested format."""
+    path = os.path.join(temp_dir, f"{job_id}.{ext}")
     if not os.path.exists(path):
         abort(404)
 
@@ -687,11 +705,18 @@ def batch_download(job_id: str):
             pass
         return response
 
+    if ext == "csv":
+        mimetype = "text/csv"
+    elif ext == "xlsx":
+        mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        abort(400)
+
     return send_file(
         path,
         as_attachment=True,
-        download_name="batch_result.csv",
-        mimetype="text/csv",
+        download_name=f"batch_result.{ext}",
+        mimetype=mimetype,
     )
 
 
