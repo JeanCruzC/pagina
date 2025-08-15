@@ -1,7 +1,17 @@
 {% if metrics %}
 <ul class="list-group mb-3">
-  {% for k, v in metrics.items() %}
-  <li class="list-group-item d-flex justify-content-between"><span>{{ k }}</span><span>{{ v }}</span></li>
-  {% endfor %}
+  <li class="list-group-item d-flex justify-content-between"><span>SL inbound</span><span>{{ metrics.service_level }}</span></li>
+  <li class="list-group-item d-flex justify-content-between"><span>Capacidad outbound</span><span>{{ metrics.outbound_capacity }}</span></li>
+  <li class="list-group-item d-flex justify-content-between"><span>Threshold óptimo</span><span>{{ metrics.optimal_threshold }}</span></li>
 </ul>
+{% endif %}
+{% if figure_json %}
+<div id="blending-figure" data-figure='{{ figure_json | tojson | safe }}'></div>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>
+  (function(){
+    var el=document.getElementById('blending-figure');
+    if(el){var fig=JSON.parse(el.dataset.figure);Plotly.react(el, fig.data, fig.layout);}
+  })();
+</script>
 {% endif %}
