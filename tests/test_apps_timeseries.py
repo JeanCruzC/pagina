@@ -50,20 +50,43 @@ def test_timeseries_authenticated_get():
     client = app.test_client()
     login(client)
     response = client.get('/apps/timeseries')
+    html = response.get_data(as_text=True)
     assert response.status_code == 200
-    assert b'timeseries-form' in response.data or b'coming soon' in response.data
+    assert 'timeseries-form' in html
+    assert 'type="file"' in html
+    assert 'weight_last' in html
+    assert 'scope' in html
 
 
-def test_timeseries_post_returns_results():
+def test_timeseries_post_file_upload():
+    import io
+
     client = app.test_client()
     login(client)
     token = _csrf_token(client, '/apps/timeseries')
+    csv_content = (
+        'fecha,intervalo,planif. contactos,contactos\n'
+        '2024-01-01,00:00:00,10,12\n'
+        '2024-01-02,00:00:00,10,8\n'
+    )
+    data = {
+        'weight_last': '0.7',
+        'weight_prev': '0.3',
+        'scope': 'Total',
+        'view': 'Día',
+        'csrf_token': token,
+        'file': (io.BytesIO(csv_content.encode('utf-8')), 'test.csv'),
+    }
     response = client.post(
         '/apps/timeseries',
-        data={'values': '1,2,3,4', 'csrf_token': token},
+        data=data,
+        content_type='multipart/form-data',
         follow_redirects=True,
     )
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert 'timeseries-table' in html
-    assert 'data-figure' in html
+    assert 'timeseries-kpis' in html
+    assert 'timeseries-recommendations' in html
+    assert 'timeseries-weekly-table' in html
+    assert 'timeseries-heatmap' in html
+    assert 'timeseries-interactive' in html
