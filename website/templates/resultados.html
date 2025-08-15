@@ -16,28 +16,28 @@
   <!-- KPIs -->
   {% if resultado and resultado.metrics %}
   <div class="row g-3 mb-4 text-center">
-    <div class="col-6 col-md-2">
-      <div class="card card-body">
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="card card-body h-100 stat-card">
         <div class="small text-muted">Total Agentes</div>
-        <div class="h3 mb-0">{{ resultado.metrics.total_agents or 0 }}</div>
+        <div class="h4 mb-0">{{ resultado.metrics.total_agents or 0 }}</div>
       </div>
     </div>
-    <div class="col-6 col-md-2">
-      <div class="card card-body">
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="card card-body h-100 stat-card">
         <div class="small text-muted">Full Time</div>
-        <div class="h3 mb-0">{{ resultado.metrics.ft_agents or 0 }}</div>
+        <div class="h4 mb-0">{{ resultado.metrics.ft_agents or 0 }}</div>
       </div>
     </div>
-    <div class="col-6 col-md-2">
-      <div class="card card-body">
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="card card-body h-100 stat-card">
         <div class="small text-muted">Part Time</div>
-        <div class="h3 mb-0">{{ resultado.metrics.pt_agents or 0 }}</div>
+        <div class="h4 mb-0">{{ resultado.metrics.pt_agents or 0 }}</div>
       </div>
     </div>
-    <div class="col-6 col-md-3">
-      <div class="card card-body">
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="card card-body h-100 stat-card">
         <div class="small text-muted">Cobertura Real</div>
-        <div class="h3 mb-0">
+        <div class="h4 mb-0">
           {% if resultado.metrics.coverage_percentage is not none %}
             {{ '%.1f'|format(resultado.metrics.coverage_percentage) }}%
           {% else %}
@@ -46,16 +46,16 @@
         </div>
       </div>
     </div>
-    <div class="col-6 col-md-1">
-      <div class="card card-body">
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="card card-body h-100 stat-card">
         <div class="small text-muted">Exceso</div>
-        <div class="h5 mb-0">{{ resultado.metrics.overstaffing or 0 }}</div>
+        <div class="h4 mb-0">{{ resultado.metrics.overstaffing or 0 }}</div>
       </div>
     </div>
-    <div class="col-6 col-md-2">
-      <div class="card card-body">
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="card card-body h-100 stat-card">
         <div class="small text-muted">Déficit</div>
-        <div class="h5 mb-0">{{ resultado.metrics.understaffing or 0 }}</div>
+        <div class="h4 mb-0">{{ resultado.metrics.understaffing or 0 }}</div>
       </div>
     </div>
   </div>
