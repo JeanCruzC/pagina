@@ -6,6 +6,12 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 from sklearn.metrics import mean_absolute_error, mean_squared_error
+import seaborn as sns
+
+# Establish a default theme so any seaborn-based charts elsewhere in the app use
+# a consistent style.  The heavy lifting in this module still relies on Plotly,
+# but importing seaborn here ensures the dependency is available and configured.
+sns.set_theme(style="whitegrid")
 
 
 def _preprocess(df: pd.DataFrame) -> pd.DataFrame:

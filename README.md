@@ -10,7 +10,11 @@ This project creates optimized work schedules using Flask.
    pip install -r requirements.txt
    ```
 
-   The list includes the `pulp` package used for solving the optimization problem.
+   Besides Flask the application relies on data-science libraries such as
+   **pandas**, **numpy**, **seaborn**, **statsmodels**, **pmdarima**,
+   **scikit-learn**, **xgboost** and **plotly** for the analytics demos.
+   The list also includes the `pulp` package used for solving the optimization
+   problem.
 
 2. Copia el archivo `.env.example` a `.env` y completa las credenciales reales:
    ```bash
