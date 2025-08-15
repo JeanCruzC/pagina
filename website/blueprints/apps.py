@@ -171,6 +171,7 @@ def timeseries():
     """
 
     metrics: Dict[str, Any] = {}
+    figure_json = None
     recommendation = ""
     weekly_table = []
     heatmap_json = None
@@ -295,6 +296,7 @@ def chat():
     """Chat multi-channel calculator."""
 
     metrics: Dict[str, Any] = {}
+    figure_json = None
 
     if request.method == "POST":
         forecast = request.form.get("forecast", type=float, default=0.0) or 0.0
@@ -344,6 +346,7 @@ def blending():
     """Blending calculator."""
 
     metrics: Dict[str, Any] = {}
+    figure_json = None
 
     if request.method == "POST":
         forecast = request.form.get("forecast", type=float, default=0.0) or 0.0
@@ -354,23 +357,90 @@ def blending():
         interval = request.form.get("interval", default="3600")
         interval_seconds = 1800 if interval == "1800" else 3600
         sl_target = request.form.get("sl_target", type=float, default=0.8)
+        lines = request.form.get("lines", type=int)
+        patience = request.form.get("patience", type=float)
 
         arrival_rate = forecast / interval_seconds
         sl = erlang_service.bl_sla(
-            arrival_rate, aht, agents, awt, None, None, threshold
+            arrival_rate, aht, agents, awt, lines, patience, threshold
+        )
+        outbound = (
+            erlang_service.bl_outbound_capacity(
+                arrival_rate, aht, agents, lines, patience, threshold, aht
+            )
+            * 3600
         )
         optimal = erlang_service.bl_optimal_threshold(
-            arrival_rate, aht, agents, awt, None, None, sl_target
+            arrival_rate, aht, agents, awt, lines, patience, sl_target
         )
         metrics = {
             "service_level": f"{sl:.1%}",
+            "outbound_capacity": f"{outbound:.1f} llamadas/h",
             "optimal_threshold": f"{optimal:.1f}",
         }
 
-        if request.headers.get("HX-Request"):
-            return render_template("partials/blending_results.html", metrics=metrics)
+        threshold_range = range(0, int(agents * 0.4))
+        sl_data = []
+        outbound_data = []
+        for t in threshold_range:
+            sl_val = erlang_service.bl_sla(
+                arrival_rate, aht, agents, awt, lines, patience, t
+            )
+            out_val = (
+                erlang_service.bl_outbound_capacity(
+                    arrival_rate, aht, agents, lines, patience, t, aht
+                )
+                * 3600
+            )
+            sl_data.append(sl_val)
+            outbound_data.append(out_val)
 
-    return render_template("apps/blending.html", metrics=metrics)
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=list(threshold_range),
+                y=sl_data,
+                mode="lines+markers",
+                name="Service Level Inbound",
+                yaxis="y",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=list(threshold_range),
+                y=outbound_data,
+                mode="lines+markers",
+                name="Capacidad Outbound",
+                yaxis="y2",
+            )
+        )
+        fig.update_layout(
+            title="Service Level vs Capacidad Outbound por Threshold",
+            xaxis_title="Threshold (Agentes Reservados)",
+            yaxis=dict(title="Service Level Inbound", side="left", range=[0, 1]),
+            yaxis2=dict(
+                title="Capacidad Outbound (llamadas/hora)",
+                side="right",
+                overlaying="y",
+            ),
+            hovermode="x unified",
+        )
+        fig.add_vline(
+            x=threshold, line_dash="dash", line_color="red", annotation_text="Actual"
+        )
+        fig.add_vline(
+            x=optimal, line_dash="dash", line_color="orange", annotation_text="Óptimo"
+        )
+        figure_json = fig.to_json()
+
+        if request.headers.get("HX-Request"):
+            return render_template(
+                "partials/blending_results.html", metrics=metrics, figure_json=figure_json
+            )
+
+    return render_template(
+        "apps/blending.html", metrics=metrics, figure_json=figure_json
+    )
 
 
 @apps_bp.route("/erlang_o", methods=["GET", "POST"])
