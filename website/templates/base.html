@@ -35,9 +35,15 @@
             <li class="nav-item"><a href="{{ url_for('core.generador') }}" class="nav-link {{ 'active' if request.endpoint=='generador' else '' }}">Generador</a></li>
             <li class="nav-item"><a href="{{ url_for('core.resultados') }}" class="nav-link {{ 'active' if request.endpoint=='resultados' else '' }}">Resultados</a></li>
             <li class="nav-item"><a href="{{ url_for('core.configuracion') }}" class="nav-link {{ 'active' if request.endpoint=='configuracion' else '' }}">Configuración</a></li>
-            <li class="nav-item"><a href="{{ url_for('apps.erlang') }}" class="nav-link {{ 'active' if request.endpoint=='apps.erlang' else '' }}">Erlang</a></li>
-            <li class="nav-item"><a href="{{ url_for('apps.timeseries') }}" class="nav-link {{ 'active' if request.endpoint=='apps.timeseries' else '' }}">Series</a></li>
-            <li class="nav-item"><a href="{{ url_for('apps.predictivo') }}" class="nav-link {{ 'active' if request.endpoint=='apps.predictivo' else '' }}">Predictivo</a></li>
+            <li class="nav-item dropdown">
+              <a href="{{ url_for('apps.erlang') }}" class="nav-link dropdown-toggle {{ 'active' if request.endpoint and request.endpoint.startswith('apps.') else '' }}" id="appsDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">Apps</a>
+              <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="{{ url_for('apps.erlang') }}">Erlang</a></li>
+                <li><a class="dropdown-item" href="{{ url_for('apps.timeseries') }}">Series</a></li>
+                <li><a class="dropdown-item" href="{{ url_for('apps.predictivo') }}">Predictivo</a></li>
+                <li><a class="dropdown-item" href="{{ url_for('apps.kpis') }}">KPIs</a></li>
+              </ul>
+            </li>
           </ul>
           <button class="btn btn-outline-secondary me-3" id="themeToggle" aria-label="Cambiar tema" type="button">
             <i class="bi bi-moon" aria-hidden="true"></i>
