@@ -1,0 +1,39 @@
+{% extends 'apps/_layout.html' %}
+
+{% block app_content %}
+<h2 class="fw-bold mb-4">Erlang</h2>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form id="erlang-form" class="needs-validation" novalidate>
+      <!-- Campos del formulario -->
+    </form>
+  </div>
+</div>
+
+<div class="row g-3 mb-4" id="erlang-metrics">
+  <div class="col-md-3">
+    <div class="p-3 border rounded text-center">Metric A</div>
+  </div>
+  <div class="col-md-3">
+    <div class="p-3 border rounded text-center">Metric B</div>
+  </div>
+  <div class="col-md-3">
+    <div class="p-3 border rounded text-center">Metric C</div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table id="erlang-table" class="table table-sm"></table>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <div id="erlang-chart"></div>
+  </div>
+</div>
+{% endblock %}
