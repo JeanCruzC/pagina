@@ -1,0 +1,15 @@
+{% if table %}
+<table class="table table-bordered mb-3">
+  <thead><tr>{% for k in table[0].keys() %}<th>{{ k }}</th>{% endfor %}</tr></thead>
+  <tbody>
+    {% for row in table %}
+    <tr>{% for v in row.values() %}<td>{{ v }}</td>{% endfor %}</tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% if figure_json %}
+<div id="comparativo-figure" data-figure='{{ figure_json | tojson | safe }}'></div>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>(function(){var el=document.getElementById('comparativo-figure');if(el){var fig=JSON.parse(el.dataset.figure);Plotly.react(el, fig.data, fig.layout);}})();</script>
+{% endif %}

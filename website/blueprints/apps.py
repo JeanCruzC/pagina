@@ -11,6 +11,8 @@ import tempfile
 import uuid
 from typing import Any, Dict
 
+import pandas as pd
+
 import plotly.graph_objects as go
 from flask import (
     Blueprint,
@@ -24,7 +26,16 @@ from flask import (
     after_this_request,
 )
 
-from ..other import timeseries_core, erlang_core, modelo_predictivo_core
+from ..other import (
+    timeseries_core,
+    erlang_core,
+    modelo_predictivo_core,
+    erlang_visual,
+    comparativo_core,
+    staffing_core,
+    batch_core,
+)
+from ..services import erlang as erlang_service, erlang_o
 
 # Public blueprint used by the main application factory
 apps_bp = Blueprint("apps", __name__, url_prefix="/apps")
@@ -208,6 +219,296 @@ def series():
 def erlang_submodule(submodule: str):
     """Dispatch any Erlang submodule to the main view."""
     return erlang()
+
+
+@apps_bp.route("/erlang_visual", methods=["GET", "POST"])
+def erlang_visual_view():
+    """Enhanced Erlang view with agent visualisation."""
+
+    metrics: Dict[str, Any] = {}
+    figure_json = None
+
+    if request.method == "POST":
+        forecast = request.form.get("forecast", type=float, default=0.0) or 0.0
+        aht = request.form.get("aht", type=float, default=0.0) or 0.0
+        agents = request.form.get("agents", type=int, default=0) or 0
+        awt = request.form.get("awt", type=float, default=0.0) or 0.0
+        interval = request.form.get("interval", default="3600")
+        interval_seconds = 1800 if interval == "1800" else 3600
+        sl_target = request.form.get("sl_target", type=float, default=0.8)
+
+        arrival_rate = forecast / interval_seconds
+        sl = erlang_service.sla_x(arrival_rate, aht, agents, awt)
+        asa = erlang_service.waiting_time_erlang_c(arrival_rate, aht, agents)
+        occ = erlang_core.occupancy_erlang_c(arrival_rate, aht, agents)
+        required = erlang_service.agents_for_sla(sl_target, arrival_rate, aht, awt)
+        hourly_forecast = forecast * 3600 / interval_seconds if interval_seconds else 0
+        cpa = hourly_forecast / agents if agents else 0
+
+        fig = erlang_visual.create_agent_visualization(
+            forecast, aht, agents, awt, interval_seconds, int(required)
+        )
+        figure_json = fig.to_json()
+
+        metrics = {
+            "service_level": f"{sl:.1%}",
+            "asa": f"{asa:.1f}",
+            "occupancy": f"{occ:.1%}",
+            "required_agents": int(required),
+            "calls_per_agent": f"{cpa:.1f}",
+        }
+
+        if request.headers.get("HX-Request"):
+            return render_template(
+                "partials/erlang_visual_results.html",
+                metrics=metrics,
+                figure_json=figure_json,
+            )
+
+    return render_template(
+        "apps/erlang_visual.html", metrics=metrics, figure_json=figure_json
+    )
+
+
+@apps_bp.route("/chat", methods=["GET", "POST"])
+def chat():
+    """Chat multi-channel calculator."""
+
+    metrics: Dict[str, Any] = {}
+
+    if request.method == "POST":
+        forecast = request.form.get("forecast", type=float, default=0.0) or 0.0
+        ahts_raw = request.form.get("ahts", "")
+        agents = request.form.get("agents", type=int, default=0) or 0
+        awt = request.form.get("awt", type=float, default=0.0) or 0.0
+        interval = request.form.get("interval", default="3600")
+        interval_seconds = 1800 if interval == "1800" else 3600
+        sl_target = request.form.get("sl_target", type=float, default=0.8)
+
+        try:
+            aht_list = [float(x) for x in ahts_raw.split(",") if x.strip()]
+        except ValueError:
+            aht_list = []
+        if not aht_list:
+            aht_list = [ahts_raw and float(ahts_raw) or 0.0]
+
+        arrival_rate = forecast / interval_seconds
+        sl = erlang_service.chat_sla(arrival_rate, aht_list, agents, awt)
+        asa = erlang_service.chat_asa(arrival_rate, aht_list, agents)
+        required = erlang_service.chat_agents_for_sla(
+            sl_target, arrival_rate, aht_list, awt
+        )
+
+        metrics = {
+            "service_level": f"{sl:.1%}",
+            "asa": f"{asa:.1f}",
+            "required_agents": int(required),
+        }
+
+        if request.headers.get("HX-Request"):
+            return render_template("partials/chat_results.html", metrics=metrics)
+
+    return render_template("apps/chat.html", metrics=metrics)
+
+
+@apps_bp.route("/blending", methods=["GET", "POST"])
+def blending():
+    """Blending calculator."""
+
+    metrics: Dict[str, Any] = {}
+
+    if request.method == "POST":
+        forecast = request.form.get("forecast", type=float, default=0.0) or 0.0
+        aht = request.form.get("aht", type=float, default=0.0) or 0.0
+        agents = request.form.get("agents", type=int, default=0) or 0
+        awt = request.form.get("awt", type=float, default=0.0) or 0.0
+        threshold = request.form.get("threshold", type=float, default=0.0) or 0.0
+        interval = request.form.get("interval", default="3600")
+        interval_seconds = 1800 if interval == "1800" else 3600
+        sl_target = request.form.get("sl_target", type=float, default=0.8)
+
+        arrival_rate = forecast / interval_seconds
+        sl = erlang_service.bl_sla(
+            arrival_rate, aht, agents, awt, None, None, threshold
+        )
+        optimal = erlang_service.bl_optimal_threshold(
+            arrival_rate, aht, agents, awt, None, None, sl_target
+        )
+        metrics = {
+            "service_level": f"{sl:.1%}",
+            "optimal_threshold": f"{optimal:.1f}",
+        }
+
+        if request.headers.get("HX-Request"):
+            return render_template("partials/blending_results.html", metrics=metrics)
+
+    return render_template("apps/blending.html", metrics=metrics)
+
+
+@apps_bp.route("/erlang_o", methods=["GET", "POST"])
+def erlang_o_view():
+    """Erlang O outbound calculator."""
+
+    metrics: Dict[str, Any] = {}
+
+    if request.method == "POST":
+        agents = request.form.get("agents", type=int, default=0) or 0
+        hours_per_day = request.form.get("hours_per_day", type=float, default=0.0) or 0.0
+        calls_per_hour = request.form.get("calls_per_hour", type=float, default=0.0) or 0.0
+        success_rate = request.form.get("success_rate", type=float, default=0.3) or 0.3
+        metrics = erlang_o.productivity(agents, hours_per_day, calls_per_hour, success_rate)
+
+        if request.headers.get("HX-Request"):
+            return render_template("partials/erlang_o_results.html", metrics=metrics)
+
+    return render_template("apps/erlang_o.html", metrics=metrics)
+
+
+@apps_bp.route("/comparativo", methods=["GET", "POST"])
+def comparativo():
+    """Run comparative analysis across models."""
+
+    table = []
+    figure_json = None
+
+    if request.method == "POST":
+        forecast = request.form.get("forecast", type=float, default=0.0) or 0.0
+        aht = request.form.get("aht", type=float, default=0.0) or 0.0
+        agents = request.form.get("agents", type=int, default=0) or 0
+        awt = request.form.get("awt", type=float, default=0.0) or 0.0
+        lines = request.form.get("lines", type=int, default=agents) or agents
+        patience = request.form.get("patience", type=float, default=180.0) or 180.0
+        interval = request.form.get("interval", default="3600")
+        interval_seconds = 1800 if interval == "1800" else 3600
+
+        result = comparativo_core.comparative_analysis(
+            forecast, interval_seconds, aht, agents, awt, lines, patience
+        )
+        table = result.get("table", [])
+        fig = result.get("figure")
+        if isinstance(fig, dict):
+            figure_json = json.dumps(fig)
+        elif isinstance(fig, go.Figure):
+            figure_json = fig.to_json()
+
+        if request.headers.get("HX-Request"):
+            return render_template(
+                "partials/comparativo_results.html", table=table, figure_json=figure_json
+            )
+
+    return render_template(
+        "apps/comparativo.html", table=table, figure_json=figure_json
+    )
+
+
+@apps_bp.route("/staffing", methods=["GET", "POST"])
+def staffing():
+    """Staffing optimisation utility."""
+
+    table = []
+    figure_json = None
+    summary = {}
+
+    if request.method == "POST":
+        forecasts_raw = request.form.get("forecasts", "")
+        try:
+            forecasts = [float(x) for x in forecasts_raw.split(",") if x.strip()]
+        except ValueError:
+            forecasts = []
+        aht = request.form.get("aht", type=float, default=0.0) or 0.0
+        interval = request.form.get("interval", default="3600")
+        interval_seconds = 1800 if interval == "1800" else 3600
+        sl_target = request.form.get("sl_target", type=float, default=0.8)
+
+        result = staffing_core.staffing_optimizer(
+            forecasts, aht, interval_seconds, sl_target
+        )
+        table = result.get("table", [])
+        summary = result.get("summary", {})
+        fig = result.get("figure")
+        if isinstance(fig, dict):
+            figure_json = json.dumps(fig)
+        elif isinstance(fig, go.Figure):
+            figure_json = fig.to_json()
+
+        if request.headers.get("HX-Request"):
+            return render_template(
+                "partials/staffing_results.html",
+                table=table,
+                summary=summary,
+                figure_json=figure_json,
+            )
+
+    return render_template(
+        "apps/staffing.html", table=table, summary=summary, figure_json=figure_json
+    )
+
+
+@apps_bp.route("/batch", methods=["GET", "POST"])
+def batch():
+    """Batch processing of contact centre scenarios."""
+
+    table = []
+    download_url = None
+
+    if request.method == "POST":
+        file = request.files.get("file")
+        sl_target = request.form.get("sl_target", type=float, default=0.8)
+        awt = request.form.get("awt", type=float, default=20.0)
+        interval_choice = request.form.get("interval", default="3600")
+        interval_seconds = 1800 if interval_choice == "1800" else 3600
+        default_channel = request.form.get("default_channel", "Llamadas")
+        if file:
+            if file.filename.endswith(".csv"):
+                df = pd.read_csv(file)
+            else:
+                df = pd.read_excel(file)
+            processed_rows = []
+            for _, row in df.iterrows():
+                metrics = batch_core.process_batch_row(
+                    row, sl_target, awt, interval_seconds, default_channel
+                )
+                processed_rows.append({**row, **metrics})
+            result_df = pd.DataFrame(processed_rows)
+            table = result_df.to_dict("records")
+            csv_bytes = batch_core.export_results(result_df).to_csv(index=False).encode("utf-8")
+            job_id = uuid.uuid4().hex
+            path = os.path.join(temp_dir, f"{job_id}.csv")
+            with open(path, "wb") as f:
+                f.write(csv_bytes)
+            download_url = url_for("apps.batch_download", job_id=job_id)
+
+        if request.headers.get("HX-Request"):
+            return render_template(
+                "partials/batch_results.html", table=table, download_url=download_url
+            )
+
+    return render_template(
+        "apps/batch.html", table=table, download_url=download_url
+    )
+
+
+@apps_bp.route("/batch/download/<job_id>")
+def batch_download(job_id: str):
+    """Send processed batch results."""
+    path = os.path.join(temp_dir, f"{job_id}.csv")
+    if not os.path.exists(path):
+        abort(404)
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return response
+
+    return send_file(
+        path,
+        as_attachment=True,
+        download_name="batch_result.csv",
+        mimetype="text/csv",
+    )
 
 
 @apps_bp.route("/kpis", methods=["GET", "POST"])

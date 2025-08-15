@@ -1,0 +1,20 @@
+{% extends 'apps/layout.html' %}
+{% block app_content %}
+<h2 class="fw-bold mb-4">Batch Processor</h2>
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data" hx-post="{{ url_for('apps.batch') }}" hx-target="#batch-results" hx-swap="innerHTML" class="row g-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-4"><label class="form-label">Archivo</label><input type="file" name="file" class="form-control"></div>
+      <div class="col-md-2"><label class="form-label">SL Objetivo</label><input type="number" step="any" name="sl_target" class="form-control" value="0.8"></div>
+      <div class="col-md-2"><label class="form-label">AWT (seg)</label><input type="number" step="any" name="awt" class="form-control" value="20"></div>
+      <div class="col-md-2"><label class="form-label">Intervalo</label><select name="interval" class="form-select"><option value="1800">30 minutos</option><option value="3600" selected>1 hora</option></select></div>
+      <div class="col-md-2"><label class="form-label">Canal por defecto</label><select name="default_channel" class="form-select"><option value="Llamadas">Llamadas</option><option value="Chat">Chat</option></select></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">Procesar</button></div>
+    </form>
+  </div>
+</div>
+<div id="batch-results">
+  {% include 'partials/batch_results.html' %}
+</div>
+{% endblock %}

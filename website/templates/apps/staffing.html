@@ -1,0 +1,19 @@
+{% extends 'apps/layout.html' %}
+{% block app_content %}
+<h2 class="fw-bold mb-4">Staffing</h2>
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" hx-post="{{ url_for('apps.staffing') }}" hx-target="#staffing-results" hx-swap="innerHTML" class="row g-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-6"><label class="form-label">Forecasts por hora (coma separados)</label><input type="text" name="forecasts" class="form-control" placeholder="100,120,140"></div>
+      <div class="col-md-3"><label class="form-label">AHT (seg)</label><input type="number" step="any" name="aht" class="form-control" required></div>
+      <div class="col-md-3"><label class="form-label">Intervalo</label><select name="interval" class="form-select"><option value="1800">30 minutos</option><option value="3600" selected>1 hora</option></select></div>
+      <div class="col-md-3"><label class="form-label">SL Objetivo</label><input type="number" step="any" name="sl_target" class="form-control" value="0.8"></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">Calcular</button></div>
+    </form>
+  </div>
+</div>
+<div id="staffing-results">
+  {% include 'partials/staffing_results.html' %}
+</div>
+{% endblock %}
