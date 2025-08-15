@@ -99,26 +99,13 @@ Requeridos: {{ metrics.required_agents }}
 <div class="card mb-4">
   <div class="card-body">
     <h3 class="mb-3">Análisis de Dimensionamiento</h3>
-    <div class="table-responsive">
-      <table class="table table-sm">
-        <thead>
-          <tr>
-            <th>Agentes Recomendados</th>
-            <th>Agentes Actuales</th>
-            <th>Diferencia</th>
-            <th>Llamadas/Agente Requerido</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>{{ metrics.required_agents }}</td>
-            <td>{{ agents }}</td>
-            <td>{{ metrics.required_agents - agents }}</td>
-            <td>{{ (metrics.calls_per_agent_req or 0)|round(1) }}</td>
-          </tr>
-        </tbody>
-      </table>
+    {% set max_agents = [agents, metrics.required_agents]|max %}
+    <div class="position-relative my-4" style="height:40px;">
+      <div class="w-100 bg-light" style="height:10px;"></div>
+      <span class="position-absolute top-0 translate-middle badge bg-primary" style="left: {{ (agents / max_agents * 100)|round(1) }}%;">Actual {{ agents }}</span>
+      <span class="position-absolute top-0 translate-middle badge bg-warning text-dark" style="left: {{ (metrics.required_agents / max_agents * 100)|round(1) }}%;">Recomendado {{ metrics.required_agents }}</span>
     </div>
+    <div class="d-flex justify-content-between"><small>0</small><small>{{ max_agents }}</small></div>
   </div>
 </div>
 
@@ -126,6 +113,12 @@ Requeridos: {{ metrics.required_agents }}
 <div class="card mb-4">
   <div class="card-body">
     <h3 class="mb-3">Sensibilidad</h3>
+    {% if download_url_csv %}
+    <div class="mb-3">
+      <a class="btn btn-outline-secondary btn-sm me-2" href="{{ download_url_csv }}">Descargar CSV</a>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ download_url_xlsx }}">Descargar Excel</a>
+    </div>
+    {% endif %}
     <div id="erlang-figure" data-figure='{{ figure_json | tojson | safe }}'></div>
   </div>
 </div>

@@ -66,6 +66,8 @@ def erlang():
     figure_json = None
     target_sl = 0.8
     agents = None
+    download_url_csv = None
+    download_url_xlsx = None
 
     if request.method == "POST":
         calls = request.form.get("calls", type=float, default=0) or 0.0
@@ -96,13 +98,111 @@ def erlang():
             elif fig is not None:
                 figure_json = json.dumps(fig)
 
+            download_url_csv = url_for(
+                "apps.erlang_download",
+                fmt="csv",
+                calls=calls,
+                aht=aht,
+                awl=awl,
+                agents=agents,
+                interval=interval,
+                lines=lines,
+                patience=patience,
+                target_sl=target_sl,
+            )
+            download_url_xlsx = url_for(
+                "apps.erlang_download",
+                fmt="xlsx",
+                calls=calls,
+                aht=aht,
+                awl=awl,
+                agents=agents,
+                interval=interval,
+                lines=lines,
+                patience=patience,
+                target_sl=target_sl,
+            )
+
     return render_template(
         "apps/erlang.html",
         metrics=metrics,
         figure_json=figure_json,
         target_sl=target_sl,
         agents=agents,
+        download_url_csv=download_url_csv,
+        download_url_xlsx=download_url_xlsx,
     )
+
+
+@apps_bp.route("/erlang/download")
+def erlang_download():
+    """Download sensitivity results as CSV or Excel."""
+
+    fmt = request.args.get("fmt", "csv")
+    calls = request.args.get("calls", type=float, default=0.0)
+    aht = request.args.get("aht", type=float, default=0.0)
+    awl = request.args.get("awl", type=float, default=0.0)
+    agents = request.args.get("agents", type=int, default=0)
+    interval = request.args.get("interval", type=int, default=3600)
+    lines = request.args.get("lines", type=int)
+    patience = request.args.get("patience", type=float)
+    target_sl = request.args.get("target_sl", type=float, default=0.8)
+
+    metrics = erlang_core.calculate_erlang_metrics(
+        calls=calls,
+        aht=aht,
+        awt=awl,
+        agents=agents,
+        sl_target=target_sl,
+        lines=lines,
+        patience=patience,
+        interval_seconds=interval,
+    )
+
+    arrival_rate = calls / interval if interval else 0.0
+    fig = erlang_core.build_sensitivity_figure(
+        arrival_rate,
+        aht,
+        awl,
+        agents,
+        metrics.get("required_agents", 0),
+        lines,
+        patience,
+    )
+    agent_range = fig.data[0]["x"]
+    sl_data = fig.data[0]["y"]
+    asa_data = fig.data[1]["y"]
+    df = pd.DataFrame(
+        {
+            "agents": agent_range,
+            "service_level": sl_data,
+            "asa": asa_data,
+        }
+    )
+
+    file_io = BytesIO()
+    if fmt == "xlsx":
+        df.to_excel(file_io, index=False)
+        mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = "erlang_sensibilidad.xlsx"
+    else:
+        df.to_csv(file_io, index=False)
+        mimetype = "text/csv"
+        filename = "erlang_sensibilidad.csv"
+    file_io.seek(0)
+
+    return send_file(
+        file_io,
+        as_attachment=True,
+        download_name=filename,
+        mimetype=mimetype,
+    )
+
+
+@apps_bp.route("/erlang/demo")
+def erlang_demo():
+    """Backward compatible alias for the main Erlang view."""
+    return erlang()
 
 
 @apps_bp.route("/predictivo", methods=["GET", "POST"])
@@ -113,6 +213,7 @@ def predictivo():
     table = []
     download_url_csv = None
     download_url_xlsx = None
+    download_url = None
 
     if request.method == "POST":
         file = request.files.get("file")
