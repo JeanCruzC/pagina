@@ -718,12 +718,3 @@ def batch_download(job_id: str, ext: str):
         download_name=f"batch_result.{ext}",
         mimetype=mimetype,
     )
-
-
-@apps_bp.route("/kpis", methods=["GET", "POST"])
-def kpis():
-    """Simple placeholder view for KPI experiments."""
-    message = None
-    if request.method == "POST":
-        message = "placeholder"
-    return render_template("apps/kpis.html", message=message)

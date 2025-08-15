@@ -1,10 +1,20 @@
 import importlib.util
 import os
 import sys
+import types
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(ROOT)
+
+# Stub dependencies required by scheduler
+sys.modules['website.other.erlang_core'] = types.SimpleNamespace(
+    load_demand_from_excel=lambda *args, **kwargs: None,
+    analyze_demand_matrix=lambda *args, **kwargs: None,
+    generate_all_heatmaps=lambda *args, **kwargs: None,
+)
+sys.modules['website.other.kpis_core'] = types.SimpleNamespace()
+
 spec = importlib.util.spec_from_file_location(
     "scheduler_mod", os.path.join(ROOT, "website", "scheduler.py")
 )
