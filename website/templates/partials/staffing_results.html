@@ -13,6 +13,21 @@
   {% for k,v in summary.items() %}<li class="list-group-item d-flex justify-content-between"><span>{{ k }}</span><span>{{ v }}</span></li>{% endfor %}
 </ul>
 {% endif %}
+{% if analysis %}
+<h4>Análisis de Turnos</h4>
+<table class="table table-sm mb-3">
+  <tbody>
+  {% for row in analysis %}
+  <tr><td>{{ row['Métrica'] }}</td><td>{{ row['Valor'] }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% if recommendations %}
+<div class="alert alert-info"><ul class="mb-0">
+  {% for rec in recommendations %}<li>{{ rec }}</li>{% endfor %}
+</ul></div>
+{% endif %}
 {% if figure_json %}
 <div id="staffing-figure" data-figure='{{ figure_json | tojson | safe }}'></div>
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
