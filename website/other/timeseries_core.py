@@ -8,7 +8,10 @@ import time
 import os
 
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
+
+from . import timeseries_full_core
 
 
 def create_demand_signature(demand_matrix: Iterable[Iterable[float]]) -> str:
@@ -95,26 +98,36 @@ def plot_learning_history(history: Dict[str, Any], demand_signature: str) -> Dic
     return fig.to_dict()
 
 
-def run(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Basic processing pipeline for the demo time series app.
+def run(params: Dict[str, Any], file_storage=None) -> Dict[str, Any]:
+    """Processing pipeline for the time series demo.
 
-    The function expects a key ``values`` containing either an iterable of
-    numbers or a comma separated string. It returns summary metrics, a table of
-    the points and a Plotly figure representing the series.
-
-    Parameters
-    ----------
-    params:
-        Dictionary of input parameters from the form.
-
-    Returns
-    -------
-    dict
-        ``metrics``: basic statistics of the series
-        ``table``: list of dicts with ``index`` and ``value``
-        ``figure``: Plotly Figure object with a line chart
+    When ``file_storage`` is provided the file is parsed as CSV or Excel and
+    delegated to :func:`timeseries_full_core.process_timeseries`.  Otherwise a
+    very small fallback implementation is used that expects a comma separated
+    string under the ``values`` key.
     """
 
+    if file_storage is not None:
+        filename = (file_storage.filename or "").lower()
+        try:
+            if filename.endswith(".csv"):
+                df = pd.read_csv(file_storage)
+            elif filename.endswith((".xlsx", ".xls")):
+                df = pd.read_excel(file_storage)
+            else:
+                return {}
+        except Exception:
+            return {}
+
+        return timeseries_full_core.process_timeseries(
+            df,
+            weight_last=float(params.get("weight_last", 0.7)),
+            weight_prev=float(params.get("weight_prev", 0.3)),
+            scope=params.get("scope", "Total"),
+            view=params.get("view", "Día"),
+        )
+
+    # --- Fallback demo behaviour: parse a list of numbers ---
     values = params.get("values", [])
     if isinstance(values, str):
         try:

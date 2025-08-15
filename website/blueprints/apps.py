@@ -6,6 +6,7 @@ interactive utilities.  Each view delegates heavy computations to functions in
 """
 
 from flask import Blueprint, redirect, render_template, request, url_for, session
+from typing import Any, Dict
 import json
 import plotly.graph_objects as go
 
@@ -94,38 +95,42 @@ def timeseries():
     ``Plotly.react``.
     """
 
-    metrics = {}
-    table = []
-    figure_json = None
+    metrics: Dict[str, Any] = {}
+    recommendation = ""
+    weekly_table = []
+    heatmap_json = None
+    interactive_json = None
 
     if request.method == "POST":
+        file_storage = request.files.get("file")
         params = {}
         for key, value in request.form.items():
             if key == "csrf_token":
                 continue
-            try:
-                params[key] = json.loads(value)
-            except Exception:
-                params[key] = value
+            params[key] = value
 
-        core_fn = getattr(timeseries_core, "run", None)
-        if core_fn is None:
-            core_fn = getattr(timeseries_core, "process", None)
-        if core_fn is None:
-            core_fn = getattr(timeseries_core, "analyze", None)
-        result = core_fn(params) if callable(core_fn) else {}
+        result = timeseries_core.run(params, file_storage=file_storage)
 
         metrics = result.get("metrics", {}) if isinstance(result, dict) else {}
-        table = result.get("table", []) if isinstance(result, dict) else []
-        fig = result.get("figure") if isinstance(result, dict) else None
-        if isinstance(fig, go.Figure):
-            figure_json = fig.to_json()
-        elif fig is not None:
-            figure_json = json.dumps(fig)
+        recommendation = result.get("recommendation", "") if isinstance(result, dict) else ""
+        weekly_table = result.get("weekly_table", []) if isinstance(result, dict) else []
+
+        heatmap = result.get("heatmap") if isinstance(result, dict) else None
+        interactive = result.get("interactive") if isinstance(result, dict) else None
+        if isinstance(heatmap, go.Figure):
+            heatmap_json = heatmap.to_json()
+        elif heatmap is not None:
+            heatmap_json = json.dumps(heatmap)
+        if isinstance(interactive, go.Figure):
+            interactive_json = interactive.to_json()
+        elif interactive is not None:
+            interactive_json = json.dumps(interactive)
 
     return render_template(
         "apps/timeseries.html",
         metrics=metrics,
-        table=table,
-        figure_json=figure_json,
+        recommendation=recommendation,
+        weekly_table=weekly_table,
+        heatmap_json=heatmap_json,
+        interactive_json=interactive_json,
     )
