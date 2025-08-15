@@ -19,6 +19,7 @@ from flask import (
 from flask_wtf.csrf import CSRFError
 
 from ..utils.allowlist import verify_user
+from ..utils import kpis_core
 
 bp = Blueprint("core", __name__)
 
@@ -75,6 +76,64 @@ def logout():
 @bp.route("/register")
 def register():
     return redirect(url_for("core.login"))
+
+
+@bp.route("/kpis", methods=["GET", "POST"])
+@login_required
+def kpis():
+    if request.method == "POST":
+        file = request.files.get("file")
+        if not file or file.filename == "":
+            flash("Se requiere un archivo", "warning")
+            return render_template("kpis.html"), 400
+
+        # Validate size (<5MB)
+        file.seek(0, os.SEEK_END)
+        size = file.tell()
+        file.seek(0)
+        if size > 5 * 1024 * 1024:
+            flash("Archivo demasiado grande", "warning")
+            return render_template("kpis.html"), 400
+
+        # Validate extension
+        ext = os.path.splitext(file.filename.lower())[1]
+        if ext not in {".csv", ".xlsx"}:
+            flash("Formato no soportado", "warning")
+            return render_template("kpis.html"), 400
+
+        result, csv_bytes, xlsx_bytes = kpis_core.process_file(file)
+
+        job_id = uuid.uuid4().hex
+        downloads = {}
+
+        if csv_bytes:
+            csv_path = os.path.join(temp_dir, f"{job_id}.csv")
+            with open(csv_path, "wb") as f:
+                f.write(csv_bytes)
+            downloads["csv"] = url_for("core.download_kpis", job_id=job_id, fmt="csv")
+
+        if xlsx_bytes:
+            xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
+            with open(xlsx_path, "wb") as f:
+                f.write(xlsx_bytes)
+            downloads["xlsx"] = url_for("core.download_kpis", job_id=job_id, fmt="xlsx")
+
+        heatmap_path = result.get("heatmap")
+        if heatmap_path and os.path.exists(heatmap_path):
+            heatmap_dir = os.path.join(temp_dir, job_id)
+            os.makedirs(heatmap_dir, exist_ok=True)
+            new_name = os.path.basename(heatmap_path)
+            dest = os.path.join(heatmap_dir, new_name)
+            os.replace(heatmap_path, dest)
+            result["heatmap_url"] = url_for(
+                "core.heatmap", job_id=job_id, filename=new_name
+            )
+        else:
+            result["heatmap_url"] = None
+
+        return render_template("kpis.html", result=result, downloads=downloads)
+
+    return render_template("kpis.html")
 
 
 @bp.route("/generador", methods=["GET", "POST"])
@@ -213,6 +272,27 @@ def download_csv(job_id):
         return response
 
     return send_file(path, as_attachment=True)
+
+
+@bp.route("/kpis/download/<job_id>.<fmt>")
+@login_required
+def download_kpis(job_id, fmt):
+    if fmt not in {"csv", "xlsx"}:
+        abort(404)
+    path = os.path.join(temp_dir, f"{job_id}.{fmt}")
+    if not os.path.exists(path):
+        abort(404)
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return response
+
+    mimetype = "text/csv" if fmt == "csv" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return send_file(path, as_attachment=True, mimetype=mimetype)
 
 
 @bp.route("/heatmap/<job_id>/<path:filename>")
