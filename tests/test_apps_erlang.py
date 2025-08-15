@@ -94,3 +94,10 @@ def test_erlang_post_calculates(monkeypatch):
     assert '20' in html
     assert '0.5' in html
     assert '5' in html
+
+
+def test_erlang_subroute_authenticated():
+    client = app.test_client()
+    login(client)
+    response = client.get('/apps/erlang/demo')
+    assert response.status_code == 200

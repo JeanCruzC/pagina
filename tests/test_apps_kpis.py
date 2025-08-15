@@ -38,7 +38,6 @@ def login(client):
     )
 
 
-@pytest.mark.xfail(reason="kpis app not implemented")
 def test_kpis_requires_login():
     client = app.test_client()
     response = client.get('/apps/kpis')
@@ -46,7 +45,6 @@ def test_kpis_requires_login():
     assert response.headers['Location'].endswith('/login')
 
 
-@pytest.mark.xfail(reason="kpis app not implemented")
 def test_kpis_authenticated_get():
     client = app.test_client()
     login(client)
@@ -55,7 +53,6 @@ def test_kpis_authenticated_get():
     assert b'kpis-form' in response.data or b'coming soon' in response.data
 
 
-@pytest.mark.xfail(reason="POST handler not yet implemented")
 def test_kpis_post_placeholder():
     client = app.test_client()
     login(client)
