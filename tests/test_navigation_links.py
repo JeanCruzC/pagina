@@ -29,10 +29,6 @@ def timeseries():
 def predictivo():
     return ""
 
-@_apps_bp.route("/kpis")
-def kpis():
-    return ""
-
 sys.modules.setdefault('website.blueprints.apps', types.SimpleNamespace(apps_bp=_apps_bp))
 
 from website import create_app
@@ -76,4 +72,3 @@ def test_nav_links_authenticated():
     assert 'Apps</a>' in html
     assert '/apps/timeseries' in html
     assert '/apps/predictivo' in html
-    assert '/apps/kpis' in html
