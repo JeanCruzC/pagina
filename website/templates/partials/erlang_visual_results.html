@@ -5,10 +5,6 @@
   {% endfor %}
 </ul>
 {% endif %}
-{% if figure_json %}
-<div id="erlang-visual-figure" data-figure='{{ figure_json | tojson | safe }}'></div>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-<script>
-  (function(){var el=document.getElementById('erlang-visual-figure');if(el){var fig=JSON.parse(el.dataset.figure);Plotly.react(el, fig.data, fig.layout);}})();
-</script>
-{% endif %}
+
+{% include 'partials/erlang_visual_matrix.html' %}
+{% include 'partials/erlang_visual_asa.html' %}
