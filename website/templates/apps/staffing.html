@@ -8,6 +8,16 @@
       <div class="col-md-6"><label class="form-label">Forecasts por hora (coma separados)</label><input type="text" name="forecasts" class="form-control" placeholder="100,120,140"></div>
       <div class="col-md-3"><label class="form-label">AHT (seg)</label><input type="number" step="any" name="aht" class="form-control" required></div>
       <div class="col-md-3"><label class="form-label">Intervalo</label><select name="interval" class="form-select"><option value="1800">30 minutos</option><option value="3600" selected>1 hora</option></select></div>
+      <div class="col-md-3"><label class="form-label">Hora Inicio</label><input type="time" name="start_time" class="form-control" value="09:00"></div>
+      <div class="col-md-3"><label class="form-label">Hora Fin</label><input type="time" name="end_time" class="form-control" value="18:00"></div>
+      <div class="col-md-3"><label class="form-label">Patrón</label>
+        <select name="pattern" class="form-select">
+          <option value="manual" selected>Manual</option>
+          <option value="call_center">Call Center</option>
+          <option value="ecommerce">E-commerce</option>
+          <option value="soporte">Soporte</option>
+        </select>
+      </div>
       <div class="col-md-3"><label class="form-label">SL Objetivo</label><input type="number" step="any" name="sl_target" class="form-control" value="0.8"></div>
       <div class="col-12"><button class="btn btn-primary" type="submit">Calcular</button></div>
     </form>

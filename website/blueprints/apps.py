@@ -408,6 +408,8 @@ def staffing():
     table = []
     figure_json = None
     summary = {}
+    analysis = []
+    recommendations = []
 
     if request.method == "POST":
         forecasts_raw = request.form.get("forecasts", "")
@@ -419,12 +421,23 @@ def staffing():
         interval = request.form.get("interval", default="3600")
         interval_seconds = 1800 if interval == "1800" else 3600
         sl_target = request.form.get("sl_target", type=float, default=0.8)
+        start_time = request.form.get("start_time")
+        end_time = request.form.get("end_time")
+        pattern = request.form.get("pattern", "manual")
 
         result = staffing_core.staffing_optimizer(
-            forecasts, aht, interval_seconds, sl_target
+            forecasts,
+            aht,
+            interval_seconds,
+            sl_target,
+            start_time=start_time,
+            end_time=end_time,
+            pattern=pattern,
         )
         table = result.get("table", [])
         summary = result.get("summary", {})
+        analysis = result.get("analysis", [])
+        recommendations = result.get("recommendations", [])
         fig = result.get("figure")
         if isinstance(fig, dict):
             figure_json = json.dumps(fig)
@@ -436,11 +449,18 @@ def staffing():
                 "partials/staffing_results.html",
                 table=table,
                 summary=summary,
+                analysis=analysis,
+                recommendations=recommendations,
                 figure_json=figure_json,
             )
 
     return render_template(
-        "apps/staffing.html", table=table, summary=summary, figure_json=figure_json
+        "apps/staffing.html",
+        table=table,
+        summary=summary,
+        analysis=analysis,
+        recommendations=recommendations,
+        figure_json=figure_json,
     )
 
 
