@@ -1,0 +1,64 @@
+{% extends 'apps/layout.html' %}
+
+{% block app_content %}
+<h2 class="fw-bold mb-4">Erlang Visual</h2>
+<div class="mb-3">
+  <button id="btn-demand" class="btn btn-primary me-2">Aumentar demanda</button>
+  <button id="btn-agents" class="btn btn-secondary me-2">Agregar 5 agentes</button>
+  <button id="btn-aht" class="btn btn-secondary">Reducir AHT</button>
+</div>
+
+<div class="row mb-4">
+  <div class="col-md-4 text-center">
+    <div id="service-circle" class="rounded-circle border d-flex align-items-center justify-content-center mx-auto mb-2" style="width:120px;height:120px;">
+      <span id="service-level" class="fw-bold">0%</span>
+    </div>
+    <small>Nivel de Servicio</small>
+  </div>
+  <div class="col-md-8">
+    <label class="form-label">ASA</label>
+    <div class="progress" style="height:30px;">
+      <div id="asa-bar" class="progress-bar" role="progressbar" style="width:0%">0s</div>
+    </div>
+  </div>
+</div>
+
+<div class="mb-4">
+  <h5>Matriz de agentes</h5>
+  <div id="agents-matrix" class="d-flex flex-wrap" style="max-width:300px;"></div>
+</div>
+
+<div class="mb-4">
+  <h5>Cola</h5>
+  <div id="queue" class="d-flex align-items-end"></div>
+</div>
+
+<div class="mb-2">
+  <label>Ocupados</label>
+  <div class="progress" style="height:25px;">
+    <div id="busy-bar" class="progress-bar bg-success" role="progressbar" style="width:0%">0</div>
+  </div>
+</div>
+<div class="mb-2">
+  <label>Disponibles</label>
+  <div class="progress" style="height:25px;">
+    <div id="available-bar" class="progress-bar bg-danger" role="progressbar" style="width:0%">0</div>
+  </div>
+</div>
+<div class="mb-4">
+  <label>Esperando</label>
+  <div class="progress" style="height:25px;">
+    <div id="waiting-bar" class="progress-bar bg-secondary" role="progressbar" style="width:0%">0</div>
+  </div>
+</div>
+
+<style>
+  #agents-matrix .agent { width:20px; height:20px; margin:2px; border-radius:4px; }
+  #agents-matrix .busy { background-color:#28a745; }
+  #agents-matrix .available { background-color:#dc3545; }
+  #agents-matrix .vacant { background-color:#6c757d; }
+  #queue .queue-item { font-size:24px; margin-right:4px; }
+</style>
+
+<script src="{{ url_for('static', filename='js/erlang_visual.js') }}"></script>
+{% endblock %}

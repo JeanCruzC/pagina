@@ -58,6 +58,12 @@ def erlang():
     return render_template("apps/erlang.html", metrics=metrics)
 
 
+@bp.route("/erlang/visual")
+def erlang_visual():
+    """Render interactive Erlang visualisation."""
+    return render_template("apps/erlang_visual.html")
+
+
 @bp.route("/predictivo", methods=["GET", "POST"])
 def predictivo():
     """Execute the predictive model workflow."""

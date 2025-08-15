@@ -101,3 +101,18 @@ def test_erlang_subroute_authenticated():
     login(client)
     response = client.get('/apps/erlang/demo')
     assert response.status_code == 200
+
+
+def test_erlang_visual_requires_login():
+    client = app.test_client()
+    response = client.get('/apps/erlang/visual')
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/login')
+
+
+def test_erlang_visual_authenticated():
+    client = app.test_client()
+    login(client)
+    response = client.get('/apps/erlang/visual')
+    assert response.status_code == 200
+    assert b'Erlang Visual' in response.data
