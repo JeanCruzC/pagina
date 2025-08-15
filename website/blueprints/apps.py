@@ -228,7 +228,9 @@ def erlang_visual_view():
     """Enhanced Erlang view with agent visualisation."""
 
     metrics: Dict[str, Any] = {}
-    figure_json = None
+    matrix = None
+    queue = None
+    asa_bar = None
 
     if request.method == "POST":
         forecast = request.form.get("forecast", type=float, default=0.0) or 0.0
@@ -239,6 +241,14 @@ def erlang_visual_view():
         interval_seconds = 1800 if interval == "1800" else 3600
         sl_target = request.form.get("sl_target", type=float, default=0.8)
 
+        action = request.form.get("action")
+        if action == "increase_demand":
+            forecast *= 1.1
+        elif action == "add_agents":
+            agents += 5
+        elif action == "reduce_aht":
+            aht *= 0.9
+
         arrival_rate = forecast / interval_seconds
         sl = erlang_service.sla_x(arrival_rate, aht, agents, awt)
         asa = erlang_service.waiting_time_erlang_c(arrival_rate, aht, agents)
@@ -247,10 +257,12 @@ def erlang_visual_view():
         hourly_forecast = forecast * 3600 / interval_seconds if interval_seconds else 0
         cpa = hourly_forecast / agents if agents else 0
 
-        fig = erlang_visual.create_agent_visualization(
+        matrix_data = erlang_visual.generate_agent_matrix(
             forecast, aht, agents, awt, interval_seconds, int(required)
         )
-        figure_json = fig.to_json()
+        matrix = matrix_data["rows"]
+        queue = erlang_visual.generate_queue(matrix_data["sl"], forecast)
+        asa_bar = erlang_visual.generate_asa_bar(matrix_data["asa"], awt)
 
         metrics = {
             "service_level": f"{sl:.1%}",
@@ -264,11 +276,17 @@ def erlang_visual_view():
             return render_template(
                 "partials/erlang_visual_results.html",
                 metrics=metrics,
-                figure_json=figure_json,
+                matrix=matrix,
+                queue=queue,
+                asa_bar=asa_bar,
             )
 
     return render_template(
-        "apps/erlang_visual.html", metrics=metrics, figure_json=figure_json
+        "apps/erlang_visual.html",
+        metrics=metrics,
+        matrix=matrix,
+        queue=queue,
+        asa_bar=asa_bar,
     )
 
 
