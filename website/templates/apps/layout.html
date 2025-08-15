@@ -5,7 +5,17 @@
   <aside class="col-md-3 col-lg-2 mb-4">
     <div class="list-group">
       <a href="{{ url_for('core.generador') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='core.generador' else '' }}">Generador</a>
-      {% set erlang_endpoints = ['apps.erlang', 'apps.erlang_visual_view', 'apps.chat', 'apps.blending', 'apps.erlang_o_view'] %}
+        {% set erlang_endpoints = [
+          'apps.erlang',
+          'apps.erlang_visual_view',
+          'apps.chat',
+          'apps.blending',
+          'apps.erlang_o_view',
+          'apps.comparativo',
+          'apps.staffing',
+          'apps.batch',
+          'apps.batch_download'
+        ] %}
       <a href="{{ url_for('apps.erlang') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint in erlang_endpoints else '' }}">Erlang</a>
       {% if request.endpoint in erlang_endpoints %}
       <div class="list-group ms-3">
@@ -14,6 +24,9 @@
         <a href="{{ url_for('apps.chat') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.chat' else '' }}">Chat</a>
         <a href="{{ url_for('apps.blending') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.blending' else '' }}">Blending</a>
         <a href="{{ url_for('apps.erlang_o_view') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.erlang_o_view' else '' }}">Erlang O</a>
+        <a href="{{ url_for('apps.comparativo') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.comparativo' else '' }}">Comparativo</a>
+        <a href="{{ url_for('apps.staffing') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.staffing' else '' }}">Staffing</a>
+        <a href="{{ url_for('apps.batch') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint in ['apps.batch', 'apps.batch_download'] else '' }}">Batch</a>
       </div>
       {% endif %}
       <a href="{{ url_for('apps.kpis') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.kpis' else '' }}">KPIs</a>

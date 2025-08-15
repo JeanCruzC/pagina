@@ -8,6 +8,9 @@
   <a class="nav-link {{ 'active' if request.endpoint=='apps.chat' else '' }}" href="{{ url_for('apps.chat') }}">Chat</a>
   <a class="nav-link {{ 'active' if request.endpoint=='apps.blending' else '' }}" href="{{ url_for('apps.blending') }}">Blending</a>
   <a class="nav-link {{ 'active' if request.endpoint=='apps.erlang_o_view' else '' }}" href="{{ url_for('apps.erlang_o_view') }}">Erlang O</a>
+  <a class="nav-link {{ 'active' if request.endpoint=='apps.comparativo' else '' }}" href="{{ url_for('apps.comparativo') }}">Comparativo</a>
+  <a class="nav-link {{ 'active' if request.endpoint=='apps.staffing' else '' }}" href="{{ url_for('apps.staffing') }}">Staffing</a>
+  <a class="nav-link {{ 'active' if request.endpoint in ['apps.batch', 'apps.batch_download'] else '' }}" href="{{ url_for('apps.batch') }}">Batch</a>
 </nav>
 
 <div class="card mb-4">
