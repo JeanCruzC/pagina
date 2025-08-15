@@ -134,3 +134,24 @@ def timeseries():
         heatmap_json=heatmap_json,
         interactive_json=interactive_json,
     )
+
+
+@bp.route("/series", methods=["GET", "POST"])
+def series():
+    """Alias route that reuses :func:`timeseries`."""
+    return timeseries()
+
+
+@bp.route("/erlang/<path:submodule>", methods=["GET", "POST"])
+def erlang_submodule(submodule: str):
+    """Dispatch any Erlang submodule to the main view."""
+    return erlang()
+
+
+@bp.route("/kpis", methods=["GET", "POST"])
+def kpis():
+    """Simple placeholder view for KPI experiments."""
+    message = None
+    if request.method == "POST":
+        message = "placeholder"
+    return render_template("apps/kpis.html", message=message)

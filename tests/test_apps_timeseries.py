@@ -90,3 +90,10 @@ def test_timeseries_post_file_upload():
     assert 'timeseries-weekly-table' in html
     assert 'timeseries-heatmap' in html
     assert 'timeseries-interactive' in html
+
+
+def test_series_alias_route():
+    client = app.test_client()
+    login(client)
+    response = client.get('/apps/series')
+    assert response.status_code == 200
