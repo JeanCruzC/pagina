@@ -1,0 +1,7 @@
+{% if metrics %}
+<ul class="list-group mb-3">
+  {% for k, v in metrics.items() %}
+  <li class="list-group-item d-flex justify-content-between"><span>{{ k }}</span><span>{{ v }}</span></li>
+  {% endfor %}
+</ul>
+{% endif %}

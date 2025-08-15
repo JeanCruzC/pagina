@@ -1,0 +1,13 @@
+{% if table %}
+<table class="table table-bordered mb-3">
+  <thead><tr>{% for k in table[0].keys() %}<th>{{ k }}</th>{% endfor %}</tr></thead>
+  <tbody>
+    {% for row in table %}
+    <tr>{% for v in row.values() %}<td>{{ v }}</td>{% endfor %}</tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if download_url %}
+<a href="{{ download_url }}" class="btn btn-success">Descargar CSV</a>
+{% endif %}
+{% endif %}

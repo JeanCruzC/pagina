@@ -176,6 +176,22 @@ def _chat_agents_for_sla_cached(
     return max(1, round(result.x, 1))
 
 
+def chat_asa(
+    forecast: float,
+    aht_list: Sequence[float],
+    agents: int,
+    lines: int | None = None,
+    patience: float | None = None,
+) -> float:
+    """Average speed of answer for chat scenarios (``CHAT.asa``)."""
+
+    parallel_capacity = len(aht_list)
+    avg_aht = sum(aht_list) / parallel_capacity
+    effectiveness = 0.7 + (0.3 / parallel_capacity)
+    effective_agents = agents * parallel_capacity * effectiveness
+    return waiting_time_erlang_c(forecast, avg_aht, effective_agents)
+
+
 def bl_sla(
     forecast: float,
     aht: float,
@@ -188,6 +204,23 @@ def bl_sla(
     """Service level for a blending scenario (``BL.sla``)."""
 
     return _bl_sla_cached(forecast, aht, agents, awt, lines, patience, threshold)
+
+
+def bl_outbound_capacity(
+    forecast: float,
+    aht: float,
+    agents: int,
+    lines: int | None,
+    patience: float | None,
+    threshold: float,
+    outbound_aht: float,
+) -> float:
+    """Outbound capacity for blending scenarios (``BL.outbound_capacity``)."""
+
+    inbound_traffic = forecast * aht
+    inbound_agents_needed = inbound_traffic + threshold
+    outbound_agents = max(0, agents - inbound_agents_needed)
+    return max(0.0, outbound_agents / outbound_aht)
 
 
 @lru_cache(maxsize=None)
@@ -251,6 +284,8 @@ __all__ = [
     "agents_for_sla",
     "chat_sla",
     "chat_agents_for_sla",
+    "chat_asa",
     "bl_sla",
     "bl_optimal_threshold",
+    "bl_outbound_capacity",
 ]
