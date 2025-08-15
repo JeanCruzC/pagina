@@ -278,32 +278,40 @@ def chat():
 
     if request.method == "POST":
         forecast = request.form.get("forecast", type=float, default=0.0) or 0.0
-        ahts_raw = request.form.get("ahts", "")
         agents = request.form.get("agents", type=int, default=0) or 0
         awt = request.form.get("awt", type=float, default=0.0) or 0.0
         interval = request.form.get("interval", default="3600")
         interval_seconds = 1800 if interval == "1800" else 3600
         sl_target = request.form.get("sl_target", type=float, default=0.8)
+        lines = request.form.get("lines", type=int)
+        patience = request.form.get("patience", type=float)
 
-        try:
-            aht_list = [float(x) for x in ahts_raw.split(",") if x.strip()]
-        except ValueError:
-            aht_list = []
-        if not aht_list:
-            aht_list = [ahts_raw and float(ahts_raw) or 0.0]
+        aht_list = [
+            float(x) for x in request.form.getlist("ahts") if x.strip()
+        ] or [0.0]
 
         arrival_rate = forecast / interval_seconds
-        sl = erlang_service.chat_sla(arrival_rate, aht_list, agents, awt)
-        asa = erlang_service.chat_asa(arrival_rate, aht_list, agents)
+        sl = erlang_service.chat_sla(arrival_rate, aht_list, agents, awt, lines, patience)
+        asa = erlang_service.chat_asa(arrival_rate, aht_list, agents, lines, patience)
         required = erlang_service.chat_agents_for_sla(
-            sl_target, arrival_rate, aht_list, awt
+            sl_target, arrival_rate, aht_list, awt, lines, patience
         )
 
-        metrics = {
+        metrics: Dict[str, Any] = {
             "service_level": f"{sl:.1%}",
             "asa": f"{asa:.1f}",
             "required_agents": int(required),
         }
+
+        if patience is not None:
+            parallel_capacity = len(aht_list)
+            avg_aht = sum(aht_list) / parallel_capacity
+            effectiveness = 0.7 + (0.3 / parallel_capacity)
+            effective_agents = agents * parallel_capacity * effectiveness
+            abandon = erlang_service.erlang_x_abandonment(
+                arrival_rate, avg_aht, effective_agents, lines or 999, patience
+            )
+            metrics["abandonment"] = f"{abandon:.1%}"
 
         if request.headers.get("HX-Request"):
             return render_template("partials/chat_results.html", metrics=metrics)
