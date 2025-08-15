@@ -1,13 +1,53 @@
 /* Layout for app metric cards */
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(12, 1fr);
   gap: 1rem;
 }
 
+/* Default: span full width; adjust at breakpoints for 2 and 4 column cuts */
 .metric-card {
+  background-color: #f0f2f6;
+  padding: 1rem;
+  border-radius: 0.5rem;
   display: flex;
   flex-direction: column;
   justify-content: center;
   text-align: center;
+  min-height: 100px;
+  grid-column: span 12;
+}
+
+.metric-card .small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (min-width: 576px) {
+  .metric-card { grid-column: span 6; }
+}
+
+@media (min-width: 768px) {
+  .metric-card { grid-column: span 4; }
+}
+
+@media (min-width: 992px) {
+  .metric-card { grid-column: span 2; }
+}
+
+/* Status colors mirroring original app */
+.metric-card.success {
+  background-color: #d4edda;
+  border-left: 4px solid #28a745;
+}
+
+.metric-card.warning {
+  background-color: #fff3cd;
+  border-left: 4px solid #ffc107;
+}
+
+.metric-card.danger {
+  background-color: #f8d7da;
+  border-left: 4px solid #dc3545;
 }
