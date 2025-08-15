@@ -43,7 +43,10 @@ def detectar_frecuencia(series: pd.Series) -> str:
     Falls back to simple heuristics when ``pd.infer_freq`` fails.
     """
 
-    freq = pd.infer_freq(series.index)
+    try:
+        freq = pd.infer_freq(series.index)
+    except Exception:
+        freq = None
     if freq:
         return freq
     dias = series.index.to_series().diff().dt.days.mean()

@@ -25,6 +25,8 @@ from flask import (
     send_file,
     abort,
     after_this_request,
+    flash,
+    current_app,
 )
 
 from ..other import (
@@ -77,16 +79,50 @@ def erlang():
         patience = request.form.get("patience", type=float)
         target_sl = request.form.get("target_sl", type=float, default=0.8) or 0.8
 
-        result = erlang_core.calculate_erlang_metrics(
-            calls=calls,
-            aht=aht,
-            awt=awl,
-            agents=agents,
-            sl_target=target_sl,
-            lines=lines,
-            patience=patience,
-            interval_seconds=interval,
-        )
+        errors = []
+        if calls < 0:
+            errors.append("Forecast must be non-negative.")
+        if aht < 0:
+            errors.append("AHT must be non-negative.")
+        if awl < 0:
+            errors.append("AWT must be non-negative.")
+        if agents < 0:
+            errors.append("Agents must be non-negative.")
+        if interval <= 0:
+            errors.append("Interval must be greater than zero.")
+        if lines is not None and lines < 0:
+            errors.append("Lines must be non-negative.")
+        if patience is not None and patience < 0:
+            errors.append("Patience must be non-negative.")
+        if not 0 <= target_sl <= 1:
+            errors.append("Target SL must be between 0 and 1.")
+
+        if errors:
+            for err in errors:
+                flash(err)
+            return render_template(
+                "apps/erlang.html",
+                metrics=metrics,
+                figure_json=figure_json,
+                target_sl=target_sl,
+                agents=agents,
+            )
+
+        try:
+            result = erlang_core.calculate_erlang_metrics(
+                calls=calls,
+                aht=aht,
+                awt=awl,
+                agents=agents,
+                sl_target=target_sl,
+                lines=lines,
+                patience=patience,
+                interval_seconds=interval,
+            )
+        except Exception:  # pragma: no cover - safety net
+            current_app.logger.exception("Erlang calculation failed")
+            flash("Ocurrió un error al calcular las métricas de Erlang.")
+            result = None
 
         if isinstance(result, dict):
             fig = result.pop("figure", None)
@@ -105,14 +141,19 @@ def erlang():
     )
 
 
+@apps_bp.route("/erlang/demo")
+def erlang_demo() -> str:
+    """Simple subroute used by tests to verify authentication."""
+    return "demo"
+
+
 @apps_bp.route("/predictivo", methods=["GET", "POST"])
 def predictivo():
     """Execute the predictive model workflow."""
 
     metrics = {}
     table = []
-    download_url_csv = None
-    download_url_xlsx = None
+    download_url = None
 
     if request.method == "POST":
         file = request.files.get("file")
