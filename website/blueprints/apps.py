@@ -220,13 +220,7 @@ def series():
     return timeseries()
 
 
-@apps_bp.route("/erlang/<path:submodule>", methods=["GET", "POST"])
-def erlang_submodule(submodule: str):
-    """Dispatch any Erlang submodule to the main view."""
-    return erlang()
-
-
-@apps_bp.route("/erlang_visual", methods=["GET", "POST"])
+@apps_bp.route("/erlang/visual", methods=["GET", "POST"])
 def erlang_visual_view():
     """Enhanced Erlang view with agent visualisation."""
 
@@ -293,7 +287,7 @@ def erlang_visual_view():
     )
 
 
-@apps_bp.route("/chat", methods=["GET", "POST"])
+@apps_bp.route("/erlang/chat", methods=["GET", "POST"])
 def chat():
     """Chat multi-channel calculator."""
 
@@ -343,7 +337,7 @@ def chat():
     return render_template("apps/chat.html", metrics=metrics)
 
 
-@apps_bp.route("/blending", methods=["GET", "POST"])
+@apps_bp.route("/erlang/blending", methods=["GET", "POST"])
 def blending():
     """Blending calculator."""
 
@@ -445,7 +439,7 @@ def blending():
     )
 
 
-@apps_bp.route("/erlang_o", methods=["GET", "POST"])
+@apps_bp.route("/erlang/o", methods=["GET", "POST"])
 def erlang_o_view():
     """Erlang O outbound calculator."""
 

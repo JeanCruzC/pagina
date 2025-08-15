@@ -2,6 +2,13 @@
 
 {% block app_content %}
 <h2 class="fw-bold mb-4">Erlang</h2>
+<nav class="nav nav-pills mb-4">
+  <a class="nav-link {{ 'active' if request.endpoint=='apps.erlang' else '' }}" href="{{ url_for('apps.erlang') }}">Clásico</a>
+  <a class="nav-link {{ 'active' if request.endpoint=='apps.erlang_visual_view' else '' }}" href="{{ url_for('apps.erlang_visual_view') }}">Visual</a>
+  <a class="nav-link {{ 'active' if request.endpoint=='apps.chat' else '' }}" href="{{ url_for('apps.chat') }}">Chat</a>
+  <a class="nav-link {{ 'active' if request.endpoint=='apps.blending' else '' }}" href="{{ url_for('apps.blending') }}">Blending</a>
+  <a class="nav-link {{ 'active' if request.endpoint=='apps.erlang_o_view' else '' }}" href="{{ url_for('apps.erlang_o_view') }}">Erlang O</a>
+</nav>
 
 <div class="card mb-4">
   <div class="card-body">
