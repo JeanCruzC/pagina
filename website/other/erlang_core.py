@@ -12,6 +12,7 @@ from typing import List, Dict, Any, Iterable
 import numpy as np
 import plotly.graph_objects as go
 import pandas as pd
+import math
 
 
 def load_demand_matrix(records: Iterable[Dict[str, Any]]) -> List[List[float]]:
@@ -157,3 +158,104 @@ def generate_all_heatmaps(
     if diff is not None:
         maps["difference"] = create_heatmap(diff, "Diferencias por Hora y Día", "RdBu")
     return maps
+
+
+# ---------------------------------------------------------------------------
+# Erlang C helper functions
+# ---------------------------------------------------------------------------
+
+def erlang_b(traffic: float, agents: int) -> float:
+    """Erlang B blocking probability."""
+    agents = int(agents)
+    if agents == 0:
+        return 1.0
+    if traffic == 0:
+        return 0.0
+    b = 1.0
+    for i in range(1, agents + 1):
+        b = (traffic * b) / (i + traffic * b)
+    return b
+
+
+def erlang_c(traffic: float, agents: int) -> float:
+    """Erlang C waiting probability."""
+    agents = int(agents)
+    if agents <= 0:
+        return 1.0
+    if agents <= traffic:
+        return 1.0
+    eb = erlang_b(traffic, agents)
+    rho = traffic / agents
+    if rho >= 1:
+        return 1.0
+    return eb / (1 - rho + rho * eb)
+
+
+def service_level_erlang_c(arrival_rate: float, aht: float, agents: int, awt: float) -> float:
+    """Return service level for given parameters using Erlang C."""
+    traffic = arrival_rate * aht
+    agents = int(agents)
+    if agents <= traffic:
+        return 0.0
+    pc = erlang_c(traffic, agents)
+    if pc == 0:
+        return 1.0
+    exp_factor = math.exp(-(agents - traffic) * awt / aht)
+    return 1 - pc * exp_factor
+
+
+def waiting_time_erlang_c(arrival_rate: float, aht: float, agents: int) -> float:
+    """Average speed of answer using Erlang C."""
+    traffic = arrival_rate * aht
+    agents = int(agents)
+    if agents <= traffic:
+        return float("inf")
+    pc = erlang_c(traffic, agents)
+    return (pc * aht) / (agents - traffic)
+
+
+def occupancy_erlang_c(arrival_rate: float, aht: float, agents: int) -> float:
+    """Agent occupancy ratio."""
+    traffic = arrival_rate * aht
+    agents = int(agents)
+    if agents <= 0:
+        return 1.0
+    return min(traffic / agents, 1.0)
+
+
+def required_agents_for_service_level(
+    arrival_rate: float, aht: float, awt: float, sl_target: float, max_agents: int
+) -> int:
+    """Compute minimal agents to meet ``sl_target`` or ``max_agents`` if not reached."""
+    for agents in range(1, int(max_agents) + 1):
+        sl = service_level_erlang_c(arrival_rate, aht, agents, awt)
+        if sl >= sl_target:
+            return agents
+    return int(max_agents)
+
+
+def calculate_erlang_metrics(
+    calls: float,
+    aht: float,
+    sl_target: float,
+    awt: float,
+    agents: int,
+    max_agents: int,
+    calc_type: str = "service",
+) -> Dict[str, float]:
+    """Compute Erlang metrics for the web interface."""
+    interval = 3600.0
+    arrival_rate = calls / interval if interval else 0.0
+    used_agents = int(agents)
+    required = required_agents_for_service_level(
+        arrival_rate, aht, awt, sl_target, max_agents
+    )
+    if calc_type == "required":
+        used_agents = required
+    metrics = {
+        "service_level": service_level_erlang_c(arrival_rate, aht, used_agents, awt),
+        "asa": waiting_time_erlang_c(arrival_rate, aht, used_agents),
+        "occupancy": occupancy_erlang_c(arrival_rate, aht, used_agents),
+        "required_agents": required,
+    }
+    return metrics

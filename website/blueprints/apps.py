@@ -34,16 +34,25 @@ def erlang():
     metrics = {}
 
     if request.method == "POST":
-        calls = request.form.get("calls", type=float, default=0) or 0
-        agents = request.form.get("agents", type=float, default=0) or 0
+        calls = request.form.get("calls", type=float, default=0) or 0.0
+        aht = request.form.get("aht", type=float, default=0) or 0.0
+        sl = request.form.get("sl", type=float, default=0) or 0.0
+        awl = request.form.get("awl", type=float, default=0) or 0.0
+        agents = request.form.get("agents", type=int, default=0) or 0
+        max_agents = request.form.get("max_agents", type=int, default=agents) or agents
+        calc_type = request.form.get("calc_type", default="service")
 
-        # Create a simple demand matrix placing the calls in the first slot.
-        demand = [[calls] + [0.0] * 23] + [[0.0] * 24 for _ in range(6)]
+        sl_target = sl / 100 if sl > 1 else sl
 
-        result = erlang_core.analyze_demand_matrix(demand)
-        if isinstance(result, dict):
-            metrics = result
-            metrics["agents"] = agents
+        metrics = erlang_core.calculate_erlang_metrics(
+            calls=calls,
+            aht=aht,
+            sl_target=sl_target,
+            awt=awl,
+            agents=agents,
+            max_agents=max_agents,
+            calc_type=calc_type,
+        )
 
     return render_template("apps/erlang.html", metrics=metrics)
 

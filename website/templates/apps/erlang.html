@@ -7,13 +7,36 @@
   <div class="card-body">
     <form id="erlang-form" class="row g-3" method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="col-md-6">
+      <div class="col-md-4">
         <label for="calls" class="form-label">Llamadas</label>
         <input type="number" class="form-control" id="calls" name="calls" required>
       </div>
-      <div class="col-md-6">
+      <div class="col-md-4">
+        <label for="aht" class="form-label">AHT (seg)</label>
+        <input type="number" class="form-control" id="aht" name="aht" required>
+      </div>
+      <div class="col-md-4">
         <label for="agents" class="form-label">Agentes</label>
         <input type="number" class="form-control" id="agents" name="agents" required>
+      </div>
+      <div class="col-md-4">
+        <label for="sl" class="form-label">SL objetivo (%)</label>
+        <input type="number" class="form-control" id="sl" name="sl" required>
+      </div>
+      <div class="col-md-4">
+        <label for="awl" class="form-label">AWL (seg)</label>
+        <input type="number" class="form-control" id="awl" name="awl" required>
+      </div>
+      <div class="col-md-4">
+        <label for="max_agents" class="form-label">Agentes máximos</label>
+        <input type="number" class="form-control" id="max_agents" name="max_agents" required>
+      </div>
+      <div class="col-md-4">
+        <label for="calc_type" class="form-label">Tipo de cálculo</label>
+        <select class="form-select" id="calc_type" name="calc_type">
+          <option value="service">Métricas</option>
+          <option value="required">Agentes requeridos</option>
+        </select>
       </div>
       <div class="col-12">
         <button class="btn btn-primary" type="submit">Calcular</button>
@@ -24,11 +47,18 @@
 
 {% if metrics %}
 <div class="row g-3 mb-4" id="erlang-metrics">
-  {% for key, value in metrics.items() %}
   <div class="col-md-3">
-    <div class="p-3 border rounded text-center">{{ key }}: {{ value }}</div>
+    <div class="p-3 border rounded text-center">SL: {{ metrics.service_level }}</div>
   </div>
-  {% endfor %}
+  <div class="col-md-3">
+    <div class="p-3 border rounded text-center">ASA: {{ metrics.asa }}</div>
+  </div>
+  <div class="col-md-3">
+    <div class="p-3 border rounded text-center">Ocupación: {{ metrics.occupancy }}</div>
+  </div>
+  <div class="col-md-3">
+    <div class="p-3 border rounded text-center">Requeridos: {{ metrics.required_agents }}</div>
+  </div>
 </div>
 {% endif %}
 {% endblock %}
