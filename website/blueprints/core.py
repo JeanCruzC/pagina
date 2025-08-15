@@ -331,8 +331,14 @@ def configuracion():
     return render_template("configuracion.html")
 
 
-@bp.route("/contacto")
+@bp.route("/contacto", methods=["GET", "POST"])
 def contacto():
+    if request.method == "POST":
+        nombre = request.form.get("name", "amigo")
+        context = {"nombre": nombre}
+        if request.headers.get("HX-Request"):
+            return render_template("partials/contacto_response.html", **context)
+        return render_template("contacto.html", mensaje=True, **context)
     return render_template("contacto.html")
 
 
