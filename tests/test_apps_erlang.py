@@ -57,20 +57,40 @@ def test_erlang_authenticated_get():
 def test_erlang_post_calculates(monkeypatch):
     from website.other import erlang_core
 
-    def fake_analyze(matrix):
-        return {"required_agents": 7.5}
+    def fake_calc(**kwargs):
+        return {
+            "service_level": 0.8,
+            "asa": 20,
+            "occupancy": 0.5,
+            "required_agents": 5,
+        }
 
-    monkeypatch.setattr(erlang_core, "analyze_demand_matrix", fake_analyze)
+    monkeypatch.setattr(erlang_core, "calculate_erlang_metrics", fake_calc)
 
     client = app.test_client()
     login(client)
     token = _csrf_token(client, '/apps/erlang')
     response = client.post(
         '/apps/erlang',
-        data={'calls': '10', 'agents': '2', 'csrf_token': token},
+        data={
+            'calls': '100',
+            'aht': '30',
+            'sl': '80',
+            'awl': '20',
+            'agents': '10',
+            'max_agents': '15',
+            'calc_type': 'service',
+            'csrf_token': token,
+        },
         follow_redirects=True,
     )
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert 'required_agents' in html
-    assert '7.5' in html
+    assert 'SL:' in html
+    assert 'ASA:' in html
+    assert 'Ocupación:' in html
+    assert 'Requeridos:' in html
+    assert '0.8' in html
+    assert '20' in html
+    assert '0.5' in html
+    assert '5' in html
