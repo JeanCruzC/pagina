@@ -542,7 +542,7 @@ def erlang_o_view():
     return render_template("apps/erlang_o.html", metrics=metrics, figure_json=figure_json)
 
 
-@apps_bp.route("/comparativo", methods=["GET", "POST"])
+@apps_bp.route("/erlang/comparativo", methods=["GET", "POST"])
 def comparativo():
     """Run comparative analysis across models."""
 
@@ -579,7 +579,7 @@ def comparativo():
     )
 
 
-@apps_bp.route("/staffing", methods=["GET", "POST"])
+@apps_bp.route("/erlang/staffing", methods=["GET", "POST"])
 def staffing():
     """Staffing optimisation utility."""
 
@@ -642,7 +642,7 @@ def staffing():
     )
 
 
-@apps_bp.route("/batch", methods=["GET", "POST"])
+@apps_bp.route("/erlang/batch", methods=["GET", "POST"])
 def batch():
     """Batch processing of contact centre scenarios."""
 
@@ -702,7 +702,7 @@ def batch():
     )
 
 
-@apps_bp.route("/batch/download/<job_id>.<ext>")
+@apps_bp.route("/erlang/batch/download/<job_id>.<ext>")
 def batch_download(job_id: str, ext: str):
     """Send processed batch results in the requested format."""
     path = os.path.join(temp_dir, f"{job_id}.{ext}")
