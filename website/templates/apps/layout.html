@@ -11,6 +11,7 @@
     <div class="list-group">
       <a href="{{ url_for('core.generador') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='core.generador' else '' }}">Generador</a>
       <a href="{{ url_for('apps.erlang') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint.startswith('apps.erlang') }}">Erlang</a>
+      <a href="{{ url_for('apps.chat_multicanal') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.chat_multicanal' else '' }}">Chat Multicanal</a>
       <a href="{{ url_for('apps.kpis') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.kpis' else '' }}">KPIs</a>
       <a href="{{ url_for('apps.series') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint in ['apps.series', 'apps.timeseries'] else '' }}">Series</a>
       <a href="{{ url_for('apps.predictivo') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.predictivo' else '' }}">Predictivo</a>

@@ -1,0 +1,82 @@
+{% extends 'apps/layout.html' %}
+
+{% block app_content %}
+<h2 class="fw-bold mb-4">Chat Multicanal</h2>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form id="chat-form" class="row g-3" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-4">
+        <label for="chats" class="form-label">Forecast chats</label>
+        <input type="number" class="form-control" id="chats" name="chats" required>
+      </div>
+      <div class="col-md-4">
+        <label for="interval" class="form-label">Intervalo (min)</label>
+        <input type="number" class="form-control" id="interval" name="interval" value="60" required>
+      </div>
+      <div class="col-md-4">
+        <label for="max_chats" class="form-label">Máximo chats simultáneos</label>
+        <input type="number" class="form-control" id="max_chats" name="max_chats" value="1" min="1" required>
+      </div>
+      <div id="aht-fields" class="row g-3"></div>
+      <div class="col-md-4">
+        <label for="agents" class="form-label">Agentes</label>
+        <input type="number" class="form-control" id="agents" name="agents" required>
+      </div>
+      <div class="col-md-4">
+        <label for="awt" class="form-label">AWT (seg)</label>
+        <input type="number" class="form-control" id="awt" name="awt" required>
+      </div>
+      <div class="col-md-4">
+        <label for="lines" class="form-label">Líneas</label>
+        <input type="number" class="form-control" id="lines" name="lines" required>
+      </div>
+      <div class="col-md-4">
+        <label for="patience" class="form-label">Patience (seg)</label>
+        <input type="number" class="form-control" id="patience" name="patience" required>
+      </div>
+      <div class="col-12">
+        <button class="btn btn-primary" type="submit">Calcular</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if metrics %}
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="p-3 border rounded text-center {{ metrics.service_level_class }}">SL: {{ (metrics.service_level*100)|round(2) }}%</div>
+  </div>
+  <div class="col-md-3">
+    <div class="p-3 border rounded text-center {{ metrics.asa_class }}">ASA: {{ metrics.asa|round(2) }} seg</div>
+  </div>
+  <div class="col-md-3">
+    <div class="p-3 border rounded text-center {{ metrics.occupancy_class }}">Ocupación: {{ (metrics.occupancy*100)|round(2) }}%</div>
+  </div>
+  <div class="col-md-3">
+    <div class="p-3 border rounded text-center {{ metrics.abandonment_class }}">Abandono: {{ (metrics.abandonment*100)|round(2) }}%</div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+function updateAHT() {
+  const container = document.getElementById('aht-fields');
+  const max = parseInt(document.getElementById('max_chats').value) || 0;
+  container.innerHTML = '';
+  for (let i = 1; i <= max; i++) {
+    const div = document.createElement('div');
+    div.className = 'col-md-4';
+    div.innerHTML = `
+      <label for="aht_${i}" class="form-label">AHT para ${i} chat(s)</label>
+      <input type="number" class="form-control" id="aht_${i}" name="aht_list" required>
+    `;
+    container.appendChild(div);
+  }
+}
+
+document.getElementById('max_chats').addEventListener('input', updateAHT);
+window.addEventListener('load', updateAHT);
+</script>
+{% endblock %}

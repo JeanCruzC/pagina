@@ -11,6 +11,7 @@ import json
 import plotly.graph_objects as go
 
 from ..other import timeseries_core, erlang_core, modelo_predictivo_core
+from ..logic import erlang as erlang_math
 
 bp = Blueprint("apps", __name__, url_prefix="/apps")
 
@@ -56,6 +57,90 @@ def erlang():
         )
 
     return render_template("apps/erlang.html", metrics=metrics)
+
+
+@bp.route("/chat_multicanal", methods=["GET", "POST"])
+def chat_multicanal():
+    """Simple multi-channel chat calculator."""
+
+    metrics: Dict[str, Any] = {}
+
+    if request.method == "POST":
+        chats = request.form.get("chats", type=float, default=0) or 0.0
+        interval = request.form.get("interval", type=float, default=60) or 60.0
+        max_chats = request.form.get("max_chats", type=int, default=1) or 1
+        aht_list = [
+            float(v)
+            for v in request.form.getlist("aht_list")[:max_chats]
+            if v
+        ]
+        agents = request.form.get("agents", type=int, default=0) or 0
+        awt = request.form.get("awt", type=float, default=0) or 0.0
+        lines = request.form.get("lines", type=int, default=0) or 0
+        patience = request.form.get("patience", type=float, default=0) or 0.0
+
+        interval_seconds = interval * 60.0
+        arrival_rate = chats / interval_seconds if interval_seconds else 0.0
+
+        if aht_list and agents > 0:
+            avg_aht = sum(aht_list) / len(aht_list)
+            parallel_capacity = len(aht_list)
+            effectiveness = 0.7 + (0.3 / parallel_capacity)
+            effective_agents = agents * parallel_capacity * effectiveness
+
+            sl = erlang_math.service_level_erlang_c(
+                arrival_rate, avg_aht, effective_agents, awt
+            )
+            asa = erlang_math.waiting_time_erlang_c(
+                arrival_rate, avg_aht, effective_agents
+            )
+            occ = erlang_math.occupancy_erlang_c(
+                arrival_rate, avg_aht, effective_agents
+            )
+            abd = erlang_math.erlang_x_abandonment(
+                arrival_rate, avg_aht, effective_agents, lines, patience
+            )
+
+            def sl_class(value: float) -> str:
+                if value >= 0.8:
+                    return "bg-success text-white"
+                if value >= 0.6:
+                    return "bg-warning"
+                return "bg-danger text-white"
+
+            def asa_class(value: float, target: float) -> str:
+                if value <= target:
+                    return "bg-success text-white"
+                if value <= target * 2:
+                    return "bg-warning"
+                return "bg-danger text-white"
+
+            def occ_class(value: float) -> str:
+                if 0.7 <= value <= 0.85:
+                    return "bg-success text-white"
+                if 0.6 <= value <= 0.9:
+                    return "bg-warning"
+                return "bg-danger text-white"
+
+            def abd_class(value: float) -> str:
+                if value <= 0.05:
+                    return "bg-success text-white"
+                if value <= 0.15:
+                    return "bg-warning"
+                return "bg-danger text-white"
+
+            metrics = {
+                "service_level": sl,
+                "asa": asa,
+                "occupancy": occ,
+                "abandonment": abd,
+                "service_level_class": sl_class(sl),
+                "asa_class": asa_class(asa, awt),
+                "occupancy_class": occ_class(occ),
+                "abandonment_class": abd_class(abd),
+            }
+
+    return render_template("apps/chat_multicanal.html", metrics=metrics)
 
 
 @bp.route("/predictivo", methods=["GET", "POST"])
