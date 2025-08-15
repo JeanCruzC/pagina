@@ -55,8 +55,8 @@
         </tbody>
       </table>
     </div>
-    {% if download %}
-    <a id="predictivo-download" class="btn btn-secondary mt-3" href="data:application/octet-stream;base64,{{ download }}" download="resultados.csv">Descargar Resultados</a>
+    {% if download_url %}
+    <a id="predictivo-download" class="btn btn-secondary mt-3" href="{{ download_url }}">Descargar Resultados</a>
     {% endif %}
   </div>
 </div>
