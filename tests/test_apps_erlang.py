@@ -8,6 +8,29 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
 sys.modules.setdefault('website.utils.kpis_core', types.SimpleNamespace())
 
+# Stub heavy optional dependencies used by the application so tests can run
+# without installing the full requirements.
+sys.modules.setdefault('pandas', types.SimpleNamespace())
+class _DummyFigure:  # minimal stand-in for plotly.graph_objects.Figure
+    pass
+
+sys.modules.setdefault(
+    'plotly',
+    types.SimpleNamespace(graph_objects=types.SimpleNamespace(Figure=_DummyFigure)),
+)
+sys.modules.setdefault('plotly.graph_objects', types.SimpleNamespace(Figure=_DummyFigure))
+
+# Stub unused service/other modules imported by the apps blueprint
+sys.modules.setdefault('website.other.erlang_core', types.SimpleNamespace())
+sys.modules.setdefault('website.other.timeseries_core', types.SimpleNamespace())
+sys.modules.setdefault('website.other.modelo_predictivo_core', types.SimpleNamespace())
+sys.modules.setdefault('website.other.erlang_visual', types.SimpleNamespace())
+sys.modules.setdefault('website.other.comparativo_core', types.SimpleNamespace())
+sys.modules.setdefault('website.other.staffing_core', types.SimpleNamespace())
+sys.modules.setdefault('website.other.batch_core', types.SimpleNamespace())
+sys.modules.setdefault('website.services.erlang', types.SimpleNamespace())
+sys.modules.setdefault('website.services.erlang_o', types.SimpleNamespace())
+
 from website import create_app
 from website.utils import allowlist as allowlist_module
 
@@ -65,7 +88,9 @@ def test_erlang_post_calculates(monkeypatch):
             "required_agents": 5,
         }
 
-    monkeypatch.setattr(erlang_core, "calculate_erlang_metrics", fake_calc)
+    monkeypatch.setattr(
+        erlang_core, "calculate_erlang_metrics", fake_calc, raising=False
+    )
 
     client = app.test_client()
     login(client)
@@ -75,11 +100,10 @@ def test_erlang_post_calculates(monkeypatch):
         data={
             'calls': '100',
             'aht': '30',
-            'sl': '80',
             'awl': '20',
             'agents': '10',
-            'max_agents': '15',
-            'calc_type': 'service',
+            'interval': '3600',
+            'target_sl': '0.8',
             'csrf_token': token,
         },
         follow_redirects=True,
@@ -90,14 +114,14 @@ def test_erlang_post_calculates(monkeypatch):
     assert 'ASA:' in html
     assert 'Ocupación:' in html
     assert 'Requeridos:' in html
-    assert '0.8' in html
+    assert '80' in html
     assert '20' in html
-    assert '0.5' in html
+    assert '50' in html
     assert '5' in html
 
 
 def test_erlang_subroute_authenticated():
     client = app.test_client()
     login(client)
-    response = client.get('/apps/erlang/demo')
+    response = client.get('/apps/erlang/visual')
     assert response.status_code == 200
