@@ -5,35 +5,30 @@
 
 <div class="card mb-4">
   <div class="card-body">
-    <form id="erlang-form" class="needs-validation" novalidate>
-      <!-- Campos del formulario -->
+    <form id="erlang-form" class="row g-3" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-6">
+        <label for="calls" class="form-label">Llamadas</label>
+        <input type="number" class="form-control" id="calls" name="calls" required>
+      </div>
+      <div class="col-md-6">
+        <label for="agents" class="form-label">Agentes</label>
+        <input type="number" class="form-control" id="agents" name="agents" required>
+      </div>
+      <div class="col-12">
+        <button class="btn btn-primary" type="submit">Calcular</button>
+      </div>
     </form>
   </div>
 </div>
 
+{% if metrics %}
 <div class="row g-3 mb-4" id="erlang-metrics">
+  {% for key, value in metrics.items() %}
   <div class="col-md-3">
-    <div class="p-3 border rounded text-center">Metric A</div>
+    <div class="p-3 border rounded text-center">{{ key }}: {{ value }}</div>
   </div>
-  <div class="col-md-3">
-    <div class="p-3 border rounded text-center">Metric B</div>
-  </div>
-  <div class="col-md-3">
-    <div class="p-3 border rounded text-center">Metric C</div>
-  </div>
+  {% endfor %}
 </div>
-
-<div class="card mb-4">
-  <div class="card-body">
-    <div class="table-responsive">
-      <table id="erlang-table" class="table table-sm"></table>
-    </div>
-  </div>
-</div>
-
-<div class="card mb-4">
-  <div class="card-body">
-    <div id="erlang-chart"></div>
-  </div>
-</div>
+{% endif %}
 {% endblock %}

@@ -2,11 +2,15 @@ import os
 import sys
 import types
 from io import BytesIO
+import importlib
 
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
+sys.modules.pop('website.utils.kpis_core', None)
+import website.blueprints.core as core_blueprint
+importlib.reload(core_blueprint)
 
 from website import create_app
 from website.utils import allowlist as allowlist_module
