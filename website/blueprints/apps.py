@@ -260,6 +260,17 @@ def erlang_visual_view():
         hourly_forecast = forecast * 3600 / interval_seconds if interval_seconds else 0
         cpa = hourly_forecast / agents if agents else 0
 
+        busy_agents = int(agents * occ)
+        available_agents = max(0, agents - busy_agents)
+        busy_pct = busy_agents / agents * 100 if agents else 0
+        available_pct = available_agents / agents * 100 if agents else 0
+
+        sl_class = "success" if sl >= 0.8 else "warning" if sl >= 0.7 else "danger"
+        asa_class = "success" if asa <= 30 else "warning" if asa <= 60 else "danger"
+        occ_class = (
+            "success" if 0.7 <= occ <= 0.85 else "warning" if 0.6 <= occ <= 0.9 else "danger"
+        )
+
         matrix_data = erlang_visual.generate_agent_matrix(
             forecast, aht, agents, awt, interval_seconds, int(required)
         )
@@ -268,11 +279,18 @@ def erlang_visual_view():
         asa_bar = erlang_visual.generate_asa_bar(matrix_data["asa"], awt)
 
         metrics = {
-            "service_level": f"{sl:.1%}",
-            "asa": f"{asa:.1f}",
-            "occupancy": f"{occ:.1%}",
+            "service_level": sl,
+            "asa": asa,
+            "occupancy": occ,
             "required_agents": int(required),
-            "calls_per_agent": f"{cpa:.1f}",
+            "calls_per_agent": cpa,
+            "busy_agents": busy_agents,
+            "available_agents": available_agents,
+            "busy_percent": busy_pct,
+            "available_percent": available_pct,
+            "sl_class": sl_class,
+            "asa_class": asa_class,
+            "occ_class": occ_class,
         }
 
         if request.headers.get("HX-Request"):

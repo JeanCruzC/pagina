@@ -1,9 +1,26 @@
 {% if metrics %}
-<ul class="list-group mb-3">
-  {% for k, v in metrics.items() %}
-  <li class="list-group-item d-flex justify-content-between"><span>{{ k }}</span><span>{{ v }}</span></li>
-  {% endfor %}
-</ul>
+<div class="metrics-grid mb-3">
+  <div class="metric-card {{ metrics.sl_class }}">
+    <h3>Service Level</h3>
+    <h2>{{ (metrics.service_level * 100)|round(1) }}%</h2>
+  </div>
+  <div class="metric-card {{ metrics.asa_class }}">
+    <h3>ASA</h3>
+    <h2>{{ metrics.asa|round(1) }}s</h2>
+  </div>
+  <div class="metric-card {{ metrics.occ_class }}">
+    <h3>Ocupación</h3>
+    <h2>{{ (metrics.occupancy * 100)|round(1) }}%</h2>
+  </div>
+</div>
+<div class="progress mb-3" style="height:20px;">
+  <div class="progress-bar" role="progressbar" style="width: {{ metrics.busy_percent }}%; background-color: #EF476F;">
+    Ocupados {{ metrics.busy_agents }}
+  </div>
+  <div class="progress-bar" role="progressbar" style="width: {{ metrics.available_percent }}%; background-color: #06D6A0;">
+    Disponibles {{ metrics.available_agents }}
+  </div>
+</div>
 {% endif %}
 
 {% include 'partials/erlang_visual_matrix.html' %}
