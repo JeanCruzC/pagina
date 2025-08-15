@@ -19,6 +19,7 @@ from flask import (
 from flask_wtf.csrf import CSRFError
 
 from ..utils.allowlist import verify_user
+from ..utils.timeseries import timeseries_core
 
 bp = Blueprint("core", __name__)
 
@@ -245,6 +246,35 @@ def heatmap(job_id, filename):
 
     return send_file(path, mimetype="image/png")
 
+
+@bp.route("/timeseries", methods=["GET", "POST"])
+@login_required
+def timeseries():
+    """Simple interface to demonstrate time series smoothing."""
+    fig_json = None
+    metrics = None
+
+    if request.method == "POST":
+        method = request.form.get("method", "rolling")
+        try:
+            window = int(request.form.get("window", 5))
+        except (TypeError, ValueError):
+            window = 5
+
+        params = {}
+        for key, value in request.form.items():
+            if key in {"csrf_token", "method", "window"}:
+                continue
+            try:
+                params[key] = float(value)
+            except ValueError:
+                params[key] = value
+
+        result = timeseries_core(method=method, window=window, params=params)
+        fig_json = result.figure.to_json()
+        metrics = result.metrics
+
+    return render_template("timeseries.html", fig_json=fig_json, metrics=metrics)
 
 
 @bp.route("/configuracion")
