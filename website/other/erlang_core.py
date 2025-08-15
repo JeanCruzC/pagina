@@ -14,6 +14,9 @@ import plotly.graph_objects as go
 import pandas as pd
 import math
 
+from ..services import erlang as erlang_service
+from ..logic.erlang import erlang_x_abandonment
+
 
 def load_demand_matrix(records: Iterable[Dict[str, Any]]) -> List[List[float]]:
     """Create a 7x24 demand matrix from iterable ``records``.
@@ -240,6 +243,8 @@ def build_sensitivity_figure(
     awt: float,
     actual_agents: int,
     recommended_agents: int,
+    lines: int | None = None,
+    patience: float | None = None,
 ) -> go.Figure:
     """Create sensitivity chart with vertical reference lines.
 
@@ -254,7 +259,10 @@ def build_sensitivity_figure(
     agent_max = max(agent_min + 1, int(rec * 1.5))
     agent_range = list(range(agent_min, agent_max + 1))
 
-    sl_data = [service_level_erlang_c(arrival_rate, aht, a, awt) for a in agent_range]
+    sl_data = [
+        erlang_service.sla_x(arrival_rate, aht, a, awt, lines, patience)
+        for a in agent_range
+    ]
     asa_data = [waiting_time_erlang_c(arrival_rate, aht, a) for a in agent_range]
 
     fig = go.Figure()
@@ -306,28 +314,54 @@ def build_sensitivity_figure(
 def calculate_erlang_metrics(
     calls: float,
     aht: float,
-    sl_target: float,
     awt: float,
     agents: int,
-    max_agents: int,
-    calc_type: str = "service",
+    sl_target: float = 0.8,
+    lines: int | None = None,
+    patience: float | None = None,
 ) -> Dict[str, float]:
     """Compute Erlang metrics for the web interface."""
+
     interval = 3600.0
     arrival_rate = calls / interval if interval else 0.0
-    used_agents = int(agents)
-    required = required_agents_for_service_level(
-        arrival_rate, aht, awt, sl_target, max_agents
+
+    service_level = erlang_service.sla_x(
+        arrival_rate, aht, agents, awt, lines, patience
     )
-    if calc_type == "required":
-        used_agents = required
+    asa = waiting_time_erlang_c(arrival_rate, aht, agents)
+    occ = occupancy_erlang_c(arrival_rate, aht, agents)
+    required = erlang_service.agents_for_sla(
+        sl_target, arrival_rate, aht, awt, lines, patience
+    )
+
     metrics = {
-        "service_level": service_level_erlang_c(arrival_rate, aht, used_agents, awt),
-        "asa": waiting_time_erlang_c(arrival_rate, aht, used_agents),
-        "occupancy": occupancy_erlang_c(arrival_rate, aht, used_agents),
-        "required_agents": required,
+        "service_level": service_level,
+        "asa": asa,
+        "occupancy": occ,
+        "required_agents": int(required),
+        "calls_per_agent_req": calls / required if required else 0.0,
+        "sl_class": "success" if service_level >= 0.8 else "warning" if service_level >= 0.7 else "danger",
+        "asa_class": "success" if asa <= 30 else "warning" if asa <= 60 else "danger",
+        "occ_class": "success" if 0.7 <= occ <= 0.85 else "warning",
     }
+
+    if lines and patience:
+        abandon_rate = erlang_x_abandonment(
+            arrival_rate, aht, agents, int(lines), patience
+        )
+        metrics.update(
+            {
+                "abandonment": abandon_rate,
+                "abandon_class": "success"
+                if abandon_rate <= 0.05
+                else "warning"
+                if abandon_rate <= 0.1
+                else "danger",
+            }
+        )
+
     metrics["figure"] = build_sensitivity_figure(
-        arrival_rate, aht, awt, agents, required
+        arrival_rate, aht, awt, agents, required, lines, patience
     )
+
     return metrics

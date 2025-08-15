@@ -52,26 +52,26 @@ def erlang():
 
     metrics = {}
     figure_json = None
+    target_sl = 0.8
+    agents = None
 
     if request.method == "POST":
         calls = request.form.get("calls", type=float, default=0) or 0.0
         aht = request.form.get("aht", type=float, default=0) or 0.0
-        sl = request.form.get("sl", type=float, default=0) or 0.0
         awl = request.form.get("awl", type=float, default=0) or 0.0
         agents = request.form.get("agents", type=int, default=0) or 0
-        max_agents = request.form.get("max_agents", type=int, default=agents) or agents
-        calc_type = request.form.get("calc_type", default="service")
-
-        sl_target = sl / 100 if sl > 1 else sl
+        lines = request.form.get("lines", type=int)
+        patience = request.form.get("patience", type=float)
+        target_sl = request.form.get("target_sl", type=float, default=0.8) or 0.8
 
         result = erlang_core.calculate_erlang_metrics(
             calls=calls,
             aht=aht,
-            sl_target=sl_target,
             awt=awl,
             agents=agents,
-            max_agents=max_agents,
-            calc_type=calc_type,
+            sl_target=target_sl,
+            lines=lines,
+            patience=patience,
         )
 
         if isinstance(result, dict):
@@ -82,7 +82,13 @@ def erlang():
             elif fig is not None:
                 figure_json = json.dumps(fig)
 
-    return render_template("apps/erlang.html", metrics=metrics, figure_json=figure_json)
+    return render_template(
+        "apps/erlang.html",
+        metrics=metrics,
+        figure_json=figure_json,
+        target_sl=target_sl,
+        agents=agents,
+    )
 
 
 @apps_bp.route("/predictivo", methods=["GET", "POST"])

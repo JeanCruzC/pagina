@@ -7,36 +7,34 @@
   <div class="card-body">
     <form id="erlang-form" class="row g-3" method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="col-md-4">
-        <label for="calls" class="form-label">Llamadas</label>
-        <input type="number" class="form-control" id="calls" name="calls" required>
+      <div class="col-md-3">
+        <label for="calls" class="form-label">Forecast (llamadas por intervalo)</label>
+        <input type="number" class="form-control" id="calls" name="calls" value="{{ request.form.calls or 100 }}" required>
       </div>
-      <div class="col-md-4">
-        <label for="aht" class="form-label">AHT (seg)</label>
-        <input type="number" class="form-control" id="aht" name="aht" required>
+      <div class="col-md-3">
+        <label for="aht" class="form-label">AHT (segundos)</label>
+        <input type="number" class="form-control" id="aht" name="aht" value="{{ request.form.aht or 240 }}" required>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-3">
         <label for="agents" class="form-label">Agentes</label>
-        <input type="number" class="form-control" id="agents" name="agents" required>
+        <input type="number" class="form-control" id="agents" name="agents" value="{{ request.form.agents or 25 }}" required>
       </div>
-      <div class="col-md-4">
-        <label for="sl" class="form-label">SL objetivo (%)</label>
-        <input type="number" class="form-control" id="sl" name="sl" required>
+      <div class="col-md-3">
+        <label for="awl" class="form-label">AWT (segundos)</label>
+        <input type="number" class="form-control" id="awl" name="awl" value="{{ request.form.awl or 20 }}" required>
       </div>
-      <div class="col-md-4">
-        <label for="awl" class="form-label">AWL (seg)</label>
-        <input type="number" class="form-control" id="awl" name="awl" required>
+      <div class="col-md-3">
+        <label for="lines" class="form-label">Líneas disponibles</label>
+        <input type="number" class="form-control" id="lines" name="lines" value="{{ request.form.lines or 30 }}">
       </div>
-      <div class="col-md-4">
-        <label for="max_agents" class="form-label">Agentes máximos</label>
-        <input type="number" class="form-control" id="max_agents" name="max_agents" required>
+      <div class="col-md-3">
+        <label for="patience" class="form-label">Patience (segundos)</label>
+        <input type="number" class="form-control" id="patience" name="patience" value="{{ request.form.patience or 120 }}">
       </div>
-      <div class="col-md-4">
-        <label for="calc_type" class="form-label">Tipo de cálculo</label>
-        <select class="form-select" id="calc_type" name="calc_type">
-          <option value="service">Métricas</option>
-          <option value="required">Agentes requeridos</option>
-        </select>
+      <div class="col-md-6">
+        <label for="target_sl" class="form-label">Service Level Objetivo</label>
+        <input type="range" class="form-range" min="0.70" max="0.95" step="0.01" id="target_sl" name="target_sl" value="{{ target_sl or 0.8 }}">
+        <div class="text-center"><span id="sl-display"></span>%</div>
       </div>
       <div class="col-12">
         <button class="btn btn-primary" type="submit">Calcular</button>
@@ -46,25 +44,57 @@
 </div>
 
 {% if metrics %}
-<div class="row g-3 mb-4" id="erlang-metrics">
-  <div class="col-md-3">
-    <div class="p-3 border rounded text-center">SL: {{ metrics.service_level }}</div>
+<div class="metrics-grid mb-4">
+  <div class="metric-card {{ metrics.sl_class }}">
+    <h3>Service Level</h3>
+    <h2>{{ (metrics.service_level * 100)|round(1) }}%</h2>
   </div>
-  <div class="col-md-3">
-    <div class="p-3 border rounded text-center">ASA: {{ metrics.asa }}</div>
+  <div class="metric-card {{ metrics.asa_class }}">
+    <h3>ASA</h3>
+    <h2>{{ metrics.asa|round(2) }} seg</h2>
   </div>
-  <div class="col-md-3">
-    <div class="p-3 border rounded text-center">Ocupación: {{ metrics.occupancy }}</div>
+  <div class="metric-card {{ metrics.occ_class }}">
+    <h3>Ocupación</h3>
+    <h2>{{ (metrics.occupancy * 100)|round(1) }}%</h2>
   </div>
-  <div class="col-md-3">
-    <div class="p-3 border rounded text-center">Requeridos: {{ metrics.required_agents }}</div>
+  {% if metrics.abandonment is defined %}
+  <div class="metric-card {{ metrics.abandon_class }}">
+    <h3>Abandono</h3>
+    <h2>{{ (metrics.abandonment * 100)|round(1) }}%</h2>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h3 class="mb-3">Análisis de Dimensionamiento</h3>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Agentes Recomendados</th>
+            <th>Agentes Actuales</th>
+            <th>Diferencia</th>
+            <th>Llamadas/Agente Requerido</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>{{ metrics.required_agents }}</td>
+            <td>{{ agents }}</td>
+            <td>{{ metrics.required_agents - agents }}</td>
+            <td>{{ metrics.calls_per_agent_req|round(1) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
-{% endif %}
 
 {% if figure_json %}
 <div class="card mb-4">
   <div class="card-body">
+    <h3 class="mb-3">Sensibilidad</h3>
     <div id="erlang-figure" data-figure='{{ figure_json | tojson | safe }}'></div>
   </div>
 </div>
@@ -79,4 +109,19 @@
   })();
 </script>
 {% endif %}
+{% endif %}
+
+<script>
+  (function(){
+    const sl = document.getElementById('target_sl');
+    const display = document.getElementById('sl-display');
+    if(sl && display){
+      const update = ()=>{display.textContent = Math.round(parseFloat(sl.value)*100)};
+      update();
+      sl.addEventListener('input', update);
+    }
+  })();
+</script>
+
 {% endblock %}
+
