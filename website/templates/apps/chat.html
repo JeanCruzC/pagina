@@ -10,9 +10,14 @@
         <input type="number" step="any" name="forecast" class="form-control" required>
       </div>
       <div class="col-md-4">
-        <label class="form-label">AHTs (coma separados)</label>
-        <input type="text" name="ahts" class="form-control" placeholder="120,150">
+        <label class="form-label">Máximo chats simultáneos</label>
+        <div class="input-group">
+          <button class="btn btn-outline-secondary" type="button" id="chat-dec">-</button>
+          <input type="number" name="max_chats" id="max-chats" class="form-control" value="1" min="1">
+          <button class="btn btn-outline-secondary" type="button" id="chat-inc">+</button>
+        </div>
       </div>
+      <div id="aht-container" class="row g-3"></div>
       <div class="col-md-4">
         <label class="form-label">Agentes</label>
         <input type="number" name="agents" class="form-control" required>
@@ -33,6 +38,21 @@
         <input type="number" step="any" name="sl_target" class="form-control" value="0.8">
       </div>
       <div class="col-12">
+        <a class="btn btn-link" data-bs-toggle="collapse" href="#chat-advanced" role="button">Parámetros avanzados</a>
+        <div class="collapse" id="chat-advanced">
+          <div class="row g-3 mt-0">
+            <div class="col-md-4">
+              <label class="form-label">Líneas disponibles</label>
+              <input type="number" step="any" name="lines" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Patience (seg)</label>
+              <input type="number" step="any" name="patience" class="form-control">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12">
         <button class="btn btn-primary" type="submit">Calcular</button>
       </div>
     </form>
@@ -41,4 +61,28 @@
 <div id="chat-results">
   {% include 'partials/chat_results.html' %}
 </div>
+<script>
+  (function(){
+    const inc = document.getElementById('chat-inc');
+    const dec = document.getElementById('chat-dec');
+    const max = document.getElementById('max-chats');
+    const container = document.getElementById('aht-container');
+
+    function renderFields(){
+      const n = parseInt(max.value || 0);
+      container.innerHTML = '';
+      for(let i=1; i<=n; i++){
+        const div = document.createElement('div');
+        div.className = 'col-md-4';
+        div.innerHTML = `<label class="form-label">AHT simultaneidad ${i}</label>` +
+                        `<input type="number" step="any" name="ahts" class="form-control">`;
+        container.appendChild(div);
+      }
+    }
+
+    inc.addEventListener('click', ()=>{max.value = parseInt(max.value||0) + 1; renderFields();});
+    dec.addEventListener('click', ()=>{max.value = Math.max(1, parseInt(max.value||0) - 1); renderFields();});
+    renderFields();
+  })();
+</script>
 {% endblock %}

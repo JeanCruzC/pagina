@@ -1,7 +1,10 @@
 {% if metrics %}
 <ul class="list-group mb-3">
-  {% for k, v in metrics.items() %}
-  <li class="list-group-item d-flex justify-content-between"><span>{{ k }}</span><span>{{ v }}</span></li>
-  {% endfor %}
+  <li class="list-group-item d-flex justify-content-between"><span>Service Level</span><span>{{ metrics.service_level }}</span></li>
+  <li class="list-group-item d-flex justify-content-between"><span>ASA</span><span>{{ metrics.asa }}</span></li>
+  {% if metrics.abandonment is defined %}
+  <li class="list-group-item d-flex justify-content-between"><span>Abandono</span><span>{{ metrics.abandonment }}</span></li>
+  {% endif %}
+  <li class="list-group-item d-flex justify-content-between"><span>Agentes Requeridos</span><span>{{ metrics.required_agents }}</span></li>
 </ul>
 {% endif %}
