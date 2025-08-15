@@ -61,4 +61,22 @@
   </div>
 </div>
 {% endif %}
+
+{% if figure_json %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div id="erlang-figure" data-figure='{{ figure_json | tojson | safe }}'></div>
+  </div>
+</div>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>
+  (function(){
+    const el = document.getElementById('erlang-figure');
+    if (el) {
+      const fig = JSON.parse(el.dataset.figure);
+      Plotly.react(el, fig.data, fig.layout);
+    }
+  })();
+</script>
+{% endif %}
 {% endblock %}
