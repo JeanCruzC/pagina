@@ -13,7 +13,28 @@ from io import BytesIO
 from typing import Any, Dict
 
 import pandas as pd
+import numpy as np
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
+
+# Optional imports used by extended forecasting strategies.  These libraries are
+# heavy and may not always be installed in minimal environments, therefore they
+# are loaded lazily and default to ``None`` when unavailable.
+try:  # pragma: no cover - optional dependency
+    from pmdarima import auto_arima
+except Exception:  # pragma: no cover - optional dependency
+    auto_arima = None  # type: ignore
+
+try:  # pragma: no cover - optional dependency
+    from sklearn.ensemble import RandomForestRegressor
+except Exception:  # pragma: no cover - optional dependency
+    RandomForestRegressor = None  # type: ignore
+
+try:  # pragma: no cover - optional dependency
+    from xgboost import XGBRegressor
+except Exception:  # pragma: no cover - optional dependency
+    XGBRegressor = None  # type: ignore
+
+_ = (np, auto_arima, RandomForestRegressor, XGBRegressor)
 
 
 def detectar_frecuencia(series: pd.Series) -> str:
