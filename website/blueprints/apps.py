@@ -33,6 +33,12 @@ def erlang():
     return "Erlang app coming soon"
 
 
+@bp.route("/predictivo")
+def predictivo():
+    """Placeholder for the Predictive app."""
+    return "Predictive app coming soon"
+
+
 @bp.route("/timeseries", methods=["GET", "POST"])
 def timeseries():
     """Render the time series exploration interface.
