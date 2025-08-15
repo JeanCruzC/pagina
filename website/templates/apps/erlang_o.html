@@ -14,12 +14,28 @@
         <input type="number" step="any" name="hours_per_day" class="form-control" required>
       </div>
       <div class="col-md-3">
-        <label class="form-label">Llamadas/hora</label>
-        <input type="number" step="any" name="calls_per_hour" class="form-control" required>
+        <label class="form-label">Objetivo llamadas exitosas/día</label>
+        <input type="number" step="any" name="target_calls" class="form-control" required>
       </div>
       <div class="col-md-3">
-        <label class="form-label">Tasa de éxito</label>
-        <input type="number" step="any" name="success_rate" class="form-control" value="0.3">
+        <label class="form-label">Answer rate</label>
+        <input type="number" step="any" name="answer_rate" class="form-control" value="0.25">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Talk time (min)</label>
+        <input type="number" step="any" name="talk_time" class="form-control" value="5">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Espera entre llamadas (min)</label>
+        <input type="number" step="any" name="wait_between" class="form-control" value="2">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Costo/Agente/día</label>
+        <input type="number" step="any" name="agent_cost" class="form-control" value="0">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Ingreso por llamada</label>
+        <input type="number" step="any" name="call_revenue" class="form-control" value="0">
       </div>
       <div class="col-12">
         <button class="btn btn-primary" type="submit">Calcular</button>

@@ -5,3 +5,8 @@
   {% endfor %}
 </ul>
 {% endif %}
+{% if figure_json %}
+<div id="erlang-o-figure" data-figure='{{ figure_json | tojson | safe }}'></div>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>(function(){var el=document.getElementById('erlang-o-figure');if(el){var fig=JSON.parse(el.dataset.figure);Plotly.react(el, fig.data, fig.layout);}})();</script>
+{% endif %}
