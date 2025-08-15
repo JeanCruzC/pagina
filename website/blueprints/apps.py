@@ -71,6 +71,7 @@ def erlang():
         aht = request.form.get("aht", type=float, default=0) or 0.0
         awl = request.form.get("awl", type=float, default=0) or 0.0
         agents = request.form.get("agents", type=int, default=0) or 0
+        interval = request.form.get("interval", type=int, default=3600) or 3600
         lines = request.form.get("lines", type=int)
         patience = request.form.get("patience", type=float)
         target_sl = request.form.get("target_sl", type=float, default=0.8) or 0.8
@@ -83,6 +84,7 @@ def erlang():
             sl_target=target_sl,
             lines=lines,
             patience=patience,
+            interval_seconds=interval,
         )
 
         if isinstance(result, dict):

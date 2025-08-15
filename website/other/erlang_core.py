@@ -319,11 +319,11 @@ def calculate_erlang_metrics(
     sl_target: float = 0.8,
     lines: int | None = None,
     patience: float | None = None,
+    interval_seconds: float = 3600.0,
 ) -> Dict[str, float]:
     """Compute Erlang metrics for the web interface."""
 
-    interval = 3600.0
-    arrival_rate = calls / interval if interval else 0.0
+    arrival_rate = calls / interval_seconds if interval_seconds else 0.0
 
     service_level = erlang_service.sla_x(
         arrival_rate, aht, agents, awt, lines, patience

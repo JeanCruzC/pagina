@@ -24,12 +24,27 @@
         <input type="number" class="form-control" id="awl" name="awl" value="{{ request.form.awl or 20 }}" required>
       </div>
       <div class="col-md-3">
-        <label for="lines" class="form-label">Líneas disponibles</label>
-        <input type="number" class="form-control" id="lines" name="lines" value="{{ request.form.lines or 30 }}">
+        <label for="interval" class="form-label">Intervalo</label>
+        <select id="interval" name="interval" class="form-select">
+          <option value="1800" {% if request.form.interval == '1800' %}selected{% endif %}>30 minutos</option>
+          <option value="3600" {% if request.form.interval != '1800' %}selected{% endif %}>1 hora</option>
+        </select>
       </div>
-      <div class="col-md-3">
-        <label for="patience" class="form-label">Patience (segundos)</label>
-        <input type="number" class="form-control" id="patience" name="patience" value="{{ request.form.patience or 120 }}">
+      <div class="col-12">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="advanced-toggle" name="advanced" {% if request.form.advanced %}checked{% endif %}>
+          <label class="form-check-label" for="advanced-toggle">Parámetros avanzados</label>
+        </div>
+      </div>
+      <div id="advanced-params" class="row g-3 {% if not request.form.advanced %}d-none{% endif %}">
+        <div class="col-md-3">
+          <label for="lines" class="form-label">Líneas disponibles</label>
+          <input type="number" class="form-control" id="lines" name="lines" value="{{ request.form.lines or 30 }}">
+        </div>
+        <div class="col-md-3">
+          <label for="patience" class="form-label">Patience (segundos)</label>
+          <input type="number" class="form-control" id="patience" name="patience" value="{{ request.form.patience or 120 }}">
+        </div>
       </div>
       <div class="col-md-6">
         <label for="target_sl" class="form-label">Service Level Objetivo</label>
@@ -64,6 +79,12 @@
   </div>
   {% endif %}
 </div>
+<!--
+SL: {{ (metrics.service_level * 100)|round(1) }}%
+ASA: {{ metrics.asa|round(2) }}
+Ocupación: {{ (metrics.occupancy * 100)|round(1) }}%
+Requeridos: {{ metrics.required_agents }}
+-->
 
 <div class="card mb-4">
   <div class="card-body">
@@ -83,7 +104,7 @@
             <td>{{ metrics.required_agents }}</td>
             <td>{{ agents }}</td>
             <td>{{ metrics.required_agents - agents }}</td>
-            <td>{{ metrics.calls_per_agent_req|round(1) }}</td>
+            <td>{{ (metrics.calls_per_agent_req or 0)|round(1) }}</td>
           </tr>
         </tbody>
       </table>
@@ -119,6 +140,13 @@
       const update = ()=>{display.textContent = Math.round(parseFloat(sl.value)*100)};
       update();
       sl.addEventListener('input', update);
+    }
+    const advToggle = document.getElementById('advanced-toggle');
+    const advParams = document.getElementById('advanced-params');
+    if(advToggle && advParams){
+      const toggle = ()=>{advParams.classList.toggle('d-none', !advToggle.checked);};
+      toggle();
+      advToggle.addEventListener('change', toggle);
     }
   })();
 </script>
