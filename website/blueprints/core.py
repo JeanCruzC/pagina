@@ -253,6 +253,21 @@ def configuracion():
     return render_template("configuracion.html")
 
 
+@bp.route("/apps/erlang", methods=["GET", "POST"])
+@login_required
+def apps_erlang():
+    return render_template("apps/erlang.html")
+
+@bp.route("/apps/kpis", methods=["GET", "POST"])
+@login_required
+def apps_kpis():
+    return render_template("apps/kpis.html")
+
+@bp.route("/apps/timeseries", methods=["GET", "POST"])
+@login_required
+def apps_timeseries():
+    return render_template("apps/timeseries.html")
+
 @bp.route("/contacto")
 def contacto():
     return render_template("contacto.html")
