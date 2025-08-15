@@ -8,23 +8,20 @@ from io import BytesIO, StringIO
 from itertools import combinations, permutations
 import heapq
 
-import tempfile
 import csv
 
 import numpy as np
 try:
-    import matplotlib
-    matplotlib.use("Agg")  # Use a non-GUI backend for server-side generation
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-except Exception:  # pragma: no cover - optional dependency
-    matplotlib = None
-    plt = None
-    sns = None
-try:
     import psutil
 except Exception:  # pragma: no cover - optional dependency
     psutil = None
+
+from website.other.erlang_core import (
+    load_demand_from_excel,
+    analyze_demand_matrix,
+    generate_all_heatmaps,
+)
+from website.other.kpis_core import analyze_results
 
 # Lookup table for population count and global context
 POP = np.fromiter((bin(i).count("1") for i in range(256)), dtype=np.uint8)
@@ -497,155 +494,6 @@ def save_execution_result(demand_matrix, params, coverage, total_agents, executi
     save_learning_data(learning_data)
     return True
 
-# ---------------------------------------------------------------------------
-# Demand utilities
-# ---------------------------------------------------------------------------
-
-def load_demand_excel(file_stream) -> np.ndarray:
-    """Parse an Excel file exported from Ntech and return a matrix."""
-    import pandas as pd
-
-    df = pd.read_excel(file_stream)
-    day_col = [c for c in df.columns if "Día" in c][0]
-    demand_col = [c for c in df.columns if "Erlang" in c or "Requeridos" in c][-1]
-    dm = df.pivot_table(index=day_col, values=demand_col, columns=df.index % 24, aggfunc="first").fillna(0)
-    dm = dm.reindex(range(1, 8)).fillna(0)
-    dm = dm.sort_index()
-    matrix = dm.to_numpy(dtype=int)
-    if matrix.shape[1] != 24:
-        matrix = np.pad(matrix, ((0, 0), (0, 24 - matrix.shape[1])), constant_values=0)
-    return matrix
-
-
-def heatmap(matrix: np.ndarray, title: str) -> BytesIO:
-    """Return an image buffer with ``matrix`` rendered as a heatmap."""
-    fig, ax = plt.subplots(figsize=(10, 4))
-    sns.heatmap(matrix, ax=ax, cmap="viridis", cbar=False)
-    ax.set_title(title)
-    ax.set_xlabel("Hora")
-    ax.set_ylabel("Dia")
-    buf = BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-
-def load_demand_matrix_from_df(df) -> np.ndarray:
-    """Return a 7x24 demand matrix from an Ntech formatted dataframe."""
-
-    demand_matrix = np.zeros((7, 24), dtype=float)
-
-    day_col = "Día"
-    time_col = "Horario"
-    demand_col = "Suma de Agentes Requeridos Erlang"
-
-    if day_col not in df.columns or time_col not in df.columns or demand_col not in df.columns:
-        for col in df.columns:
-            if "día" in col.lower() or "dia" in col.lower():
-                day_col = col
-            elif "horario" in col.lower():
-                time_col = col
-            elif "erlang" in col.lower() or "requeridos" in col.lower():
-                demand_col = col
-
-    for _, row in df.iterrows():
-        try:
-            day = int(row[day_col])
-            if not (1 <= day <= 7):
-                continue
-            day_idx = day - 1
-
-            horario = str(row[time_col])
-            if ":" in horario:
-                hour = int(horario.split(":")[0])
-            else:
-                hour = int(float(horario))
-            if not (0 <= hour <= 23):
-                continue
-
-            demanda = float(row[demand_col])
-            demand_matrix[day_idx, hour] = demanda
-        except (ValueError, TypeError, IndexError):
-            continue
-
-    return demand_matrix
-
-
-def analyze_demand_matrix(matrix: np.ndarray) -> dict:
-    """Return basic metrics from a demand matrix."""
-    daily_demand = matrix.sum(axis=1)
-    hourly_demand = matrix.sum(axis=0)
-    active_days = [d for d in range(7) if daily_demand[d] > 0]
-    inactive_days = [d for d in range(7) if daily_demand[d] == 0]
-    working_days = len(active_days)
-    active_hours = np.where(hourly_demand > 0)[0]
-    first_hour = int(active_hours.min()) if active_hours.size else 8
-    last_hour = int(active_hours.max()) if active_hours.size else 20
-    operating_hours = last_hour - first_hour + 1
-    peak_demand = float(matrix.max()) if matrix.size else 0.0
-    avg_demand = float(matrix[active_days].mean()) if active_days else 0.0
-    daily_totals = matrix.sum(axis=1)
-    hourly_totals = matrix.sum(axis=0)
-    critical_days = (
-        np.argsort(daily_totals)[-2:] if daily_totals.size > 1 else [int(np.argmax(daily_totals))]
-    )
-    peak_threshold = (
-        np.percentile(hourly_totals[hourly_totals > 0], 75)
-        if np.any(hourly_totals > 0)
-        else 0
-    )
-    peak_hours = np.where(hourly_totals >= peak_threshold)[0]
-    return {
-        "daily_demand": daily_demand,
-        "hourly_demand": hourly_demand,
-        "active_days": active_days,
-        "inactive_days": inactive_days,
-        "working_days": working_days,
-        "first_hour": first_hour,
-        "last_hour": last_hour,
-        "operating_hours": operating_hours,
-        "peak_demand": peak_demand,
-        "average_demand": avg_demand,
-        "critical_days": critical_days,
-        "peak_hours": peak_hours,
-    }
-
-
-def create_heatmap(matrix, title, cmap="RdYlBu_r"):
-    """Return a matplotlib figure with ``matrix`` visualised as a heatmap."""
-    fig, ax = plt.subplots(figsize=(12, 6))
-    im = ax.imshow(matrix, cmap=cmap, aspect="auto")
-    ax.set_xticks(range(24))
-    ax.set_xticklabels([f"{h:02d}" for h in range(24)])
-    ax.set_yticks(range(7))
-    ax.set_yticklabels([
-        "Lunes",
-        "Martes",
-        "Miércoles",
-        "Jueves",
-        "Viernes",
-        "Sábado",
-        "Domingo",
-    ])
-    for i in range(7):
-        for j in range(24):
-            ax.text(j, i, f"{matrix[i, j]:.0f}", ha="center", va="center", color="black", fontsize=8)
-    ax.set_title(title)
-    ax.set_xlabel("Hora del día")
-    ax.set_ylabel("Día de la semana")
-    plt.colorbar(im, ax=ax)
-    return fig
-
-
-def generate_all_heatmaps(demand, coverage=None, diff=None) -> dict:
-    """Generate heatmaps for demand, coverage and difference matrices."""
-    maps = {"demand": create_heatmap(demand, "Demanda por Hora y Día", "Reds")}
-    if coverage is not None:
-        maps["coverage"] = create_heatmap(coverage, "Cobertura por Hora y Día", "Blues")
-    if diff is not None:
-        maps["difference"] = create_heatmap(diff, "Diferencias por Hora y Día", "RdBu")
-    return maps
 
 
 PROFILES = {
@@ -729,68 +577,6 @@ def apply_configuration(cfg=None):
     return cfg
 
 
-def create_demand_signature(demand_matrix: np.ndarray) -> str:
-    """Return a short hash representing the demand pattern."""
-    normalized = demand_matrix / (demand_matrix.max() + 1e-8)
-    return hashlib.md5(normalized.tobytes()).hexdigest()[:16]
-
-
-def load_learning_history() -> dict:
-    """Load adaptive learning history from disk if available."""
-    try:
-        if os.path.exists("learning_history.json"):
-            with open("learning_history.json", "r") as fh:
-                return json.load(fh)
-    except Exception:
-        pass
-    return {}
-
-
-def save_learning_history(history: dict) -> None:
-    """Persist adaptive learning history to disk."""
-    try:
-        with open("learning_history.json", "w") as fh:
-            json.dump(history, fh, indent=2)
-    except Exception:
-        pass
-
-
-def get_adaptive_parameters(demand_signature: str, learning_history: dict) -> dict:
-    """Return learned parameters for ``demand_signature`` or defaults."""
-    if demand_signature in learning_history:
-        learned = learning_history[demand_signature]
-        best = min(learned.get("runs", []), key=lambda x: x.get("score", 0))
-        return {
-            "agent_limit_factor": best["params"]["agent_limit_factor"],
-            "excess_penalty": best["params"]["excess_penalty"],
-            "peak_bonus": best["params"]["peak_bonus"],
-            "critical_bonus": best["params"]["critical_bonus"],
-        }
-    return {
-        "agent_limit_factor": 22,
-        "excess_penalty": 0.5,
-        "peak_bonus": 1.5,
-        "critical_bonus": 2.0,
-    }
-
-
-def update_learning_history(demand_signature: str, params: dict, results: dict, history: dict) -> dict:
-    """Update ``history`` with new execution ``results`` for ``demand_signature``."""
-    if demand_signature not in history:
-        history[demand_signature] = {"runs": []}
-
-    score = results["understaffing"] + results["overstaffing"] * 0.3
-    history[demand_signature]["runs"].append(
-        {
-            "params": params,
-            "score": score,
-            "total_agents": results["total_agents"],
-            "coverage": results["coverage_percentage"],
-            "timestamp": time.time(),
-        }
-    )
-    history[demand_signature]["runs"] = history[demand_signature]["runs"][-10:]
-    return history
 
 
 def get_optimal_break_time(start_hour: float, shift_duration: int, day: int, demand_day: np.ndarray,
@@ -1694,58 +1480,6 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
     return assignments_total, coverage
 
 
-def analyze_results(assignments, shifts_coverage, demand_matrix, coverage_matrix=None):
-    """Compute coverage metrics from solved assignments."""
-    if not assignments:
-        return None
-
-    compute_coverage = coverage_matrix is None
-    if compute_coverage:
-        slots_per_day = (
-            (len(next(iter(shifts_coverage.values()))) // 7) * 8
-            if shifts_coverage
-            else 24
-        )
-        coverage_matrix = np.zeros((7, slots_per_day), dtype=np.int16)
-    else:
-        slots_per_day = coverage_matrix.shape[1]
-
-    total_agents = 0
-    ft_agents = 0
-    pt_agents = 0
-    for shift_name, count in assignments.items():
-        total_agents += count
-        if shift_name.startswith('FT'):
-            ft_agents += count
-        else:
-            pt_agents += count
-        if compute_coverage:
-            weekly_pattern = shifts_coverage[shift_name]
-            pattern_matrix = np.unpackbits(
-                weekly_pattern.reshape(7, -1), axis=1
-            )[:, :slots_per_day]
-            coverage_matrix += pattern_matrix * count
-
-    total_demand = demand_matrix.sum()
-    total_covered = np.minimum(coverage_matrix, demand_matrix).sum()
-    coverage_percentage = (
-        (total_covered / total_demand) * 100 if total_demand > 0 else 0
-    )
-    diff_matrix = coverage_matrix - demand_matrix
-    overstaffing = np.sum(diff_matrix[diff_matrix > 0])
-    understaffing = np.sum(np.abs(diff_matrix[diff_matrix < 0]))
-    return {
-        'total_coverage': coverage_matrix,
-        'total_agents': total_agents,
-        'ft_agents': ft_agents,
-        'pt_agents': pt_agents,
-        'coverage_percentage': coverage_percentage,
-        'overstaffing': overstaffing,
-        'understaffing': understaffing,
-        'diff_matrix': diff_matrix,
-    }
-
-
 def _extract_start_hour(name: str) -> float:
     """Best-effort extraction of the start hour from a shift name."""
     for part in name.split('_'):
@@ -1915,13 +1649,12 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
 
         print(f"[MEM] Antes de carga de demanda: {monitor_memory_usage():.1f}%")
         print("\U0001F4D6 [SCHEDULER] Leyendo archivo Excel...")
-        import pandas as pd
-        df = pd.read_excel(file_stream)
+        demand_matrix_list = load_demand_from_excel(file_stream)
         print("\u2705 [SCHEDULER] Archivo Excel leído correctamente")
 
         print("\U0001F4CA [SCHEDULER] Procesando matriz de demanda...")
-        demand_matrix = load_demand_matrix_from_df(df)
-        analysis = analyze_demand_matrix(demand_matrix)
+        analysis = analyze_demand_matrix(demand_matrix_list)
+        demand_matrix = np.array(demand_matrix_list, dtype=float)
         demand_packed = np.packbits(demand_matrix > 0, axis=1).astype(np.uint8)
         CONTEXT["demand_packed"] = demand_packed
         print("\u2705 [SCHEDULER] Matriz de demanda procesada")
@@ -2001,20 +1734,13 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
         heatmaps = {}
         if generate_charts:
             if metrics:
-                maps = generate_all_heatmaps(
-                    demand_matrix,
+                heatmaps = generate_all_heatmaps(
+                    demand_matrix_list,
                     metrics.get("total_coverage"),
                     metrics.get("diff_matrix"),
                 )
             else:
-                maps = generate_all_heatmaps(demand_matrix)
-            for key, fig in maps.items():
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                fig.savefig(tmp.name, format="png", bbox_inches="tight")
-                tmp.flush()
-                tmp.close()
-                heatmaps[key] = tmp.name
-                plt.close("all")
+                heatmaps = generate_all_heatmaps(demand_matrix_list)
         print(f"[MEM] Después de exportar resultados: {monitor_memory_usage():.1f}%")
 
         print("\U0001F4E4 [SCHEDULER] Preparando resultados...")
