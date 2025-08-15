@@ -7,9 +7,10 @@ interactive utilities.  Each view delegates heavy computations to functions in
 
 from flask import Blueprint, redirect, render_template, request, url_for, session
 import json
+import pandas as pd
 import plotly.graph_objects as go
 
-from ..other import timeseries_core
+from ..other import timeseries_core, predictivo_core
 
 bp = Blueprint("apps", __name__, url_prefix="/apps")
 
@@ -76,6 +77,47 @@ def timeseries():
     return render_template(
         "apps/timeseries.html",
         metrics=metrics,
+        table=table,
+        figure_json=figure_json,
+    )
+
+
+@bp.route("/predictivo", methods=["GET", "POST"])
+def predictivo():
+    """Forecasting demo based on uploaded time series data."""
+
+    table = []
+    figure_json = None
+
+    if request.method == "POST":
+        file = request.files.get("file")
+        steps = int(request.form.get("steps", 6))
+        if file:
+            try:
+                if file.filename.lower().endswith(("xlsx", "xls")):
+                    raw = pd.read_excel(file)
+                else:
+                    raw = pd.read_csv(file)
+                raw.iloc[:, 0] = pd.to_datetime(raw.iloc[:, 0], errors="coerce")
+                raw.set_index(raw.columns[0], inplace=True)
+                series = raw.iloc[:, 0].ffill().astype(float)
+
+                result = predictivo_core.forecast(series, steps)
+                fc_df = result.get("forecast", pd.DataFrame())
+                table = (
+                    fc_df.reset_index()
+                    .rename(columns={"index": "Fecha"})
+                    .to_dict(orient="records")
+                )
+                fig = result.get("figure")
+                if isinstance(fig, go.Figure):
+                    figure_json = fig.to_json()
+            except Exception:
+                table = []
+                figure_json = None
+
+    return render_template(
+        "apps/predictivo.html",
         table=table,
         figure_json=figure_json,
     )

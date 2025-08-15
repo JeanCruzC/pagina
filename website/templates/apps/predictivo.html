@@ -1,0 +1,67 @@
+{% extends 'apps/_layout.html' %}
+
+{% block app_content %}
+<h2 class="fw-bold mb-4">Pronóstico</h2>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form id="predictivo-form" class="row g-3" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-6">
+        <label for="file" class="form-label">Archivo (Excel o CSV)</label>
+        <input type="file" class="form-control" id="file" name="file" required>
+      </div>
+      <div class="col-md-4">
+        <label for="steps" class="form-label">Pasos</label>
+        <input type="number" class="form-control" id="steps" name="steps" min="1" max="200" value="6">
+      </div>
+      <div class="col-md-2 align-self-end">
+        <button class="btn btn-primary" type="submit">Pronosticar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if table %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table id="predictivo-table" class="table table-sm">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            {% for col in table[0].keys() if col != 'Fecha' %}
+            <th>{{ col }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in table %}
+          <tr>
+            <td>{{ row['Fecha'] }}</td>
+            {% for col, val in row.items() if col != 'Fecha' %}
+            <td>{{ val }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if figure_json %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div id="predictivo-chart" data-figure='{{ figure_json | tojson | safe }}'></div>
+  </div>
+</div>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>
+  const chartEl = document.getElementById('predictivo-chart');
+  const fig = JSON.parse(chartEl.dataset.figure);
+  Plotly.react(chartEl, fig.data, fig.layout);
+</script>
+{% endif %}
+{% endblock %}
