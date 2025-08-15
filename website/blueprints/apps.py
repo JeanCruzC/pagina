@@ -9,7 +9,8 @@ from flask import Blueprint, redirect, render_template, request, url_for
 import json
 import plotly.graph_objects as go
 
-from ..other import timeseries_core
+from .core import login_required
+from ..other import predictivo_core, timeseries_core
 
 bp = Blueprint("apps", __name__, url_prefix="/apps")
 
@@ -27,6 +28,7 @@ def erlang():
 
 
 @bp.route("/timeseries", methods=["GET", "POST"])
+@login_required
 def timeseries():
     """Render the time series exploration interface.
 
@@ -70,5 +72,34 @@ def timeseries():
         "apps/timeseries.html",
         metrics=metrics,
         table=table,
+        figure_json=figure_json,
+    )
+
+
+@bp.route("/predictivo", methods=["GET", "POST"])
+@login_required
+def predictivo():
+    """Upload a time series file and display multi-model forecasts."""
+
+    table_html = None
+    figure_json = None
+
+    if request.method == "POST":
+        file = request.files.get("file")
+        steps = int(request.form.get("steps", 6))
+        if file:
+            result = predictivo_core.forecast_from_file(file, steps)
+            table_html = result["forecast"].to_html(
+                classes="table table-sm", border=0
+            )
+            fig = result.get("figure")
+            if isinstance(fig, go.Figure):
+                figure_json = fig.to_json()
+            elif fig is not None:
+                figure_json = json.dumps(fig)
+
+    return render_template(
+        "apps/predictivo.html",
+        table_html=table_html,
         figure_json=figure_json,
     )

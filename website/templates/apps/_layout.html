@@ -5,9 +5,10 @@
   <aside class="col-md-3 col-lg-2 mb-4">
     <div class="list-group">
       <a href="{{ url_for('core.generador') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='core.generador' else '' }}">Generador</a>
-      <a href="{{ url_for('core.erlang') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='core.erlang' else '' }}">Erlang</a>
+      <a href="{{ url_for('apps.erlang') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.erlang' else '' }}">Erlang</a>
       <a href="{{ url_for('core.kpis') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='core.kpis' else '' }}">KPIs</a>
-      <a href="{{ url_for('core.timeseries') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='core.timeseries' else '' }}">Series</a>
+      <a href="{{ url_for('apps.timeseries') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.timeseries' else '' }}">Series</a>
+      <a href="{{ url_for('apps.predictivo') }}" class="list-group-item list-group-item-action {{ 'active' if request.endpoint=='apps.predictivo' else '' }}">Predictivo</a>
     </div>
   </aside>
   <div class="col">

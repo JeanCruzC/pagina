@@ -1,0 +1,37 @@
+{% extends 'apps/_layout.html' %}
+
+{% block app_content %}
+<h2 class="fw-bold mb-4">Modelo Predictivo</h2>
+<form id="predictivo-form" method="post" enctype="multipart/form-data" class="row g-3">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="col-md-6">
+    <input class="form-control" type="file" name="file" accept=".csv,.xlsx" required>
+  </div>
+  <div class="col-md-2">
+    <input class="form-control" type="number" name="steps" value="6" min="1" max="200">
+  </div>
+  <div class="col-md-2">
+    <button class="btn btn-primary" type="submit">Pronosticar</button>
+  </div>
+</form>
+
+{% if table_html %}
+<div class="card mt-4">
+  <div class="card-body">
+    {{ table_html | safe }}
+  </div>
+</div>
+{% endif %}
+
+{% if figure_json %}
+<div class="card mt-4">
+  <div class="card-body">
+    <div id="predictivo-chart"></div>
+  </div>
+</div>
+<script>
+  const fig = JSON.parse({{ figure_json | tojson | safe }});
+  Plotly.newPlot('predictivo-chart', fig.data, fig.layout);
+</script>
+{% endif %}
+{% endblock %}
