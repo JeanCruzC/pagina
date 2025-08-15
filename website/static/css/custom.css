@@ -47,6 +47,24 @@ html,body {
 }
 
 /* =========================
+   KPI STAT CARDS
+   ========================= */
+.stat-card {
+  padding: 16px 20px;
+  border-radius: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+}
+
+.stat-card .small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* =========================
    NAVBAR / OFFCANVAS
    ========================= */
 .navbar.bg-body-tertiary{
