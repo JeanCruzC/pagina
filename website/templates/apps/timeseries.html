@@ -5,29 +5,59 @@
 
 <div class="card mb-4">
   <div class="card-body">
-    <form id="timeseries-form" class="row g-3">
-      <!-- Elementos del formulario -->
+    <form id="timeseries-form" class="row g-3" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-8">
+        <label for="values" class="form-label">Valores (separados por coma)</label>
+        <input type="text" class="form-control" id="values" name="values" placeholder="1,2,3,4" required>
+      </div>
+      <div class="col-md-4 align-self-end">
+        <button class="btn btn-primary" type="submit">Procesar</button>
+      </div>
     </form>
   </div>
 </div>
 
+{% if metrics %}
 <div class="row g-3 mb-4" id="timeseries-metrics">
+  {% for key, value in metrics.items() %}
   <div class="col-md-3">
-    <div class="p-3 border rounded text-center">Métrica 1</div>
+    <div class="p-3 border rounded text-center">{{ key }}: {{ value }}</div>
   </div>
+  {% endfor %}
 </div>
+{% endif %}
 
+{% if table %}
 <div class="card mb-4">
   <div class="card-body">
     <div class="table-responsive">
-      <table id="timeseries-table" class="table table-sm"></table>
+      <table id="timeseries-table" class="table table-sm">
+        <thead>
+          <tr><th>Índice</th><th>Valor</th></tr>
+        </thead>
+        <tbody>
+          {% for row in table %}
+          <tr><td>{{ row.index }}</td><td>{{ row.value }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
+{% endif %}
 
+{% if figure_json %}
 <div class="card mb-4">
   <div class="card-body">
-    <div id="timeseries-chart"></div>
+    <div id="timeseries-chart" data-figure='{{ figure_json | tojson | safe }}'></div>
   </div>
 </div>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>
+  const chartEl = document.getElementById('timeseries-chart');
+  const fig = JSON.parse(chartEl.dataset.figure);
+  Plotly.react(chartEl, fig.data, fig.layout);
+</script>
+{% endif %}
 {% endblock %}

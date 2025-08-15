@@ -54,15 +54,16 @@ def test_timeseries_authenticated_get():
     assert b'timeseries-form' in response.data or b'coming soon' in response.data
 
 
-@pytest.mark.xfail(reason="POST handler not yet implemented")
-def test_timeseries_post_placeholder():
+def test_timeseries_post_returns_results():
     client = app.test_client()
     login(client)
     token = _csrf_token(client, '/apps/timeseries')
     response = client.post(
         '/apps/timeseries',
-        data={'sample': 'data', 'csrf_token': token},
+        data={'values': '1,2,3,4', 'csrf_token': token},
         follow_redirects=True,
     )
     assert response.status_code == 200
-    assert b'placeholder' in response.data or b'coming soon' in response.data
+    html = response.get_data(as_text=True)
+    assert 'timeseries-table' in html
+    assert 'data-figure' in html
