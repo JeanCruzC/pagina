@@ -4,21 +4,36 @@
 <h1>Contacto</h1>
 <p class="mb-4">¿Tienes preguntas? Envíanos un mensaje y te responderemos pronto.</p>
 
-<form method="post" class="mb-4">
+<form
+  method="post"
+  action="{{ url_for('core.contacto') }}"
+  class="mb-4"
+  hx-post="{{ url_for('core.contacto') }}"
+  hx-target="#contacto-response"
+  hx-swap="innerHTML"
+>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="mb-3">
     <label for="name" class="form-label">Nombre</label>
-    <input type="text" class="form-control" id="name" placeholder="Tu nombre">
+    <input type="text" class="form-control" id="name" name="name" placeholder="Tu nombre">
   </div>
   <div class="mb-3">
     <label for="email" class="form-label">Correo</label>
-    <input type="email" class="form-control" id="email" placeholder="nombre@ejemplo.com">
+    <input type="email" class="form-control" id="email" name="email" placeholder="nombre@ejemplo.com">
   </div>
   <div class="mb-3">
     <label for="message" class="form-label">Mensaje</label>
-    <textarea class="form-control" id="message" rows="4" placeholder="¿En qué podemos ayudarte?"></textarea>
+    <textarea class="form-control" id="message" name="message" rows="4" placeholder="¿En qué podemos ayudarte?"></textarea>
   </div>
   <button type="submit" class="btn btn-primary">Enviar</button>
 </form>
+
+<div id="contacto-response">
+  {% if mensaje %}
+  <div class="alert alert-success" role="alert">
+    ¡Gracias, {{ nombre }}! Hemos recibido tu mensaje.
+  </div>
+  {% endif %}
+</div>
 {% endblock %}
 
