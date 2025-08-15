@@ -80,3 +80,30 @@ def test_predictivo_post_returns_results():
     html = response.get_data(as_text=True)
     assert 'predictivo-table' in html
     assert 'predictivo-download' in html
+
+
+def test_predictivo_download_endpoint():
+    client = app.test_client()
+    login(client)
+    token = _csrf_token(client, '/apps/predictivo')
+    csv_content = 'date,value\n2023-01-01,1\n2023-02-01,2\n'
+    data = {
+        'steps_horizon': '1',
+        'csrf_token': token,
+        'file': (io.BytesIO(csv_content.encode('utf-8')), 'data.csv'),
+    }
+    response = client.post(
+        '/apps/predictivo',
+        data=data,
+        content_type='multipart/form-data',
+        follow_redirects=True,
+    )
+    html = response.get_data(as_text=True)
+    import re
+    match = re.search(r'id="predictivo-download"[^>]*href="([^"]+)"', html)
+    assert match, 'download link not found'
+    download_url = match.group(1)
+    dl_resp = client.get(download_url)
+    assert dl_resp.status_code == 200
+    assert dl_resp.headers['Content-Disposition'].startswith('attachment')
+    assert dl_resp.data

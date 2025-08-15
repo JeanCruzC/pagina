@@ -5,14 +5,31 @@ interactive utilities.  Each view delegates heavy computations to functions in
 ``website.other`` so that the routes themselves remain thin controllers.
 """
 
-from flask import Blueprint, redirect, render_template, request, url_for, session
-from typing import Any, Dict
 import json
+import os
+import tempfile
+import uuid
+from typing import Any, Dict
+
 import plotly.graph_objects as go
+from flask import (
+    Blueprint,
+    redirect,
+    render_template,
+    request,
+    url_for,
+    session,
+    send_file,
+    abort,
+    after_this_request,
+)
 
 from ..other import timeseries_core, erlang_core, modelo_predictivo_core
 
 bp = Blueprint("apps", __name__, url_prefix="/apps")
+
+# Default temporary directory for generated files
+temp_dir = tempfile.gettempdir()
 
 
 @bp.before_request
@@ -64,7 +81,7 @@ def predictivo():
 
     metrics = {}
     table = []
-    download = None
+    download_url = None
 
     if request.method == "POST":
         file = request.files.get("file")
@@ -75,12 +92,41 @@ def predictivo():
             table = result.get("table", []) if isinstance(result, dict) else []
             file_bytes = result.get("file_bytes") if isinstance(result, dict) else None
             if file_bytes:
-                import base64
-
-                download = base64.b64encode(file_bytes).decode("utf-8")
+                job_id = uuid.uuid4().hex
+                path = os.path.join(temp_dir, f"{job_id}.csv")
+                with open(path, "wb") as f:
+                    f.write(file_bytes)
+                download_url = url_for("apps.predictivo_download", job_id=job_id)
 
     return render_template(
-        "apps/predictivo.html", metrics=metrics, table=table, download=download
+        "apps/predictivo.html",
+        metrics=metrics,
+        table=table,
+        download_url=download_url,
+    )
+
+
+@bp.route("/predictivo/download/<job_id>")
+def predictivo_download(job_id: str):
+    """Serve the generated forecast file and remove it afterwards."""
+
+    path = os.path.join(temp_dir, f"{job_id}.csv")
+    if not os.path.exists(path):
+        abort(404)
+
+    @after_this_request
+    def cleanup(response):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return response
+
+    return send_file(
+        path,
+        as_attachment=True,
+        download_name="resultados.csv",
+        mimetype="text/csv",
     )
 
 
