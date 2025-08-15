@@ -234,6 +234,75 @@ def required_agents_for_service_level(
     return int(max_agents)
 
 
+def build_sensitivity_figure(
+    arrival_rate: float,
+    aht: float,
+    awt: float,
+    actual_agents: int,
+    recommended_agents: int,
+) -> go.Figure:
+    """Create sensitivity chart with vertical reference lines.
+
+    The chart plots Service Level and ASA against a range of agent counts and
+    highlights the *Actual* and *Recomendado* values using vertical dashed
+    lines so that the frontend can render identical visuals whether using the
+    Python figure directly or its JSON representation in JavaScript.
+    """
+
+    rec = max(int(recommended_agents), 1)
+    agent_min = max(1, int(rec * 0.7))
+    agent_max = max(agent_min + 1, int(rec * 1.5))
+    agent_range = list(range(agent_min, agent_max + 1))
+
+    sl_data = [service_level_erlang_c(arrival_rate, aht, a, awt) for a in agent_range]
+    asa_data = [waiting_time_erlang_c(arrival_rate, aht, a) for a in agent_range]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=agent_range,
+            y=sl_data,
+            mode="lines+markers",
+            name="Service Level",
+            yaxis="y",
+            line=dict(color="blue"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=agent_range,
+            y=asa_data,
+            mode="lines+markers",
+            name="ASA (seg)",
+            yaxis="y2",
+            line=dict(color="red"),
+        )
+    )
+
+    fig.update_layout(
+        title="Service Level y ASA vs Número de Agentes",
+        xaxis_title="Número de Agentes",
+        yaxis=dict(title="Service Level", side="left", range=[0, 1]),
+        yaxis2=dict(title="ASA (segundos)", side="right", overlaying="y"),
+        hovermode="x unified",
+    )
+
+    fig.add_vline(
+        x=int(actual_agents),
+        line_dash="dash",
+        line_color="red",
+        annotation_text="Actual",
+    )
+    fig.add_vline(
+        x=int(recommended_agents),
+        line_dash="dash",
+        line_color="orange",
+        annotation_text="Recomendado",
+    )
+
+    return fig
+
+
 def calculate_erlang_metrics(
     calls: float,
     aht: float,
@@ -258,4 +327,7 @@ def calculate_erlang_metrics(
         "occupancy": occupancy_erlang_c(arrival_rate, aht, used_agents),
         "required_agents": required,
     }
+    metrics["figure"] = build_sensitivity_figure(
+        arrival_rate, aht, awt, agents, required
+    )
     return metrics

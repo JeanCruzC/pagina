@@ -33,6 +33,7 @@ def erlang():
     """Render a minimal Erlang calculator."""
 
     metrics = {}
+    figure_json = None
 
     if request.method == "POST":
         calls = request.form.get("calls", type=float, default=0) or 0.0
@@ -45,7 +46,7 @@ def erlang():
 
         sl_target = sl / 100 if sl > 1 else sl
 
-        metrics = erlang_core.calculate_erlang_metrics(
+        result = erlang_core.calculate_erlang_metrics(
             calls=calls,
             aht=aht,
             sl_target=sl_target,
@@ -55,7 +56,15 @@ def erlang():
             calc_type=calc_type,
         )
 
-    return render_template("apps/erlang.html", metrics=metrics)
+        if isinstance(result, dict):
+            fig = result.pop("figure", None)
+            metrics = result
+            if isinstance(fig, go.Figure):
+                figure_json = fig.to_json()
+            elif fig is not None:
+                figure_json = json.dumps(fig)
+
+    return render_template("apps/erlang.html", metrics=metrics, figure_json=figure_json)
 
 
 @bp.route("/predictivo", methods=["GET", "POST"])
