@@ -7,9 +7,16 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
+stub_kpis = types.SimpleNamespace(
+    process_file=lambda f: ({"tables": {"summary": ""}, "heatmap_url": None}, None, None)
+)
+sys.modules['website.utils.kpis_core'] = stub_kpis
 
 from website import create_app
 from website.utils import allowlist as allowlist_module
+import website.blueprints.core as core_bp
+
+core_bp.kpis_core = stub_kpis
 
 app = create_app()
 add_to_allowlist = allowlist_module.add_to_allowlist

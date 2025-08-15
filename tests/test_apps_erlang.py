@@ -1,8 +1,11 @@
 import os
 import sys
 import types
+import json
+from contextlib import contextmanager
 
 import pytest
+from flask import template_rendered
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
@@ -13,6 +16,18 @@ from website.utils import allowlist as allowlist_module
 
 app = create_app()
 add_to_allowlist = allowlist_module.add_to_allowlist
+
+
+@contextmanager
+def captured_templates(app):
+    recorded = []
+    def record(sender, template, context, **extra):
+        recorded.append((template, context))
+    template_rendered.connect(record, app)
+    try:
+        yield recorded
+    finally:
+        template_rendered.disconnect(record, app)
 
 
 def _csrf_token(client, path):
@@ -49,20 +64,23 @@ def test_erlang_requires_login():
 def test_erlang_authenticated_get():
     client = app.test_client()
     login(client)
-    response = client.get('/apps/erlang')
+    with captured_templates(app) as templates:
+        response = client.get('/apps/erlang')
     assert response.status_code == 200
-    assert b'erlang-form' in response.data or b'Erlang app coming soon' in response.data
+    assert templates and templates[0][0].name == 'apps/erlang.html'
 
 
-@pytest.mark.xfail(reason="POST handler not yet implemented")
-def test_erlang_post_placeholder():
+def test_erlang_post_calculates_metrics():
     client = app.test_client()
     login(client)
-    token = _csrf_token(client, '/apps/erlang')
-    response = client.post(
-        '/apps/erlang',
-        data={'sample': 'data', 'csrf_token': token},
-        follow_redirects=True,
-    )
+    # The template does not include a CSRF field, obtain one from another page
+    token = _csrf_token(client, '/login')
+    matrix = [[1.0]*24] + [[0.0]*24 for _ in range(6)]
+    data = {'matrix': json.dumps(matrix), 'csrf_token': token}
+    with captured_templates(app) as templates:
+        response = client.post('/apps/erlang', data=data)
     assert response.status_code == 200
-    assert b'coming soon' in response.data
+    template, context = templates[0]
+    assert template.name == 'apps/erlang.html'
+    assert context['metrics']['working_days'] == 1
+    assert 'demand' in context['heatmaps']
