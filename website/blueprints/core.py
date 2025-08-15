@@ -101,7 +101,13 @@ def kpis():
             flash("Formato no soportado", "warning")
             return render_template("kpis.html"), 400
 
-        result, csv_bytes, xlsx_bytes = kpis_core.process_file(file)
+        core_fn = getattr(kpis_core, "process_file", None)
+        result, csv_bytes, xlsx_bytes = (
+            core_fn(file) if callable(core_fn) else ({}, None, None)
+        )
+        if not isinstance(result, dict):
+            result = {}
+        result.setdefault("tables", {}).setdefault("summary", "")
 
         job_id = uuid.uuid4().hex
         downloads = {}

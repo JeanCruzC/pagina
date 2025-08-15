@@ -10,23 +10,27 @@ import json
 import plotly.graph_objects as go
 
 from ..other import timeseries_core
+from .core import login_required
 
 bp = Blueprint("apps", __name__, url_prefix="/apps")
 
 
 @bp.route("/")
+@login_required
 def index():
     """Redirect to the default app or show a menu."""
     return redirect(url_for("apps.erlang"))
 
 
 @bp.route("/erlang")
+@login_required
 def erlang():
     """Placeholder for the Erlang app."""
-    return "Erlang app coming soon"
+    return render_template("apps/erlang.html")
 
 
 @bp.route("/timeseries", methods=["GET", "POST"])
+@login_required
 def timeseries():
     """Render the time series exploration interface.
 
@@ -72,3 +76,17 @@ def timeseries():
         table=table,
         figure_json=figure_json,
     )
+
+
+@bp.route("/kpis")
+@login_required
+def kpis():
+    """Placeholder KPIs app."""
+    return render_template("apps/kpis.html")
+
+
+@bp.route("/predictivo")
+@login_required
+def predictivo():
+    """Placeholder for the predictive app."""
+    return "Predictive app coming soon"
