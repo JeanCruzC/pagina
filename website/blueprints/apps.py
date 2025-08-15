@@ -10,7 +10,7 @@ from typing import Any, Dict
 import json
 import plotly.graph_objects as go
 
-from ..other import timeseries_core, erlang_core, modelo_predictivo_core
+from ..other import timeseries_core, erlang_core, modelo_predictivo_core, blending_core
 
 bp = Blueprint("apps", __name__, url_prefix="/apps")
 
@@ -56,6 +56,35 @@ def erlang():
         )
 
     return render_template("apps/erlang.html", metrics=metrics)
+
+
+@bp.route("/blending", methods=["GET", "POST"])
+def blending():
+    """Calculate simple blending metrics."""
+
+    metrics: Dict[str, Any] = {}
+    figure_json = None
+
+    if request.method == "POST":
+        forecast = request.form.get("forecast", type=float, default=0) or 0.0
+        aht = request.form.get("aht", type=float, default=0) or 0.0
+        agents = request.form.get("agents", type=int, default=0) or 0
+        awt = request.form.get("awt", type=float, default=0) or 0.0
+        lines = request.form.get("lines", type=int, default=0) or 0
+        patience = request.form.get("patience", type=float, default=0) or 0.0
+        threshold = request.form.get("threshold", type=int, default=0) or 0
+
+        result = blending_core.calculate_blending_metrics(
+            forecast, aht, agents, awt, lines, patience, threshold
+        )
+        metrics = {
+            "service_level": result.get("service_level", 0),
+            "outbound_capacity": result.get("outbound_capacity", 0),
+            "optimal_threshold": result.get("optimal_threshold", 0),
+        }
+        figure_json = result.get("figure")
+
+    return render_template("apps/blending.html", metrics=metrics, figure_json=figure_json)
 
 
 @bp.route("/predictivo", methods=["GET", "POST"])

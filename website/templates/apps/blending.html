@@ -1,0 +1,75 @@
+{% extends 'apps/layout.html' %}
+
+{% block app_content %}
+<h2 class="fw-bold mb-4">Blending</h2>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form id="blending-form" class="row g-3" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-4">
+        <label for="forecast" class="form-label">Forecast</label>
+        <input type="number" class="form-control" id="forecast" name="forecast" required>
+      </div>
+      <div class="col-md-4">
+        <label for="aht" class="form-label">AHT (seg)</label>
+        <input type="number" class="form-control" id="aht" name="aht" required>
+      </div>
+      <div class="col-md-4">
+        <label for="agents" class="form-label">Agentes</label>
+        <input type="number" class="form-control" id="agents" name="agents" required>
+      </div>
+      <div class="col-md-4">
+        <label for="awt" class="form-label">AWT (seg)</label>
+        <input type="number" class="form-control" id="awt" name="awt" required>
+      </div>
+      <div class="col-md-4">
+        <label for="lines" class="form-label">Líneas</label>
+        <input type="number" class="form-control" id="lines" name="lines" required>
+      </div>
+      <div class="col-md-4">
+        <label for="patience" class="form-label">Patience (seg)</label>
+        <input type="number" class="form-control" id="patience" name="patience" required>
+      </div>
+      <div class="col-md-4">
+        <label for="threshold" class="form-label">Threshold (agentes)</label>
+        <input type="number" class="form-control" id="threshold" name="threshold" required>
+      </div>
+      <div class="col-12">
+        <button class="btn btn-primary" type="submit">Calcular</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if metrics %}
+<div class="row g-3 mb-4" id="blending-metrics">
+  <div class="col-md-4">
+    <div class="p-3 border rounded text-center">SLA Inbound: {{ metrics.service_level }}</div>
+  </div>
+  <div class="col-md-4">
+    <div class="p-3 border rounded text-center">Capacidad Outbound: {{ metrics.outbound_capacity }}</div>
+  </div>
+  <div class="col-md-4">
+    <div class="p-3 border rounded text-center">Threshold Óptimo: {{ metrics.optimal_threshold }}</div>
+  </div>
+</div>
+{% endif %}
+
+{% if figure_json %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div id="blending-figure" data-figure='{{ figure_json | tojson | safe }}'></div>
+  </div>
+</div>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>
+  (function(){
+    const el = document.getElementById('blending-figure');
+    const fig = JSON.parse(el.dataset.figure);
+    Plotly.react(el, fig.data, fig.layout);
+  })();
+</script>
+{% endif %}
+
+{% endblock %}
