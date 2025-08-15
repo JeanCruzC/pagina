@@ -93,3 +93,54 @@ def plot_learning_history(history: Dict[str, Any], demand_signature: str) -> Dic
         fig = go.Figure(data=[go.Scatter(x=timestamps, y=scores, mode="lines+markers")])
     fig.update_layout(title="Evolución del Score", xaxis_title="Timestamp", yaxis_title="Score")
     return fig.to_dict()
+
+
+def run(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Basic processing pipeline for the demo time series app.
+
+    The function expects a key ``values`` containing either an iterable of
+    numbers or a comma separated string. It returns summary metrics, a table of
+    the points and a Plotly figure representing the series.
+
+    Parameters
+    ----------
+    params:
+        Dictionary of input parameters from the form.
+
+    Returns
+    -------
+    dict
+        ``metrics``: basic statistics of the series
+        ``table``: list of dicts with ``index`` and ``value``
+        ``figure``: Plotly Figure object with a line chart
+    """
+
+    values = params.get("values", [])
+    if isinstance(values, str):
+        try:
+            values = [float(v) for v in values.split(",") if v.strip()]
+        except Exception:
+            values = []
+    else:
+        try:
+            values = [float(v) for v in values]
+        except Exception:
+            values = []
+
+    arr = np.array(values, dtype=float)
+
+    metrics: Dict[str, Any] = {}
+    if arr.size:
+        metrics = {
+            "count": int(arr.size),
+            "mean": float(arr.mean()),
+            "min": float(arr.min()),
+            "max": float(arr.max()),
+        }
+
+    table = [{"index": int(i), "value": float(v)} for i, v in enumerate(arr.tolist())]
+
+    fig = go.Figure(data=[go.Scatter(y=arr.tolist(), mode="lines+markers")])
+    fig.update_layout(title="Serie de tiempo", xaxis_title="Índice", yaxis_title="Valor")
+
+    return {"metrics": metrics, "table": table, "figure": fig}

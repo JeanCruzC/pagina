@@ -5,13 +5,20 @@ interactive utilities.  Each view delegates heavy computations to functions in
 ``website.other`` so that the routes themselves remain thin controllers.
 """
 
-from flask import Blueprint, redirect, render_template, request, url_for
+from flask import Blueprint, redirect, render_template, request, url_for, session
 import json
 import plotly.graph_objects as go
 
 from ..other import timeseries_core
 
 bp = Blueprint("apps", __name__, url_prefix="/apps")
+
+
+@bp.before_request
+def require_login():  # pragma: no cover - simple auth gate
+    """Redirect users to the login page when not authenticated."""
+    if "user" not in session:
+        return redirect(url_for("core.login"))
 
 
 @bp.route("/")
