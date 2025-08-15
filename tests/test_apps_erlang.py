@@ -51,18 +51,26 @@ def test_erlang_authenticated_get():
     login(client)
     response = client.get('/apps/erlang')
     assert response.status_code == 200
-    assert b'erlang-form' in response.data or b'Erlang app coming soon' in response.data
+    assert b'erlang-form' in response.data
 
 
-@pytest.mark.xfail(reason="POST handler not yet implemented")
-def test_erlang_post_placeholder():
+def test_erlang_post_calculates(monkeypatch):
+    from website.other import erlang_core
+
+    def fake_analyze(matrix):
+        return {"required_agents": 7.5}
+
+    monkeypatch.setattr(erlang_core, "analyze_demand_matrix", fake_analyze)
+
     client = app.test_client()
     login(client)
     token = _csrf_token(client, '/apps/erlang')
     response = client.post(
         '/apps/erlang',
-        data={'sample': 'data', 'csrf_token': token},
+        data={'calls': '10', 'agents': '2', 'csrf_token': token},
         follow_redirects=True,
     )
     assert response.status_code == 200
-    assert b'coming soon' in response.data
+    html = response.get_data(as_text=True)
+    assert 'required_agents' in html
+    assert '7.5' in html

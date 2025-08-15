@@ -9,7 +9,7 @@ from flask import Blueprint, redirect, render_template, request, url_for, sessio
 import json
 import plotly.graph_objects as go
 
-from ..other import timeseries_core
+from ..other import timeseries_core, erlang_core
 
 bp = Blueprint("apps", __name__, url_prefix="/apps")
 
@@ -27,10 +27,25 @@ def index():
     return redirect(url_for("apps.erlang"))
 
 
-@bp.route("/erlang")
+@bp.route("/erlang", methods=["GET", "POST"])
 def erlang():
-    """Placeholder for the Erlang app."""
-    return "Erlang app coming soon"
+    """Render a minimal Erlang calculator."""
+
+    metrics = {}
+
+    if request.method == "POST":
+        calls = request.form.get("calls", type=float, default=0) or 0
+        agents = request.form.get("agents", type=float, default=0) or 0
+
+        # Create a simple demand matrix placing the calls in the first slot.
+        demand = [[calls] + [0.0] * 23] + [[0.0] * 24 for _ in range(6)]
+
+        result = erlang_core.analyze_demand_matrix(demand)
+        if isinstance(result, dict):
+            metrics = result
+            metrics["agents"] = agents
+
+    return render_template("apps/erlang.html", metrics=metrics)
 
 
 @bp.route("/timeseries", methods=["GET", "POST"])
