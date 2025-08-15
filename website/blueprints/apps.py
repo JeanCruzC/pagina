@@ -9,7 +9,12 @@ from flask import Blueprint, redirect, render_template, request, url_for, sessio
 import json
 import plotly.graph_objects as go
 
-from ..other import timeseries_core, erlang_core
+from ..other import (
+    timeseries_core,
+    timeseries_full_core,
+    modelo_predictivo_core,
+    erlang_core,
+)
 
 bp = Blueprint("apps", __name__, url_prefix="/apps")
 

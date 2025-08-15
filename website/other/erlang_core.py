@@ -7,7 +7,8 @@ JSON on the frontend.
 """
 from __future__ import annotations
 
-from typing import List, Dict, Any, Iterable
+from pathlib import Path
+from typing import IO, List, Dict, Any, Iterable
 
 import numpy as np
 import plotly.graph_objects as go
@@ -77,8 +78,8 @@ def load_demand_matrix(records: Iterable[Dict[str, Any]]) -> List[List[float]]:
     return matrix
 
 
-def load_demand_from_excel(file_stream) -> List[List[float]]:
-    """Load demand data from an Excel file-like object."""
+def load_demand_from_excel(file_stream: IO | str | Path) -> List[List[float]]:
+    """Load demand data from an Excel file-like object or path."""
     df = pd.read_excel(file_stream)
     return load_demand_matrix(df.to_dict("records"))
 
