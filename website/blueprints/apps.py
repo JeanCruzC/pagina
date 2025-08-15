@@ -256,14 +256,6 @@ def erlang_visual_view():
 
         busy_agents = int(agents * occ)
         available_agents = max(0, agents - busy_agents)
-        busy_pct = busy_agents / agents * 100 if agents else 0
-        available_pct = available_agents / agents * 100 if agents else 0
-
-        sl_class = "success" if sl >= 0.8 else "warning" if sl >= 0.7 else "danger"
-        asa_class = "success" if asa <= 30 else "warning" if asa <= 60 else "danger"
-        occ_class = (
-            "success" if 0.7 <= occ <= 0.85 else "warning" if 0.6 <= occ <= 0.9 else "danger"
-        )
 
         matrix_data = erlang_visual.generate_agent_matrix(
             forecast, aht, agents, awt, interval_seconds, int(required)
@@ -271,6 +263,18 @@ def erlang_visual_view():
         matrix = matrix_data["rows"]
         queue = erlang_visual.generate_queue(matrix_data["sl"], forecast)
         asa_bar = erlang_visual.generate_asa_bar(matrix_data["asa"], awt)
+
+        waiting_calls = len(queue["icons"]) if queue else 0
+        total_units = agents + waiting_calls
+        busy_pct = busy_agents / total_units * 100 if total_units else 0
+        available_pct = available_agents / total_units * 100 if total_units else 0
+        waiting_pct = waiting_calls / total_units * 100 if total_units else 0
+
+        sl_class = "success" if sl >= 0.8 else "warning" if sl >= 0.7 else "danger"
+        asa_class = "success" if asa <= 30 else "warning" if asa <= 60 else "danger"
+        occ_class = (
+            "success" if 0.7 <= occ <= 0.85 else "warning" if 0.6 <= occ <= 0.9 else "danger"
+        )
 
         metrics = {
             "service_level": sl,
@@ -280,8 +284,10 @@ def erlang_visual_view():
             "calls_per_agent": cpa,
             "busy_agents": busy_agents,
             "available_agents": available_agents,
+            "waiting_calls": waiting_calls,
             "busy_percent": busy_pct,
             "available_percent": available_pct,
+            "waiting_percent": waiting_pct,
             "sl_class": sl_class,
             "asa_class": asa_class,
             "occ_class": occ_class,
