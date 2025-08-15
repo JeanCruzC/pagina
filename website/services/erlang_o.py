@@ -4,30 +4,66 @@ from __future__ import annotations
 import math
 
 
-def productivity(agents: int, hours_per_day: float, calls_per_hour: float, success_rate: float = 0.3) -> dict:
-    """Return productivity metrics for outbound campaigns."""
-    total_calls = agents * hours_per_day * calls_per_hour
-    successful_calls = total_calls * success_rate
+def total_calls(
+    agents: int,
+    hours_per_day: float,
+    talk_time: float,
+    wait_between: float,
+    answer_rate: float,
+) -> dict:
+    """Return call volume metrics for an outbound campaign."""
+    cycle = talk_time + wait_between
+    if cycle <= 0:
+        calls_per_agent_day = 0.0
+    else:
+        calls_per_agent_day = hours_per_day * 60 / cycle
+    successful_calls = agents * calls_per_agent_day
+    dialed_calls = successful_calls / answer_rate if answer_rate > 0 else 0.0
     return {
-        "total_calls": total_calls,
+        "calls_per_agent_day": calls_per_agent_day,
         "successful_calls": successful_calls,
-        "success_rate": success_rate,
-        "calls_per_agent_day": hours_per_day * calls_per_hour,
-        "successful_per_agent_day": hours_per_day * calls_per_hour * success_rate,
+        "dialed_calls": dialed_calls,
     }
 
 
-def agents_for_target(
+def agents_needed(
     target_calls_day: float,
     hours_per_day: float,
-    calls_per_hour: float,
-    success_rate: float = 0.3,
+    talk_time: float,
+    wait_between: float,
 ) -> int:
     """Return agents required to hit a target of successful calls per day."""
-    calls_per_agent_day = hours_per_day * calls_per_hour * success_rate
+    cycle = talk_time + wait_between
+    if cycle <= 0:
+        return 0
+    calls_per_agent_day = hours_per_day * 60 / cycle
     if calls_per_agent_day <= 0:
         return 0
     return math.ceil(target_calls_day / calls_per_agent_day)
+
+
+def roi(
+    agents: int,
+    hours_per_day: float,
+    talk_time: float,
+    wait_between: float,
+    answer_rate: float,
+    cost_per_agent_day: float,
+    revenue_per_call: float,
+) -> dict:
+    """Return revenue and profitability metrics for a given staffing level."""
+    totals = total_calls(agents, hours_per_day, talk_time, wait_between, answer_rate)
+    revenue = totals["successful_calls"] * revenue_per_call
+    cost = agents * cost_per_agent_day
+    profit = revenue - cost
+    roi_value = profit / cost if cost else 0.0
+    return {
+        **totals,
+        "revenue": revenue,
+        "cost": cost,
+        "profit": profit,
+        "roi": roi_value,
+    }
 
 
 def dialer_ratio(
@@ -41,4 +77,5 @@ def dialer_ratio(
     return max(1.0, ratio)
 
 
-__all__ = ["productivity", "agents_for_target", "dialer_ratio"]
+__all__ = ["total_calls", "agents_needed", "roi", "dialer_ratio"]
+

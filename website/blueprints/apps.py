@@ -448,18 +448,84 @@ def erlang_o_view():
     """Erlang O outbound calculator."""
 
     metrics: Dict[str, Any] = {}
+    figure_json = None
 
     if request.method == "POST":
         agents = request.form.get("agents", type=int, default=0) or 0
         hours_per_day = request.form.get("hours_per_day", type=float, default=0.0) or 0.0
-        calls_per_hour = request.form.get("calls_per_hour", type=float, default=0.0) or 0.0
-        success_rate = request.form.get("success_rate", type=float, default=0.3) or 0.3
-        metrics = erlang_o.productivity(agents, hours_per_day, calls_per_hour, success_rate)
+        target_calls = request.form.get("target_calls", type=float, default=0.0) or 0.0
+        answer_rate = request.form.get("answer_rate", type=float, default=0.25) or 0.25
+        talk_time = request.form.get("talk_time", type=float, default=5.0) or 5.0
+        wait_between = request.form.get("wait_between", type=float, default=2.0) or 2.0
+        agent_cost = request.form.get("agent_cost", type=float, default=0.0) or 0.0
+        call_revenue = request.form.get("call_revenue", type=float, default=0.0) or 0.0
+
+        needed = erlang_o.agents_needed(target_calls, hours_per_day, talk_time, wait_between)
+        roi_metrics = erlang_o.roi(
+            agents,
+            hours_per_day,
+            talk_time,
+            wait_between,
+            answer_rate,
+            agent_cost,
+            call_revenue,
+        )
+        metrics = {
+            "Llamadas/Agente Día": round(roi_metrics["calls_per_agent_day"], 2),
+            "Llamadas Exitosas Día": round(roi_metrics["successful_calls"], 2),
+            "Llamadas Marcadas Día": round(roi_metrics["dialed_calls"], 2),
+            "Ingresos": round(roi_metrics["revenue"], 2),
+            "Costos": round(roi_metrics["cost"], 2),
+            "Ganancia": round(roi_metrics["profit"], 2),
+            "ROI": round(roi_metrics["roi"], 2),
+            "Agentes Necesarios": needed,
+        }
+
+        max_agents = max(agents, needed, 1) * 2
+        agent_range = list(range(1, max_agents + 1))
+        success_vals = []
+        profit_vals = []
+        for a in agent_range:
+            totals_a = erlang_o.total_calls(a, hours_per_day, talk_time, wait_between, answer_rate)
+            roi_a = erlang_o.roi(
+                a,
+                hours_per_day,
+                talk_time,
+                wait_between,
+                answer_rate,
+                agent_cost,
+                call_revenue,
+            )
+            success_vals.append(totals_a["successful_calls"])
+            profit_vals.append(roi_a["profit"])
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=agent_range, y=success_vals, name="Éxito"))
+        fig.add_trace(
+            go.Scatter(x=agent_range, y=profit_vals, name="Ganancia", yaxis="y2")
+        )
+        fig.update_layout(
+            xaxis_title="Agentes",
+            yaxis=dict(title="Llamadas exitosas"),
+            yaxis2=dict(title="Ganancia", overlaying="y", side="right"),
+        )
+        fig.add_vline(
+            x=agents, line_dash="dash", annotation_text="Actual", annotation_position="top"
+        )
+        fig.add_vline(
+            x=needed, line_dash="dot", annotation_text="Objetivo", annotation_position="top"
+        )
+
+        figure_json = fig.to_json()
 
         if request.headers.get("HX-Request"):
-            return render_template("partials/erlang_o_results.html", metrics=metrics)
+            return render_template(
+                "partials/erlang_o_results.html",
+                metrics=metrics,
+                figure_json=figure_json,
+            )
 
-    return render_template("apps/erlang_o.html", metrics=metrics)
+    return render_template("apps/erlang_o.html", metrics=metrics, figure_json=figure_json)
 
 
 @apps_bp.route("/comparativo", methods=["GET", "POST"])
