@@ -77,7 +77,8 @@ def test_erlang_authenticated_get():
     assert b'erlang-form' in response.data
 
 
-def test_erlang_post_calculates(monkeypatch):
+
+def test_erlang_metrics_mode(monkeypatch):
     from website.other import erlang_core
 
     def fake_calc(**kwargs):
@@ -98,12 +99,16 @@ def test_erlang_post_calculates(monkeypatch):
     response = client.post(
         '/apps/erlang',
         data={
-            'calls': '100',
+            'forecast': '100',
             'aht': '30',
-            'awl': '20',
             'agents': '10',
-            'interval': '3600',
-            'target_sl': '0.8',
+            'sl_target': '0.8',
+            'awl': '20',
+            'agents_max': '20',
+            'calc_type': 'metrics',
+            'advanced': 'on',
+            'lines': '30',
+            'patience': '60',
             'csrf_token': token,
         },
         follow_redirects=True,
@@ -118,6 +123,98 @@ def test_erlang_post_calculates(monkeypatch):
     assert '20' in html
     assert '50' in html
     assert '5' in html
+
+
+def test_erlang_agents_mode(monkeypatch):
+    from website.other import erlang_core
+
+    def fake_calc(**kwargs):
+        return {
+            "service_level": 0.75,
+            "asa": 22,
+            "occupancy": 0.6,
+            "required_agents": 7,
+        }
+
+    monkeypatch.setattr(
+        erlang_core, "calculate_erlang_metrics", fake_calc, raising=False
+    )
+
+    client = app.test_client()
+    login(client)
+    token = _csrf_token(client, '/apps/erlang')
+    response = client.post(
+        '/apps/erlang',
+        data={
+            'forecast': '200',
+            'aht': '45',
+            'agents': '5',
+            'sl_target': '0.9',
+            'awl': '30',
+            'agents_max': '50',
+            'calc_type': 'agents',
+            'advanced': 'on',
+            'lines': '40',
+            'patience': '100',
+            'csrf_token': token,
+        },
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'Requeridos' in html
+    assert '7' in html
+
+
+def test_erlang_download_endpoints(monkeypatch):
+    from website.other import erlang_core
+
+    def fake_calc(**kwargs):
+        return {
+            "service_level": 0.8,
+            "asa": 20,
+            "occupancy": 0.5,
+            "required_agents": 5,
+        }
+
+    monkeypatch.setattr(
+        erlang_core, "calculate_erlang_metrics", fake_calc, raising=False
+    )
+
+    client = app.test_client()
+    login(client)
+    token = _csrf_token(client, '/apps/erlang')
+    response = client.post(
+        '/apps/erlang',
+        data={
+            'forecast': '150',
+            'aht': '35',
+            'agents': '8',
+            'sl_target': '0.85',
+            'awl': '25',
+            'agents_max': '40',
+            'calc_type': 'metrics',
+            'advanced': 'on',
+            'lines': '35',
+            'patience': '90',
+            'csrf_token': token,
+        },
+        follow_redirects=True,
+    )
+    html = response.get_data(as_text=True)
+    import re
+    csv_match = re.search(r'href="([^"]+/download/[^"]+\.csv)"', html)
+    xlsx_match = re.search(r'href="([^"]+/download/[^"]+\.xlsx)"', html)
+    assert csv_match, 'CSV download link not found'
+    assert xlsx_match, 'XLSX download link not found'
+    csv_url = csv_match.group(1)
+    xlsx_url = xlsx_match.group(1)
+    csv_resp = client.get(csv_url)
+    xlsx_resp = client.get(xlsx_url)
+    assert csv_resp.status_code == 200
+    assert xlsx_resp.status_code == 200
+    assert csv_resp.headers['Content-Disposition'].startswith('attachment')
+    assert xlsx_resp.headers['Content-Disposition'].startswith('attachment')
 
 
 def test_erlang_subroute_authenticated():
