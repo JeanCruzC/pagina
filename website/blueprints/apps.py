@@ -163,9 +163,12 @@ def compute_erlang(payload: Dict[str, Any]) -> Dict[str, Any]:
     if recommended_agents is not None:
         min_agents = int(min(agents, recommended_agents))
         max_agents = int(max(agents, recommended_agents))
+        # Axis should start at zero and have max > min
+        axis_min = 0
+        axis_max = max(axis_min + 1, agents_max if agents_max is not None else max_agents)
         metrics["dimension_bar"] = {
-            "min": min_agents,
-            "max": max_agents,
+            "min": axis_min,
+            "max": axis_max,
             "actual": int(agents),
             "recomendado": int(recommended_agents),
         }
@@ -174,8 +177,8 @@ def compute_erlang(payload: Dict[str, Any]) -> Dict[str, Any]:
         if callable(sla_x) and callable(wait_fn):
             sens = {
                 "agents": [],
-                "service_level": [],
-                "asa_seconds": [],
+                "sl": [],
+                "asa": [],
             }
             for a in range(min_agents, max_agents + 1):
                 try:
@@ -184,8 +187,8 @@ def compute_erlang(payload: Dict[str, Any]) -> Dict[str, Any]:
                 except Exception:  # pragma: no cover
                     break
                 sens["agents"].append(a)
-                sens["service_level"].append(sl_val)
-                sens["asa_seconds"].append(asa_val)
+                sens["sl"].append(round(sl_val * 100, 1))
+                sens["asa"].append(round(asa_val, 1))
             metrics["sensitivity"] = sens
 
     # Download rows for CSV export
@@ -214,9 +217,29 @@ def compute_erlang(payload: Dict[str, Any]) -> Dict[str, Any]:
             )
     metrics["download"] = {"csv_rows": rows, "xlsx_rows": list(rows)}
 
-    # Additional convenience values
+    # Additional convenience values and rounding
+    metrics["agents_current"] = int(agents)
+    if recommended_agents is not None:
+        metrics["agents_recommended"] = int(recommended_agents)
+
     if agents:
-        metrics["liberados_por_agente"] = forecast / agents
+        metrics["liberados_por_agente"] = round(forecast / agents, 1)
+
+    sl_val = metrics.get("service_level")
+    if sl_val is not None:
+        metrics["service_level"] = round(sl_val * 100, 1)
+
+    asa_val = metrics.get("asa")
+    if asa_val is not None:
+        metrics["asa"] = round(asa_val, 1)
+
+    occ_val = metrics.get("occupancy")
+    if occ_val is not None:
+        metrics["occupancy"] = round(occ_val * 100, 1)
+
+    cpa_val = metrics.get("calls_per_agent_req")
+    if cpa_val is not None:
+        metrics["calls_per_agent_req"] = round(cpa_val, 1)
 
     metrics["calc_type"] = calc_type
     metrics["erlang_version"] = erlang_version
@@ -264,10 +287,12 @@ def erlang():
             for err in errors:
                 flash(err)
 
+    if result:
+        current_app.logger.debug(result)
+
     return render_template(
         "apps/erlang.html",
-        metrics=result,
-        agents=_get_int(payload, "agents"),
+        result=result,
         form=payload,
     )
 

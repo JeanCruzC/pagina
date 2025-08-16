@@ -84,3 +84,8 @@ main.container-xxl {
   height: 300px;
   margin: 0.5rem 0;
 }
+
+/* Consistent height for Erlang metric cards */
+.erlang-metric-card {
+  min-height: 110px;
+}
