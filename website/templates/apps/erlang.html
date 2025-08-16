@@ -142,6 +142,44 @@ Requeridos: {{ metrics.required_agents }}
 {% endif %}
 {% endif %}
 
+<div class="accordion mb-4" id="metodologiaAccordion">
+  <div class="accordion-item">
+    <h2 class="accordion-header" id="headingMetodologia">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseMetodologia" aria-expanded="false" aria-controls="collapseMetodologia">
+        Metodología y fórmulas
+      </button>
+    </h2>
+    <div id="collapseMetodologia" class="accordion-collapse collapse" aria-labelledby="headingMetodologia" data-bs-parent="#metodologiaAccordion">
+      <div class="accordion-body">
+        <h3>🧮 Fórmulas Utilizadas</h3>
+        <p><strong>Erlang B (Probabilidad de Bloqueo):</strong></p>
+        <pre><code>B(A,N) = (A^N / N!) / Σ(k=0 to N)[A^k / k!]</code></pre>
+        <p><strong>Erlang C (Probabilidad de Espera):</strong></p>
+        <pre><code>C(A,N) = [A^N / N!] / [Σ(k=0 to N-1)[A^k / k!] + (A^N / N!) * N/(N-A)]</code></pre>
+        <p><strong>Service Level:</strong></p>
+        <pre><code>SL = 1 - C * e^(-(N-A)*t/AHT)</code></pre>
+        <p><strong>ASA (Average Speed of Answer):</strong></p>
+        <pre><code>ASA = C * AHT / (N - A)</code></pre>
+        <h3>📊 Modelos Implementados</h3>
+        <ul>
+          <li><strong>Erlang C</strong>: Modelo básico sin abandonment</li>
+          <li><strong>Erlang X</strong>: Incluye abandonment y retrials</li>
+          <li><strong>Chat Multi-canal</strong>: Agentes manejan múltiples conversaciones</li>
+          <li><strong>Blending</strong>: Combinación inbound/outbound</li>
+          <li><strong>Erlang O</strong>: Campañas outbound puras</li>
+        </ul>
+        <h3>🎯 Interpretación de Métricas</h3>
+        <ul>
+          <li><strong>Service Level</strong>: % de llamadas atendidas dentro del AWT objetivo</li>
+          <li><strong>ASA</strong>: Tiempo promedio de espera en cola</li>
+          <li><strong>Ocupación</strong>: % del tiempo que los agentes están ocupados</li>
+          <li><strong>Abandonment</strong>: % de clientes que cuelgan antes de ser atendidos</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   (function(){
     const sl = document.getElementById('target_sl');
