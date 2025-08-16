@@ -104,6 +104,14 @@
     <h2>{{ (metrics.abandonment * 100)|round(1) }}%</h2>
   </div>
   {% endif %}
+  <div class="metric-card {{ metrics.liberados_por_agente_class }}">
+    <h3>Liberados por agente</h3>
+    <h2>{{ (metrics.liberados_por_agente or 0)|round(1) }}</h2>
+  </div>
+  <div class="metric-card {{ metrics.agents_delta_class }}">
+    <h3>Diferencia (recomendado - actual)</h3>
+    <h2>{{ metrics.agents_delta }}</h2>
+  </div>
 </div>
   <!--
   SL: {{ (metrics.service_level * 100)|round(1) }}%
