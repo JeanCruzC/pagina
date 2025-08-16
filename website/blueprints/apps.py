@@ -28,6 +28,7 @@ from flask import (
     flash,
     current_app,
 )
+from itsdangerous import BadSignature, URLSafeSerializer
 
 from ..other import (
     timeseries_core,
@@ -262,6 +263,60 @@ def erlang():
                 flash(err)
 
     return render_template("apps/erlang.html", result=result, form=payload)
+
+
+@apps_bp.route("/erlang/download")
+def erlang_download():
+    """Return Erlang computation results in the requested format."""
+
+    fmt = request.args.get("fmt", "csv").lower()
+    token = request.args.get("token")
+    if token:
+        serializer = URLSafeSerializer(
+            current_app.secret_key or "", salt="erlang"
+        )
+        try:
+            params = serializer.loads(token)
+        except BadSignature:
+            abort(400)
+    else:
+        params = {
+            "calls": request.args.get("calls", type=float, default=0.0),
+            "aht": request.args.get("aht", type=float, default=0.0),
+            "awt": request.args.get("awl", type=float, default=0.0),
+            "agents": request.args.get("agents", type=int, default=0),
+            "sl_target": request.args.get("target_sl", type=float, default=0.8),
+            "lines": request.args.get("lines", type=int),
+            "patience": request.args.get("patience", type=float),
+            "interval_seconds": request.args.get(
+                "interval", type=int, default=3600
+            ),
+        }
+        params = {k: v for k, v in params.items() if v is not None}
+
+    df = erlang_core.compute_erlang(**params)
+    if not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(df)
+
+    output = BytesIO()
+    if fmt == "csv":
+        df.to_csv(output, index=False)
+        mimetype = "text/csv"
+        filename = "erlang.csv"
+    elif fmt == "xlsx":
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False)
+        mimetype = (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        filename = "erlang.xlsx"
+    else:
+        abort(400)
+
+    output.seek(0)
+    return send_file(
+        output, as_attachment=True, download_name=filename, mimetype=mimetype
+    )
 
 
 @apps_bp.route("/erlang/demo")
