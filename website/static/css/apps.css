@@ -63,3 +63,24 @@ main.container-xxl {
   font-size: 0.8rem;
   line-height: 1.2;
 }
+
+/* Erlang charts layout */
+.erlang-charts {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .erlang-charts {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.erlang-charts .card {
+  height: 100%;
+}
+
+.erlang-chart {
+  height: 300px;
+  margin: 0.5rem 0;
+}
