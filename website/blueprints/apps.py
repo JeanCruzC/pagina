@@ -62,25 +62,30 @@ def index():
 
 @apps_bp.route("/erlang", methods=["GET", "POST"])
 def erlang():
-    """Render a minimal Erlang calculator."""
+    """Render the Erlang calculator with charts and downloads."""
 
-    metrics = {}
-    figure_json = None
+    result: Dict[str, Any] | None = None
     target_sl = 0.8
     agents = None
 
     if request.method == "POST":
-        calls = request.form.get("calls", type=float, default=0) or 0.0
+        forecast = request.form.get("forecast", type=float, default=0) or 0.0
         aht = request.form.get("aht", type=float, default=0) or 0.0
         awl = request.form.get("awl", type=float, default=0) or 0.0
         agents = request.form.get("agents", type=int, default=0) or 0
-        interval = request.form.get("interval", type=int, default=3600) or 3600
-        lines = request.form.get("lines", type=int)
-        patience = request.form.get("patience", type=float)
-        target_sl = request.form.get("target_sl", type=float, default=0.8) or 0.8
+        agents_max = request.form.get("agents_max", type=int)
+        calc_type = request.form.get("calc_type", default="metrics")
+        sl_target = request.form.get("sl_target", type=float, default=0.8) or 0.8
+        interval_minutes = request.form.get("interval_minutes", type=int, default=60) or 60
+        erlang_mode = request.form.get("erlang_mode", default="erlang_c")
+        patience = (
+            request.form.get("patience", type=float)
+            if erlang_mode == "erlang_x"
+            else None
+        )
 
         errors = []
-        if calls < 0:
+        if forecast < 0:
             errors.append("Forecast must be non-negative.")
         if aht < 0:
             errors.append("AHT must be non-negative.")
@@ -88,13 +93,11 @@ def erlang():
             errors.append("AWT must be non-negative.")
         if agents < 0:
             errors.append("Agents must be non-negative.")
-        if interval <= 0:
+        if interval_minutes <= 0:
             errors.append("Interval must be greater than zero.")
-        if lines is not None and lines < 0:
-            errors.append("Lines must be non-negative.")
         if patience is not None and patience < 0:
             errors.append("Patience must be non-negative.")
-        if not 0 <= target_sl <= 1:
+        if not 0 <= sl_target <= 1:
             errors.append("Target SL must be between 0 and 1.")
 
         if errors:
@@ -102,40 +105,60 @@ def erlang():
                 flash(err)
             return render_template(
                 "apps/erlang.html",
-                metrics=metrics,
-                figure_json=figure_json,
-                target_sl=target_sl,
+                result=result,
+                target_sl=sl_target,
                 agents=agents,
             )
 
+        interval_seconds = interval_minutes * 60
+
         try:
-            result = erlang_core.calculate_erlang_metrics(
-                calls=calls,
+            metrics = erlang_core.calculate_erlang_metrics(
+                calls=forecast,
                 aht=aht,
                 awt=awl,
                 agents=agents,
-                sl_target=target_sl,
-                lines=lines,
+                sl_target=sl_target,
+                lines=None,
                 patience=patience,
-                interval_seconds=interval,
+                interval_seconds=interval_seconds,
             )
         except Exception:  # pragma: no cover - safety net
             current_app.logger.exception("Erlang calculation failed")
             flash("Ocurrió un error al calcular las métricas de Erlang.")
-            result = None
+            metrics = None
 
-        if isinstance(result, dict):
-            fig = result.pop("figure", None)
-            metrics = result
-            if isinstance(fig, go.Figure):
-                figure_json = fig.to_json()
-            elif fig is not None:
-                figure_json = json.dumps(fig)
+        if isinstance(metrics, dict):
+            fig = metrics.pop("figure", None)
+            fig_dict = fig.to_dict() if isinstance(fig, go.Figure) else fig
+            sensitivity = {}
+            if isinstance(fig_dict, dict) and fig_dict.get("data"):
+                try:
+                    agent_range = fig_dict["data"][0]["x"]
+                    sl_vals = fig_dict["data"][0]["y"]
+                    asa_vals = fig_dict["data"][1]["y"]
+                    sensitivity = {
+                        "agents": agent_range,
+                        "sl": sl_vals,
+                        "asa": asa_vals,
+                    }
+                except (IndexError, KeyError, TypeError):  # pragma: no cover
+                    sensitivity = {}
+
+            result = {
+                "metrics": metrics,
+                "agents": agents,
+                "recommended": metrics.get("required_agents", 0),
+                "difference": metrics.get("required_agents", 0) - agents,
+                "calls_per_agent_req": metrics.get("calls_per_agent_req", 0.0),
+                "sensitivity": sensitivity,
+                "calc_type": calc_type,
+                "agents_max": agents_max,
+            }
 
     return render_template(
         "apps/erlang.html",
-        metrics=metrics,
-        figure_json=figure_json,
+        result=result,
         target_sl=target_sl,
         agents=agents,
     )

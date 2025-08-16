@@ -18,48 +18,57 @@
     <form id="erlang-form" class="row g-3" method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="col-md-3">
-        <label for="calls" class="form-label">Forecast (llamadas por intervalo)</label>
-        <input type="number" class="form-control" id="calls" name="calls" value="{{ request.form.calls or 100 }}" required>
+        <label class="form-label">Forecast</label>
+        <input type="number" step="any" class="form-control" name="forecast" value="{{ request.form.forecast or 100 }}" required>
       </div>
       <div class="col-md-3">
-        <label for="aht" class="form-label">AHT (segundos)</label>
-        <input type="number" class="form-control" id="aht" name="aht" value="{{ request.form.aht or 240 }}" required>
+        <label class="form-label">AHT (segundos)</label>
+        <input type="number" step="any" class="form-control" name="aht" value="{{ request.form.aht or 240 }}" required>
       </div>
       <div class="col-md-3">
-        <label for="agents" class="form-label">Agentes</label>
-        <input type="number" class="form-control" id="agents" name="agents" value="{{ request.form.agents or 25 }}" required>
+        <label class="form-label">Agentes</label>
+        <input type="number" class="form-control" name="agents" value="{{ request.form.agents or 25 }}" required>
       </div>
       <div class="col-md-3">
-        <label for="awl" class="form-label">AWT (segundos)</label>
-        <input type="number" class="form-control" id="awl" name="awl" value="{{ request.form.awl or 20 }}" required>
+        <label class="form-label">SL Objetivo</label>
+        <input type="number" step="any" class="form-control" name="sl_target" value="{{ request.form.sl_target or target_sl or 0.8 }}">
       </div>
       <div class="col-md-3">
-        <label for="interval" class="form-label">Intervalo</label>
-        <select id="interval" name="interval" class="form-select">
-          <option value="1800" {% if request.form.interval == '1800' %}selected{% endif %}>30 minutos</option>
-          <option value="3600" {% if request.form.interval != '1800' %}selected{% endif %}>1 hora</option>
+        <label class="form-label">AWT (segundos)</label>
+        <input type="number" step="any" class="form-control" name="awl" value="{{ request.form.awl or 20 }}" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Agentes Máx</label>
+        <input type="number" class="form-control" name="agents_max" value="{{ request.form.agents_max or '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Tipo de cálculo</label>
+        <select name="calc_type" class="form-select">
+          <option value="metrics" {% if request.form.calc_type != 'required_agents' %}selected{% endif %}>Métricas</option>
+          <option value="required_agents" {% if request.form.calc_type == 'required_agents' %}selected{% endif %}>Agentes requeridos</option>
         </select>
       </div>
       <div class="col-12">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" id="advanced-toggle" name="advanced" {% if request.form.advanced %}checked{% endif %}>
-          <label class="form-check-label" for="advanced-toggle">Parámetros avanzados</label>
+        <a class="btn btn-link" data-bs-toggle="collapse" href="#erlang-advanced" role="button">Parámetros avanzados</a>
+        <div class="collapse" id="erlang-advanced">
+          <div class="row g-3 mt-0">
+            <div class="col-md-3">
+              <label class="form-label">Intervalo (min)</label>
+              <input type="number" step="any" class="form-control" name="interval_minutes" value="{{ request.form.interval_minutes or 60 }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Modo</label>
+              <select name="erlang_mode" id="erlang-mode" class="form-select">
+                <option value="erlang_c" {% if request.form.erlang_mode != 'erlang_x' %}selected{% endif %}>Erlang C</option>
+                <option value="erlang_x" {% if request.form.erlang_mode == 'erlang_x' %}selected{% endif %}>Erlang X</option>
+              </select>
+            </div>
+            <div class="col-md-3" id="patience-field">
+              <label class="form-label">Patience (seg)</label>
+              <input type="number" step="any" class="form-control" name="patience" value="{{ request.form.patience or '' }}">
+            </div>
+          </div>
         </div>
-      </div>
-      <div id="advanced-params" class="row g-3 {% if not request.form.advanced %}d-none{% endif %}">
-        <div class="col-md-3">
-          <label for="lines" class="form-label">Líneas disponibles</label>
-          <input type="number" class="form-control" id="lines" name="lines" value="{{ request.form.lines or 30 }}">
-        </div>
-        <div class="col-md-3">
-          <label for="patience" class="form-label">Patience (segundos)</label>
-          <input type="number" class="form-control" id="patience" name="patience" value="{{ request.form.patience or 120 }}">
-        </div>
-      </div>
-      <div class="col-md-6">
-        <label for="target_sl" class="form-label">Service Level Objetivo</label>
-        <input type="range" class="form-range" min="0.70" max="0.95" step="0.01" id="target_sl" name="target_sl" value="{{ target_sl or 0.8 }}">
-        <div class="text-center"><span id="sl-display"></span>%</div>
       </div>
       <div class="col-12">
         <button class="btn btn-primary" type="submit">Calcular</button>
@@ -68,98 +77,59 @@
   </div>
 </div>
 
-{% if metrics %}
+{% if result %}
 <div class="metrics-grid mb-4">
-  <div class="metric-card {{ metrics.sl_class }}">
-    <h3>Service Level</h3>
-    <h2>{{ (metrics.service_level * 100)|round(1) }}%</h2>
+  <div class="metric-card {{ result.metrics.sl_class }}">
+    <h3>SL</h3>
+    <h2>{{ (result.metrics.service_level * 100)|round(1) }}%</h2>
   </div>
-  <div class="metric-card {{ metrics.asa_class }}">
+  <div class="metric-card {{ result.metrics.asa_class }}">
     <h3>ASA</h3>
-    <h2>{{ metrics.asa|round(2) }} seg</h2>
+    <h2>{{ result.metrics.asa|round(2) }} seg</h2>
   </div>
-  <div class="metric-card {{ metrics.occ_class }}">
+  <div class="metric-card {{ result.metrics.occ_class }}">
     <h3>Ocupación</h3>
-    <h2>{{ (metrics.occupancy * 100)|round(1) }}%</h2>
+    <h2>{{ (result.metrics.occupancy * 100)|round(1) }}%</h2>
   </div>
-  {% if metrics.abandonment is defined %}
-  <div class="metric-card {{ metrics.abandon_class }}">
-    <h3>Abandono</h3>
-    <h2>{{ (metrics.abandonment * 100)|round(1) }}%</h2>
+  <div class="metric-card">
+    <h3>Liberados por agente</h3>
+    <h2>{{ (result.calls_per_agent_req or 0)|round(1) }}</h2>
   </div>
-  {% endif %}
+  <div class="metric-card">
+    <h3>Diferencia</h3>
+    <h2>{{ result.difference }}</h2>
+  </div>
 </div>
-<!--
-SL: {{ (metrics.service_level * 100)|round(1) }}%
-ASA: {{ metrics.asa|round(2) }}
-Ocupación: {{ (metrics.occupancy * 100)|round(1) }}%
-Requeridos: {{ metrics.required_agents }}
--->
 
 <div class="card mb-4">
   <div class="card-body">
-    <h3 class="mb-3">Análisis de Dimensionamiento</h3>
-    <div class="table-responsive">
-      <table class="table table-sm">
-        <thead>
-          <tr>
-            <th>Agentes Recomendados</th>
-            <th>Agentes Actuales</th>
-            <th>Diferencia</th>
-            <th>Llamadas/Agente Requerido</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>{{ metrics.required_agents }}</td>
-            <td>{{ agents }}</td>
-            <td>{{ metrics.required_agents - agents }}</td>
-            <td>{{ (metrics.calls_per_agent_req or 0)|round(1) }}</td>
-          </tr>
-        </tbody>
-      </table>
+    <h3 class="mb-3">Dimensionamiento</h3>
+    <div id="dimension-bar" class="mb-4" data-agents="{{ result.agents }}" data-recommended="{{ result.recommended }}"></div>
+    <canvas id="sensitivity-chart"></canvas>
+    <div class="mt-3">
+      <button class="btn btn-secondary me-2" id="download-csv" type="button">Descargar CSV</button>
+      <button class="btn btn-secondary" id="download-excel" type="button">Descargar Excel</button>
+    </div>
+    <div class="accordion mt-3" id="erlang-methodology">
+      <div class="accordion-item">
+        <h2 class="accordion-header" id="heading-method">
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#methodology-content">
+            Metodología y fórmulas
+          </button>
+        </h2>
+        <div id="methodology-content" class="accordion-collapse collapse" data-bs-parent="#erlang-methodology">
+          <div class="accordion-body">
+            <p>Las métricas se calculan utilizando fórmulas estándar de Erlang.</p>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
-
-{% if figure_json %}
-<div class="card mb-4">
-  <div class="card-body">
-    <h3 class="mb-3">Sensibilidad</h3>
-    <div id="erlang-figure" data-figure='{{ figure_json | tojson | safe }}'></div>
-  </div>
-</div>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-<script>
-  (function(){
-    const el = document.getElementById('erlang-figure');
-    if (el) {
-      const fig = JSON.parse(el.dataset.figure);
-      Plotly.react(el, fig.data, fig.layout);
-    }
-  })();
-</script>
-{% endif %}
+<script id="erlang-data" type="application/json">{{ result | tojson | safe }}</script>
 {% endif %}
 
-<script>
-  (function(){
-    const sl = document.getElementById('target_sl');
-    const display = document.getElementById('sl-display');
-    if(sl && display){
-      const update = ()=>{display.textContent = Math.round(parseFloat(sl.value)*100)};
-      update();
-      sl.addEventListener('input', update);
-    }
-    const advToggle = document.getElementById('advanced-toggle');
-    const advParams = document.getElementById('advanced-params');
-    if(advToggle && advParams){
-      const toggle = ()=>{advParams.classList.toggle('d-none', !advToggle.checked);};
-      toggle();
-      advToggle.addEventListener('change', toggle);
-    }
-  })();
-</script>
-
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0"></script>
+<script src="{{ url_for('static', filename='js/apps/erlang.js') }}"></script>
 {% endblock %}
-
