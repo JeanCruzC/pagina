@@ -13,7 +13,6 @@
   <a class="nav-link {{ 'active' if request.endpoint in ['apps.batch', 'apps.batch_download'] else '' }}" href="{{ url_for('apps.batch') }}">Batch</a>
 </nav>
 
-{% set metrics = result %}
 {% set agents = (form.agents or 0)|int %}
 {% set figure_json = metrics.sensitivity %}
 
