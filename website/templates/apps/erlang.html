@@ -13,53 +13,70 @@
   <a class="nav-link {{ 'active' if request.endpoint in ['apps.batch', 'apps.batch_download'] else '' }}" href="{{ url_for('apps.batch') }}">Batch</a>
 </nav>
 
+{% set metrics = result %}
+{% set agents = (form.agents or 0)|int %}
+{% set figure_json = metrics.sensitivity %}
+
 <div class="card mb-4">
   <div class="card-body">
     <form id="erlang-form" class="row g-3" method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="col-md-3">
-        <label for="calls" class="form-label">Forecast (llamadas por intervalo)</label>
-        <input type="number" class="form-control" id="calls" name="calls" value="{{ request.form.calls or 100 }}" required>
+      <div class="col-md-4">
+        <label for="forecast" class="form-label">Forecast (llamadas por intervalo)</label>
+        <input type="number" class="form-control" id="forecast" name="forecast" value="{{ form.forecast or 100 }}" required>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-4">
         <label for="aht" class="form-label">AHT (segundos)</label>
-        <input type="number" class="form-control" id="aht" name="aht" value="{{ request.form.aht or 240 }}" required>
+        <input type="number" class="form-control" id="aht" name="aht" value="{{ form.aht or 240 }}" required>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-4">
         <label for="agents" class="form-label">Agentes</label>
-        <input type="number" class="form-control" id="agents" name="agents" value="{{ request.form.agents or 25 }}" required>
+        <input type="number" class="form-control" id="agents" name="agents" value="{{ form.agents or 25 }}" required>
       </div>
-      <div class="col-md-3">
+      <div class="col-md-4">
         <label for="awl" class="form-label">AWT (segundos)</label>
-        <input type="number" class="form-control" id="awl" name="awl" value="{{ request.form.awl or 20 }}" required>
+        <input type="number" class="form-control" id="awl" name="awl" value="{{ form.awl or 20 }}" required>
       </div>
-      <div class="col-md-3">
-        <label for="interval" class="form-label">Intervalo</label>
-        <select id="interval" name="interval" class="form-select">
-          <option value="1800" {% if request.form.interval == '1800' %}selected{% endif %}>30 minutos</option>
-          <option value="3600" {% if request.form.interval != '1800' %}selected{% endif %}>1 hora</option>
+      <div class="col-md-4">
+        <label for="agents_max" class="form-label">Agentes máximos</label>
+        <input type="number" class="form-control" id="agents_max" name="agents_max" value="{{ form.agents_max or form.agents or 25 }}">
+      </div>
+      <div class="col-md-4">
+        <label for="calc_type" class="form-label">Tipo de cálculo</label>
+        <select id="calc_type" name="calc_type" class="form-select">
+          <option value="metrics" {% if form.calc_type != 'agents' %}selected{% endif %}>Métricas</option>
+          <option value="agents" {% if form.calc_type == 'agents' %}selected{% endif %}>Agentes</option>
         </select>
       </div>
-      <div class="col-12">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" id="advanced-toggle" name="advanced" {% if request.form.advanced %}checked{% endif %}>
-          <label class="form-check-label" for="advanced-toggle">Parámetros avanzados</label>
-        </div>
-      </div>
-      <div id="advanced-params" class="row g-3 {% if not request.form.advanced %}d-none{% endif %}">
-        <div class="col-md-3">
-          <label for="lines" class="form-label">Líneas disponibles</label>
-          <input type="number" class="form-control" id="lines" name="lines" value="{{ request.form.lines or 30 }}">
-        </div>
-        <div class="col-md-3">
-          <label for="patience" class="form-label">Patience (segundos)</label>
-          <input type="number" class="form-control" id="patience" name="patience" value="{{ request.form.patience or 120 }}">
-        </div>
-      </div>
-      <div class="col-md-6">
-        <label for="target_sl" class="form-label">Service Level Objetivo</label>
-        <input type="range" class="form-range" min="0.70" max="0.95" step="0.01" id="target_sl" name="target_sl" value="{{ target_sl or 0.8 }}">
+      <div class="col-md-12">
+        <label for="sl_target" class="form-label">Service Level Objetivo</label>
+        <input type="range" class="form-range" min="0.70" max="0.95" step="0.01" id="sl_target" name="sl_target" value="{{ form.sl_target or 0.8 }}">
         <div class="text-center"><span id="sl-display"></span>%</div>
+      </div>
+      <div class="col-12">
+        <a class="btn btn-link" data-bs-toggle="collapse" href="#erlang-advanced" role="button">Parámetros avanzados</a>
+        <div class="collapse" id="erlang-advanced">
+          <div class="row g-3 mt-0">
+            <div class="col-md-4">
+              <label for="interval_minutes" class="form-label">Intervalo (min)</label>
+              <select id="interval_minutes" name="interval_minutes" class="form-select">
+                <option value="30" {% if form.interval_minutes == '30' %}selected{% endif %}>30 minutos</option>
+                <option value="60" {% if form.interval_minutes != '30' %}selected{% endif %}>60 minutos</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label for="erlang_version" class="form-label">Versión</label>
+              <select id="erlang_version" name="erlang_version" class="form-select">
+                <option value="c" {% if form.erlang_version != 'x' %}selected{% endif %}>Erlang C</option>
+                <option value="x" {% if form.erlang_version == 'x' %}selected{% endif %}>Erlang X</option>
+              </select>
+            </div>
+            <div class="col-md-4 {% if form.erlang_version != 'x' %}d-none{% endif %}" id="patience-container">
+              <label for="patience" class="form-label">Patience (seg)</label>
+              <input type="number" class="form-control" id="patience" name="patience" value="{{ form.patience }}">
+            </div>
+          </div>
+        </div>
       </div>
       <div class="col-12">
         <button class="btn btn-primary" type="submit">Calcular</button>
@@ -182,19 +199,19 @@ Requeridos: {{ metrics.required_agents }}
 
 <script>
   (function(){
-    const sl = document.getElementById('target_sl');
+    const sl = document.getElementById('sl_target');
     const display = document.getElementById('sl-display');
     if(sl && display){
       const update = ()=>{display.textContent = Math.round(parseFloat(sl.value)*100)};
       update();
       sl.addEventListener('input', update);
     }
-    const advToggle = document.getElementById('advanced-toggle');
-    const advParams = document.getElementById('advanced-params');
-    if(advToggle && advParams){
-      const toggle = ()=>{advParams.classList.toggle('d-none', !advToggle.checked);};
-      toggle();
-      advToggle.addEventListener('change', toggle);
+    const version = document.getElementById('erlang_version');
+    const patience = document.getElementById('patience-container');
+    if(version && patience){
+      const togglePatience = ()=>{patience.classList.toggle('d-none', version.value !== 'x');};
+      togglePatience();
+      version.addEventListener('change', togglePatience);
     }
   })();
 </script>
