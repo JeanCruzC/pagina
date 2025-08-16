@@ -7,6 +7,22 @@ import importlib
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.modules.setdefault(
+    'plotly',
+    types.SimpleNamespace(graph_objects=types.SimpleNamespace(), express=types.SimpleNamespace()),
+)
+sys.modules.setdefault('plotly.graph_objects', types.SimpleNamespace())
+sys.modules.setdefault('plotly.express', types.SimpleNamespace())
+_metrics_stub = types.SimpleNamespace(mean_absolute_error=lambda *a, **k: 0, mean_squared_error=lambda *a, **k: 0)
+sys.modules.setdefault('sklearn', types.SimpleNamespace(metrics=_metrics_stub))
+sys.modules.setdefault('sklearn.metrics', _metrics_stub)
+sys.modules.setdefault('seaborn', types.SimpleNamespace(set_theme=lambda *a, **k: None))
+sys.modules.setdefault('scipy', types.SimpleNamespace(optimize=types.SimpleNamespace()))
+sys.modules.setdefault('scipy.optimize', types.SimpleNamespace())
+_hw_stub = types.SimpleNamespace(ExponentialSmoothing=object)
+sys.modules.setdefault('statsmodels', types.SimpleNamespace(tsa=types.SimpleNamespace(holtwinters=_hw_stub)))
+sys.modules.setdefault('statsmodels.tsa', types.SimpleNamespace(holtwinters=_hw_stub))
+sys.modules.setdefault('statsmodels.tsa.holtwinters', _hw_stub)
 sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
 sys.modules.pop('website.utils.kpis_core', None)
 import website.blueprints.core as core_blueprint

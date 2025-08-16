@@ -2,9 +2,21 @@ import importlib.util
 import os
 import sys
 import numpy as np
+import types
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(ROOT)
+sys.modules.setdefault('plotly', types.SimpleNamespace(graph_objects=types.SimpleNamespace(), express=types.SimpleNamespace()))
+sys.modules.setdefault('plotly.graph_objects', types.SimpleNamespace())
+sys.modules.setdefault('plotly.express', types.SimpleNamespace())
+sys.modules.setdefault('seaborn', types.SimpleNamespace(set_theme=lambda *a, **k: None))
+sys.modules.setdefault('scipy', types.SimpleNamespace(optimize=types.SimpleNamespace()))
+sys.modules.setdefault('scipy.optimize', types.SimpleNamespace())
+_hw_stub = types.SimpleNamespace(ExponentialSmoothing=object)
+sys.modules.setdefault('statsmodels', types.SimpleNamespace(tsa=types.SimpleNamespace(holtwinters=_hw_stub)))
+sys.modules.setdefault('statsmodels.tsa', types.SimpleNamespace(holtwinters=_hw_stub))
+sys.modules.setdefault('statsmodels.tsa.holtwinters', _hw_stub)
+sys.modules.setdefault('website.other.kpis_core', types.SimpleNamespace(analyze_results=lambda *a, **k: None))
 spec = importlib.util.spec_from_file_location(
     "scheduler_mod", os.path.join(ROOT, "website", "scheduler.py")
 )
