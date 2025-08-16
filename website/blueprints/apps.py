@@ -271,33 +271,28 @@ def erlang_download():
 
     fmt = request.args.get("fmt", "csv").lower()
     token = request.args.get("token")
+
     if token:
         serializer = URLSafeSerializer(
             current_app.secret_key or "", salt="erlang"
         )
         try:
-            params = serializer.loads(token)
+            payload = serializer.loads(token)
         except BadSignature:
             abort(400)
     else:
-        params = {
-            "calls": request.args.get("calls", type=float, default=0.0),
-            "aht": request.args.get("aht", type=float, default=0.0),
-            "awt": request.args.get("awl", type=float, default=0.0),
-            "agents": request.args.get("agents", type=int, default=0),
-            "sl_target": request.args.get("target_sl", type=float, default=0.8),
-            "lines": request.args.get("lines", type=int),
-            "patience": request.args.get("patience", type=float),
-            "interval_seconds": request.args.get(
-                "interval", type=int, default=3600
-            ),
+        payload = {
+            k: v
+            for k, v in request.args.items()
+            if k not in {"fmt", "token"}
         }
-        params = {k: v for k, v in params.items() if v is not None}
 
-    df = erlang_core.compute_erlang(**params)
-    if not isinstance(df, pd.DataFrame):
-        df = pd.DataFrame(df)
+    result = compute_erlang(payload)
+    rows = result.get("download") if isinstance(result, dict) else None
+    if not rows:
+        abort(400)
 
+    df = pd.DataFrame(rows)
     output = BytesIO()
     if fmt == "csv":
         df.to_csv(output, index=False)
