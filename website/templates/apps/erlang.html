@@ -106,58 +106,55 @@
   </div>
   {% endif %}
 </div>
-<!--
-SL: {{ (metrics.service_level * 100)|round(1) }}%
-ASA: {{ metrics.asa|round(2) }}
-Ocupación: {{ (metrics.occupancy * 100)|round(1) }}%
-Requeridos: {{ metrics.required_agents }}
--->
-
-<div class="card mb-4">
-  <div class="card-body">
-    <h3 class="mb-3">Análisis de Dimensionamiento</h3>
-    <div class="table-responsive">
-      <table class="table table-sm">
-        <thead>
-          <tr>
-            <th>Agentes Recomendados</th>
-            <th>Agentes Actuales</th>
-            <th>Diferencia</th>
-            <th>Llamadas/Agente Requerido</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>{{ metrics.required_agents }}</td>
-            <td>{{ agents }}</td>
-            <td>{{ metrics.required_agents - agents }}</td>
-            <td>{{ (metrics.calls_per_agent_req or 0)|round(1) }}</td>
-          </tr>
-        </tbody>
-      </table>
+  <!--
+  SL: {{ (metrics.service_level * 100)|round(1) }}%
+  ASA: {{ metrics.asa|round(2) }}
+  Ocupación: {{ (metrics.occupancy * 100)|round(1) }}%
+  Requeridos: {{ metrics.required_agents }}
+  -->
+  {% if metrics.dimension_bar or metrics.sensitivity %}
+  <div class="erlang-charts mb-4">
+    {% if metrics.dimension_bar %}
+    <div class="card h-100">
+      <div class="card-body">
+        <h3 class="mb-3">Análisis de Dimensionamiento</h3>
+        <div id="erlang-dimension-bar" class="erlang-chart mb-3" data-bar='{{ metrics.dimension_bar | tojson | safe }}'></div>
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Agentes Recomendados</th>
+                <th>Agentes Actuales</th>
+                <th>Diferencia</th>
+                <th>Llamadas/Agente Requerido</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>{{ metrics.required_agents }}</td>
+                <td>{{ agents }}</td>
+                <td>{{ metrics.required_agents - agents }}</td>
+                <td>{{ (metrics.calls_per_agent_req or 0)|round(1) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
+    {% endif %}
+    {% if metrics.sensitivity %}
+    <div class="card h-100">
+      <div class="card-body">
+        <h3 class="mb-3">Sensibilidad</h3>
+        <div id="erlang-sensitivity" class="erlang-chart" data-figure='{{ metrics.sensitivity | tojson | safe }}'></div>
+      </div>
+    </div>
+    {% endif %}
   </div>
-</div>
-
-{% if figure_json %}
-<div class="card mb-4">
-  <div class="card-body">
-    <h3 class="mb-3">Sensibilidad</h3>
-    <div id="erlang-figure" data-figure='{{ figure_json | tojson | safe }}'></div>
-  </div>
-</div>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-<script>
-  (function(){
-    const el = document.getElementById('erlang-figure');
-    if (el) {
-      const fig = JSON.parse(el.dataset.figure);
-      Plotly.react(el, fig.data, fig.layout);
-    }
-  })();
-</script>
-{% endif %}
-{% endif %}
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <script src="{{ url_for('static', filename='js/apps/erlang.js') }}"></script>
+  {% endif %}
+  {% endif %}
 
 <div class="accordion mb-4" id="metodologiaAccordion">
   <div class="accordion-item">
