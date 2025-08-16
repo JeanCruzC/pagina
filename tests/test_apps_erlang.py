@@ -263,3 +263,27 @@ def test_erlang_subroute_authenticated():
     login(client)
     response = client.get('/apps/erlang/visual')
     assert response.status_code == 200
+
+
+def test_compute_erlang_json_serializable(monkeypatch):
+    from website.blueprints.apps import compute_erlang
+    from website.other import erlang_core
+    import json
+
+    class DummyFigure:
+        pass
+
+    def fake_calc_metrics(**kwargs):
+        return {
+            "service_level": 0.8,
+            "asa": 20.0,
+            "required_agents": 3,
+            "figure": DummyFigure(),
+        }
+
+    monkeypatch.setattr(erlang_core, "calculate_erlang_metrics", fake_calc_metrics, raising=False)
+
+    payload = {"forecast": "10", "aht": "10", "agents": "2"}
+    result = compute_erlang(payload)
+    assert "figure" not in result
+    json.dumps(result)

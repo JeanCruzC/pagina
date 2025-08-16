@@ -73,6 +73,19 @@ def _get_int(payload: Dict[str, Any], key: str, default: int | None = None) -> i
         return default
 
 
+def _json_safe(value: Any) -> Any:
+    """Recursively coerce ``value`` into basic JSON types."""
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (set, tuple)):
+        return [_json_safe(v) for v in value]
+    return str(value)
+
+
 def compute_erlang(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Validate form fields and run Erlang calculations.
 
@@ -138,6 +151,7 @@ def compute_erlang(payload: Dict[str, Any]) -> Dict[str, Any]:
                 patience=patience,
                 interval_seconds=interval_seconds,
             ) or {}
+            metrics.pop("figure", None)  # drop plotly figure
         except Exception:  # pragma: no cover - safety net
             metrics = {}
 
@@ -254,7 +268,7 @@ def compute_erlang(payload: Dict[str, Any]) -> Dict[str, Any]:
         "patience": patience,
     }
 
-    return metrics
+    return _json_safe(metrics)
 
 
 @apps_bp.before_request
