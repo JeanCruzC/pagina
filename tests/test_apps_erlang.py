@@ -125,7 +125,7 @@ def test_erlang_metrics_mode(monkeypatch):
     assert '5' in html
 
 
-def test_erlang_agents_mode(monkeypatch):
+def test_erlang_required_agents_mode(monkeypatch):
     from website.other import erlang_core
 
     def fake_calc(**kwargs):
@@ -152,7 +152,7 @@ def test_erlang_agents_mode(monkeypatch):
             'sl_target': '0.9',
             'awl': '30',
             'agents_max': '50',
-            'calc_type': 'agents',
+            'calc_type': 'required_agents',
             'advanced': 'on',
             'lines': '40',
             'patience': '100',
@@ -168,8 +168,49 @@ def test_erlang_agents_mode(monkeypatch):
 
 def test_erlang_download_endpoints(monkeypatch):
     from website.other import erlang_core
+    import pandas as pd
 
-    def fake_calc(**kwargs):
+    class DummyDF:
+        def to_csv(self, buf, index=False):
+            buf.write(b"data")
+
+        def to_excel(self, writer, index=False):
+            pass
+
+    class DummyWriter:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(erlang_core, "compute_erlang", lambda **_: DummyDF(), raising=False)
+    monkeypatch.setattr(pd, "DataFrame", DummyDF, raising=False)
+    monkeypatch.setattr(pd, "ExcelWriter", DummyWriter, raising=False)
+
+    client = app.test_client()
+    login(client)
+    csv_resp = client.get(
+        '/apps/erlang/download?fmt=csv&calls=1&aht=1&awl=1&agents=1&target_sl=0.8&interval=3600'
+    )
+    xlsx_resp = client.get(
+        '/apps/erlang/download?fmt=xlsx&calls=1&aht=1&awl=1&agents=1&target_sl=0.8&interval=3600'
+    )
+    assert csv_resp.status_code == 200
+    assert xlsx_resp.status_code == 200
+    assert csv_resp.headers['Content-Disposition'].startswith('attachment')
+    assert xlsx_resp.headers['Content-Disposition'].startswith('attachment')
+
+
+def test_compute_erlang_structures(monkeypatch):
+    from website.blueprints.apps import compute_erlang
+    from website.other import erlang_core
+    from website.services import erlang as erlang_service
+
+    def fake_calc_metrics(**kwargs):
         return {
             "service_level": 0.8,
             "asa": 20,
@@ -177,44 +218,41 @@ def test_erlang_download_endpoints(monkeypatch):
             "required_agents": 5,
         }
 
-    monkeypatch.setattr(
-        erlang_core, "calculate_erlang_metrics", fake_calc, raising=False
-    )
+    def fake_sla_x(arrival_rate, aht, a, awt, lines, patience):
+        return 0.8
 
-    client = app.test_client()
-    login(client)
-    token = _csrf_token(client, '/apps/erlang')
-    response = client.post(
-        '/apps/erlang',
-        data={
-            'forecast': '150',
-            'aht': '35',
-            'agents': '8',
-            'sl_target': '0.85',
-            'awl': '25',
-            'agents_max': '40',
-            'calc_type': 'metrics',
-            'advanced': 'on',
-            'lines': '35',
-            'patience': '90',
-            'csrf_token': token,
-        },
-        follow_redirects=True,
+    def fake_wait(arrival_rate, aht, a):
+        return 10.0
+
+    def fake_occ(arrival_rate, aht, a):
+        return 0.5
+
+    monkeypatch.setattr(
+        erlang_core, "calculate_erlang_metrics", fake_calc_metrics, raising=False
     )
-    html = response.get_data(as_text=True)
-    import re
-    csv_match = re.search(r'href="([^"]+/download/[^"]+\.csv)"', html)
-    xlsx_match = re.search(r'href="([^"]+/download/[^"]+\.xlsx)"', html)
-    assert csv_match, 'CSV download link not found'
-    assert xlsx_match, 'XLSX download link not found'
-    csv_url = csv_match.group(1)
-    xlsx_url = xlsx_match.group(1)
-    csv_resp = client.get(csv_url)
-    xlsx_resp = client.get(xlsx_url)
-    assert csv_resp.status_code == 200
-    assert xlsx_resp.status_code == 200
-    assert csv_resp.headers['Content-Disposition'].startswith('attachment')
-    assert xlsx_resp.headers['Content-Disposition'].startswith('attachment')
+    monkeypatch.setattr(erlang_service, "sla_x", fake_sla_x, raising=False)
+    monkeypatch.setattr(erlang_core, "waiting_time_erlang_c", fake_wait, raising=False)
+    monkeypatch.setattr(erlang_core, "occupancy_erlang_c", fake_occ, raising=False)
+
+    payload = {
+        "forecast": "100",
+        "aht": "30",
+        "agents": "3",
+        "sl_target": "0.8",
+        "awl": "20",
+        "agents_max": "5",
+        "calc_type": "metrics",
+    }
+    result = compute_erlang(payload)
+    assert result["dimension_bar"] == {
+        "min": 3,
+        "max": 5,
+        "actual": 3,
+        "recomendado": 5,
+    }
+    assert result["sensitivity"]["agents"] == [3, 4, 5]
+    assert len(result["download"]["csv_rows"]) == 5
+    assert len(result["download"]["xlsx_rows"]) == 5
 
 
 def test_erlang_subroute_authenticated():

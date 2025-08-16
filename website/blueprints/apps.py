@@ -92,7 +92,7 @@ def compute_erlang(payload: Dict[str, Any]) -> Dict[str, Any]:
     awl = _get_float(payload, "awl", 20.0) or 0.0
     agents_max = _get_int(payload, "agents_max", agents) or agents
     interval_minutes = _get_int(payload, "interval_minutes", 60) or 60
-    mode = (payload.get("mode") or "metrics").lower()
+    calc_type = (payload.get("calc_type") or "metrics").lower()
     patience = _get_float(payload, "patience")
     erlang_version = (payload.get("erlang_version") or "c").lower()
 
@@ -146,7 +146,7 @@ def compute_erlang(payload: Dict[str, Any]) -> Dict[str, Any]:
     wait_fn = getattr(erlang_core, "waiting_time_erlang_c", None)
     occ_fn = getattr(erlang_core, "occupancy_erlang_c", None)
 
-    if mode == "agents" and callable(agents_for_sla):
+    if calc_type == "required_agents" and callable(agents_for_sla):
         try:
             recommended_agents = int(
                 agents_for_sla(sl_target, arrival_rate, aht, awl, None, patience)
@@ -159,32 +159,34 @@ def compute_erlang(payload: Dict[str, Any]) -> Dict[str, Any]:
     elif metrics:
         recommended_agents = metrics.get("required_agents")
 
-    # Dimension bar and deltas
+    # Dimension bar and sensitivity arrays
     if recommended_agents is not None:
+        min_agents = int(min(agents, recommended_agents))
+        max_agents = int(max(agents, recommended_agents))
         metrics["dimension_bar"] = {
-            "recommended": int(recommended_agents),
-            "current": int(agents),
+            "min": min_agents,
+            "max": max_agents,
+            "actual": int(agents),
+            "recomendado": int(recommended_agents),
         }
         metrics["agents_delta"] = int(recommended_agents) - int(agents)
 
-    # Simple sensitivity figure
-    build_sensitivity = getattr(erlang_core, "build_sensitivity_figure", None)
-    if callable(build_sensitivity) and recommended_agents is not None:
-        try:
-            fig = build_sensitivity(
-                arrival_rate,
-                aht,
-                awl,
-                agents,
-                recommended_agents,
-                None,
-                patience,
-            )
-            metrics["sensitivity"] = (
-                fig.to_dict() if hasattr(fig, "to_dict") else fig
-            )
-        except Exception:  # pragma: no cover
-            pass
+        if callable(sla_x) and callable(wait_fn):
+            sens = {
+                "agents": [],
+                "service_level": [],
+                "asa_seconds": [],
+            }
+            for a in range(min_agents, max_agents + 1):
+                try:
+                    sl_val = sla_x(arrival_rate, aht, a, awl, None, patience)
+                    asa_val = wait_fn(arrival_rate, aht, a)
+                except Exception:  # pragma: no cover
+                    break
+                sens["agents"].append(a)
+                sens["service_level"].append(sl_val)
+                sens["asa_seconds"].append(asa_val)
+            metrics["sensitivity"] = sens
 
     # Download rows for CSV export
     rows = []
@@ -210,13 +212,13 @@ def compute_erlang(payload: Dict[str, Any]) -> Dict[str, Any]:
                     "occupancy": occ_val,
                 }
             )
-    metrics["download"] = rows
+    metrics["download"] = {"csv_rows": rows, "xlsx_rows": list(rows)}
 
     # Additional convenience values
     if agents:
         metrics["liberados_por_agente"] = forecast / agents
 
-    metrics["mode"] = mode
+    metrics["calc_type"] = calc_type
     metrics["erlang_version"] = erlang_version
     metrics["input"] = {
         "forecast": forecast,
@@ -262,7 +264,12 @@ def erlang():
             for err in errors:
                 flash(err)
 
-    return render_template("apps/erlang.html", result=result, form=payload)
+    return render_template(
+        "apps/erlang.html",
+        metrics=result,
+        agents=_get_int(payload, "agents"),
+        form=payload,
+    )
 
 
 @apps_bp.route("/erlang/download")
