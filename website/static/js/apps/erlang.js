@@ -1,34 +1,89 @@
-// Plotly charts for Erlang page
-window.addEventListener('DOMContentLoaded', () => {
-  const dimEl = document.getElementById('erlang-dimension-bar');
-  if (dimEl && dimEl.dataset.bar && window.Plotly) {
-    try {
-      const data = JSON.parse(dimEl.dataset.bar);
-      const trace = {
-        type: 'bar',
-        x: ['Actual', 'Recomendado'],
-        y: [data.current, data.recommended],
-        marker: {
-          color: ['#0d6efd', '#198754'],
+let dimensionChart = null;
+let sensitivityChart = null;
+
+function renderErlangCharts() {
+  const data = window.ERLANG_RESULT;
+  if (!data) return;
+
+  const dimCanvas = document.getElementById('dimensionChart');
+  if (dimCanvas && data.dimension_bar) {
+    if (dimensionChart) dimensionChart.destroy();
+    const bar = data.dimension_bar;
+    dimensionChart = new Chart(dimCanvas, {
+      type: 'bar',
+      data: {
+        labels: ['Actual', 'Recomendado'],
+        datasets: [
+          {
+            data: [bar.actual, bar.recomendado],
+            backgroundColor: ['#0d6efd', '#198754'],
+          },
+        ],
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { min: bar.min, max: bar.max },
         },
-      };
-      const layout = {
-        margin: { t: 10, r: 10, b: 40, l: 40 },
-        yaxis: { title: 'Agentes' },
-      };
-      Plotly.react(dimEl, [trace], layout, { responsive: true });
-    } catch (e) {
-      console.error('Failed to render dimension bar', e);
-    }
+      },
+    });
   }
 
-  const sensEl = document.getElementById('erlang-sensitivity');
-  if (sensEl && sensEl.dataset.figure && window.Plotly) {
-    try {
-      const fig = JSON.parse(sensEl.dataset.figure);
-      Plotly.react(sensEl, fig.data, fig.layout || {}, { responsive: true });
-    } catch (e) {
-      console.error('Failed to render sensitivity chart', e);
-    }
+  const sensCanvas = document.getElementById('sensitivityChart');
+  if (sensCanvas && data.sensitivity) {
+    if (sensitivityChart) sensitivityChart.destroy();
+    const sens = data.sensitivity;
+    const recommended = data.agents_recommended;
+    const verticalLine = {
+      id: 'recommendedLine',
+      afterDraw(chart) {
+        if (recommended === undefined) return;
+        const xScale = chart.scales.x;
+        const x = xScale.getPixelForValue(recommended);
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.strokeStyle = 'red';
+        ctx.beginPath();
+        ctx.moveTo(x, chart.chartArea.top);
+        ctx.lineTo(x, chart.chartArea.bottom);
+        ctx.stroke();
+        ctx.restore();
+      },
+    };
+    sensitivityChart = new Chart(sensCanvas, {
+      type: 'line',
+      data: {
+        labels: sens.agents,
+        datasets: [
+          {
+            label: 'SL (%)',
+            data: sens.sl,
+            borderColor: '#198754',
+            yAxisID: 'y1',
+            tension: 0.1,
+          },
+          {
+            label: 'ASA (s)',
+            data: sens.asa,
+            borderColor: '#0d6efd',
+            yAxisID: 'y2',
+            tension: 0.1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y1: { beginAtZero: true, max: 100, position: 'left' },
+          y2: { beginAtZero: true, position: 'right' },
+        },
+      },
+      plugins: [verticalLine],
+    });
   }
-});
+}
+
+document.addEventListener('DOMContentLoaded', renderErlangCharts);
+

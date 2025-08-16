@@ -115,14 +115,15 @@ def test_erlang_metrics_mode(monkeypatch):
     )
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert 'SL:' in html
-    assert 'ASA:' in html
-    assert 'Ocupación:' in html
-    assert 'Requeridos:' in html
-    assert '80' in html
-    assert '20' in html
-    assert '50' in html
-    assert '5' in html
+    assert 'Service Level' in html
+    assert 'ASA' in html
+    assert 'Ocupación' in html
+    assert 'Liberados por agente' in html
+    assert 'Diferencia (recomendado - actual)' in html
+    assert '80.0' in html
+    assert '20.0' in html
+    assert '50.0' in html
+    assert '-5' in html
 
 
 def test_erlang_required_agents_mode(monkeypatch):
@@ -162,7 +163,7 @@ def test_erlang_required_agents_mode(monkeypatch):
     )
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert 'Requeridos' in html
+    assert 'Recomendados' in html
     assert '7' in html
 
 
@@ -245,12 +246,14 @@ def test_compute_erlang_structures(monkeypatch):
     }
     result = compute_erlang(payload)
     assert result["dimension_bar"] == {
-        "min": 3,
+        "min": 0,
         "max": 5,
         "actual": 3,
         "recomendado": 5,
     }
     assert result["sensitivity"]["agents"] == [3, 4, 5]
+    assert result["sensitivity"]["sl"] == [80.0, 80.0, 80.0]
+    assert result["sensitivity"]["asa"] == [10.0, 10.0, 10.0]
     assert len(result["download"]["csv_rows"]) == 5
     assert len(result["download"]["xlsx_rows"]) == 5
 

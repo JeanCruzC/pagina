@@ -13,9 +13,6 @@
   <a class="nav-link {{ 'active' if request.endpoint in ['apps.batch', 'apps.batch_download'] else '' }}" href="{{ url_for('apps.batch') }}">Batch</a>
 </nav>
 
-{% set agents = (form.agents or 0)|int %}
-{% set figure_json = metrics.sensitivity %}
-
 <div class="card mb-4">
   <div class="card-body">
     <form id="erlang-form" class="row g-3" method="post">
@@ -84,84 +81,95 @@
   </div>
 </div>
 
-{% if metrics %}
-<div class="metrics-grid mb-4">
-  <div class="metric-card {{ metrics.sl_class }}">
-    <h3>Service Level</h3>
-    <h2>{{ (metrics.service_level * 100)|round(1) }}%</h2>
+{% if result %}
+<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xl-5 g-3 mb-4">
+  <div class="col">
+    <div class="card text-center erlang-metric-card bg-success-subtle">
+      <div class="card-body d-flex flex-column justify-content-center">
+        <div class="fs-3">{% if result.service_level is not none %}{{ result.service_level }}%{% else %}—{% endif %}</div>
+        <div class="text-muted">Service Level</div>
+      </div>
+    </div>
   </div>
-  <div class="metric-card {{ metrics.asa_class }}">
-    <h3>ASA</h3>
-    <h2>{{ metrics.asa|round(2) }} seg</h2>
+  <div class="col">
+    <div class="card text-center erlang-metric-card bg-success-subtle">
+      <div class="card-body d-flex flex-column justify-content-center">
+        <div class="fs-3">{% if result.asa is not none %}{{ result.asa }}<span class="fs-6">s</span>{% else %}—{% endif %}</div>
+        <div class="text-muted">ASA</div>
+      </div>
+    </div>
   </div>
-  <div class="metric-card {{ metrics.occ_class }}">
-    <h3>Ocupación</h3>
-    <h2>{{ (metrics.occupancy * 100)|round(1) }}%</h2>
+  <div class="col">
+    <div class="card text-center erlang-metric-card bg-warning-subtle">
+      <div class="card-body d-flex flex-column justify-content-center">
+        <div class="fs-3">{% if result.occupancy is not none %}{{ result.occupancy }}%{% else %}—{% endif %}</div>
+        <div class="text-muted">Ocupación</div>
+      </div>
+    </div>
   </div>
-  {% if metrics.abandonment is defined %}
-  <div class="metric-card {{ metrics.abandon_class }}">
-    <h3>Abandono</h3>
-    <h2>{{ (metrics.abandonment * 100)|round(1) }}%</h2>
+  <div class="col">
+    <div class="card text-center erlang-metric-card bg-primary-subtle">
+      <div class="card-body d-flex flex-column justify-content-center">
+        <div class="fs-3">{% if result.liberados_por_agente is not none %}{{ result.liberados_por_agente }}{% else %}—{% endif %}</div>
+        <div class="text-muted">Liberados por agente</div>
+      </div>
+    </div>
   </div>
-  {% endif %}
-  <div class="metric-card {{ metrics.liberados_por_agente_class }}">
-    <h3>Liberados por agente</h3>
-    <h2>{{ (metrics.liberados_por_agente or 0)|round(1) }}</h2>
-  </div>
-  <div class="metric-card {{ metrics.agents_delta_class }}">
-    <h3>Diferencia (recomendado - actual)</h3>
-    <h2>{{ metrics.agents_delta }}</h2>
+  <div class="col">
+    <div class="card text-center erlang-metric-card bg-secondary-subtle">
+      <div class="card-body d-flex flex-column justify-content-center">
+        <div class="fs-3">{% if result.agents_delta is not none %}{{ result.agents_delta }}{% else %}—{% endif %}</div>
+        <div class="text-muted">Diferencia (recomendado - actual)</div>
+      </div>
+    </div>
   </div>
 </div>
-  <!--
-  SL: {{ (metrics.service_level * 100)|round(1) }}%
-  ASA: {{ metrics.asa|round(2) }}
-  Ocupación: {{ (metrics.occupancy * 100)|round(1) }}%
-  Requeridos: {{ metrics.required_agents }}
-  -->
-  {% if metrics.dimension_bar or metrics.sensitivity %}
-  <div class="erlang-charts mb-4">
-    {% if metrics.dimension_bar %}
-    <div class="card h-100">
-      <div class="card-body">
-        <h3 class="mb-3">Análisis de Dimensionamiento</h3>
-        <div id="erlang-dimension-bar" class="erlang-chart mb-3" data-bar='{{ metrics.dimension_bar | tojson | safe }}'></div>
-        <div class="table-responsive">
-          <table class="table table-sm">
-            <thead>
-              <tr>
-                <th>Agentes Recomendados</th>
-                <th>Agentes Actuales</th>
-                <th>Diferencia</th>
-                <th>Llamadas/Agente Requerido</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>{{ metrics.required_agents }}</td>
-                <td>{{ agents }}</td>
-                <td>{{ metrics.required_agents - agents }}</td>
-                <td>{{ (metrics.calls_per_agent_req or 0)|round(1) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+{% if result.dimension_bar or result.sensitivity %}
+<div class="erlang-charts mb-4">
+  {% if result.dimension_bar %}
+  <div class="card h-100">
+    <div class="card-body">
+      <h3 class="mb-3">Análisis de Dimensionamiento</h3>
+      <canvas id="dimensionChart" class="mb-3"></canvas>
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Recomendados</th>
+              <th>Actual</th>
+              <th>Diferencia</th>
+              <th>Llamadas/Agente Requerido</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{{ result.agents_recommended }}</td>
+              <td>{{ result.agents_current }}</td>
+              <td>{{ result.agents_delta }}</td>
+              <td>{% if result.calls_per_agent_req is not none %}{{ result.calls_per_agent_req }}{% else %}—{% endif %}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
-    {% endif %}
-    {% if metrics.sensitivity %}
-    <div class="card h-100">
-      <div class="card-body">
-        <h3 class="mb-3">Sensibilidad</h3>
-        <div id="erlang-sensitivity" class="erlang-chart" data-figure='{{ metrics.sensitivity | tojson | safe }}'></div>
-      </div>
-    </div>
-    {% endif %}
   </div>
-  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-  <script src="{{ url_for('static', filename='js/apps/erlang.js') }}"></script>
   {% endif %}
+  {% if result.sensitivity %}
+  <div class="card h-100">
+    <div class="card-body">
+      <h3 class="mb-3">Sensibilidad</h3>
+      <canvas id="sensitivityChart"></canvas>
+    </div>
+  </div>
   {% endif %}
+</div>
+<script>
+  window.ERLANG_RESULT = {{ result|tojson|safe if result else 'null' }};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{{ url_for('static', filename='js/apps/erlang.js') }}"></script>
+{% endif %}
+{% endif %}
 
 <div class="accordion mb-4" id="metodologiaAccordion">
   <div class="accordion-item">
