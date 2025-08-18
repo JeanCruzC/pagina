@@ -92,6 +92,7 @@ DEFAULT_CONFIG = {
     "optimization_profile": "Equilibrado (Recomendado)",
     "ACTIVE_DAYS": list(range(7)),
     "K": 1000,
+    "cbc_threads": 0,  # 0 auto-detects CPUs, >0 sets manual limit
 }
 
 
@@ -147,6 +148,15 @@ def memory_limit_patterns(slots_per_day):
 def monitor_memory_usage():
     """Return current memory usage percentage."""
     return psutil.virtual_memory().percent
+
+
+def detect_cpu_threads():
+    """Return the number of available CPU threads."""
+    if psutil is not None:
+        count = psutil.cpu_count(logical=True)
+    else:  # pragma: no cover - fallback when psutil is unavailable
+        count = os.cpu_count()
+    return count or 1
 
 
 def adaptive_chunk_size(base=5000):
@@ -1428,7 +1438,8 @@ def solve_with_pulp(demand_matrix, patterns, config):
             prob += coverage_expr + deficit[(d, h)] >= demand
             prob += coverage_expr - excess[(d, h)] <= demand
 
-    solver = pl.PULP_CBC_CMD(msg=0, timeLimit=cfg["TIME_SOLVER"], threads=1)
+    threads = cfg["cbc_threads"] or detect_cpu_threads()
+    solver = pl.PULP_CBC_CMD(msg=0, timeLimit=cfg["TIME_SOLVER"], threads=threads)
     status = prob.solve(solver)
 
     assignments = {
