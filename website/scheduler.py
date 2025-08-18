@@ -4,6 +4,8 @@ import time
 import os
 import gc
 import hashlib
+import logging
+import threading
 from io import BytesIO, StringIO
 from itertools import combinations, permutations
 import heapq
@@ -1389,6 +1391,24 @@ def solve_with_pulp(demand_matrix, patterns, config):
         raise RuntimeError("PuLP is not available")
 
     cfg = merge_config(config)
+
+    def log_solver_progress(time_limit):
+        """Log solver progress percentage every second."""
+        stop_event = threading.Event()
+        start_time = time.time()
+
+        def _run():
+            while not stop_event.is_set():
+                elapsed = time.time() - start_time
+                pct = min(100, (elapsed / time_limit) * 100)
+                logging.info("Solver progress: %.0f%%", pct)
+                if pct >= 100:
+                    break
+                stop_event.wait(1)
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+        return stop_event, thread
     hours = demand_matrix.shape[1]
     shifts = list(patterns.keys())
     patterns_unpacked = {
@@ -1428,8 +1448,18 @@ def solve_with_pulp(demand_matrix, patterns, config):
             prob += coverage_expr + deficit[(d, h)] >= demand
             prob += coverage_expr - excess[(d, h)] <= demand
 
-    solver = pl.PULP_CBC_CMD(msg=0, timeLimit=cfg["TIME_SOLVER"], threads=1)
-    status = prob.solve(solver)
+    time_limit = cfg["TIME_SOLVER"]
+    if time_limit:
+        solver = pl.PULP_CBC_CMD(msg=0, timeLimit=time_limit, threads=1)
+        stop_event, thread = log_solver_progress(time_limit)
+        try:
+            status = prob.solve(solver)
+        finally:
+            stop_event.set()
+            thread.join()
+    else:
+        solver = pl.PULP_CBC_CMD(msg=1, timeLimit=time_limit, threads=1)
+        status = prob.solve(solver)
 
     assignments = {
         s: int(pl.value(v))
