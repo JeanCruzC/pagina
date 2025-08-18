@@ -11,4 +11,6 @@ class Scheduler:
         pass
 
 
-scheduler = Scheduler()
+scheduler_ext = Scheduler()
+
+__all__ = ["csrf", "scheduler_ext"]
