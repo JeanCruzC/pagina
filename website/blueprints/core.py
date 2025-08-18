@@ -20,6 +20,7 @@ from flask_wtf.csrf import CSRFError
 
 from ..utils.allowlist import verify_user
 from ..utils import kpis_core
+from ..scheduler import PROGRESS
 
 bp = Blueprint("core", __name__)
 
@@ -240,6 +241,12 @@ def resultados():
     session.pop("job_id", None)
 
     return render_template("resultados.html", resultado=resultado)
+
+
+@bp.route("/progress/<job_id>")
+@login_required
+def progress(job_id):
+    return jsonify({"percent": PROGRESS.get(job_id, 0)})
 
 
 @bp.route("/download/<job_id>")

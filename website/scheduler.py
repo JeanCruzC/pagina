@@ -38,6 +38,7 @@ from website.other.kpis_core import analyze_results
 # Lookup table for population count and global context
 POP = np.fromiter((bin(i).count("1") for i in range(256)), dtype=np.uint8)
 CONTEXT = {}
+PROGRESS = {}
 
 
 def unpack_pattern(packed: np.ndarray, cols: int) -> np.ndarray:
@@ -105,31 +106,39 @@ def merge_config(cfg=None):
     return merged
 
 
-def log_solver_progress(time_limit, stop_event):
+def log_solver_progress(time_limit, stop_event, job_id=None):
     """Log progress percentage every second until ``stop_event`` is set."""
     start = time.time()
     while not stop_event.is_set():
         elapsed = time.time() - start
         percent = min(100, (elapsed / time_limit) * 100) if time_limit else 100
+        if job_id is not None:
+            PROGRESS[job_id] = percent
         print(f"[SOLVER] {percent:.0f}%")
         if elapsed >= time_limit:
             break
         time.sleep(1)
+    if job_id is not None:
+        PROGRESS[job_id] = 100
 
 
-def solve_with_progress(prob, solver, time_limit, show_progress=False):
+def solve_with_progress(prob, solver, time_limit, show_progress=False, job_id=None):
     """Solve ``prob`` using ``solver`` while optionally logging progress."""
     start = time.time()
     stop_event = Event()
     thread = None
-    if show_progress:
-        thread = Thread(target=log_solver_progress, args=(time_limit, stop_event))
+    if job_id is not None:
+        PROGRESS[job_id] = 0
+    if show_progress or job_id is not None:
+        thread = Thread(target=log_solver_progress, args=(time_limit, stop_event, job_id))
         thread.daemon = True
         thread.start()
     status = prob.solve(solver)
     stop_event.set()
     if thread:
         thread.join()
+    if job_id is not None:
+        PROGRESS[job_id] = 100
     elapsed = time.time() - start
     status_str = pl.LpStatus.get(prob.status, str(prob.status))
     print(f"[SOLVER] Final status: {status_str} in {elapsed:.2f}s")
@@ -1136,7 +1145,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         )
 
         print("[PRECISION] Ejecutando solver PuLP...")
-        solve_with_progress(prob, solver, 30, cfg["show_solver_progress"])
+        solve_with_progress(prob, solver, 30, cfg["show_solver_progress"], cfg.get("job_id"))
 
         daily_totals = demand_matrix.sum(axis=1)
         hourly_totals = demand_matrix.sum(axis=0)
@@ -1271,7 +1280,7 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
             prob += coverage <= demand
     solver = pl.PULP_CBC_CMD(msg=int(cfg["show_solver_progress"]),
                              timeLimit=TIME_SOLVER//2, threads=1)
-    solve_with_progress(prob, solver, TIME_SOLVER//2, cfg["show_solver_progress"])
+    solve_with_progress(prob, solver, TIME_SOLVER//2, cfg["show_solver_progress"], cfg.get("job_id"))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in ft_shifts:
@@ -1319,7 +1328,7 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
             prob += coverage - excess_vars[(d, h)] <= demand
     solver = pl.PULP_CBC_CMD(msg=int(cfg["show_solver_progress"]),
                              timeLimit=TIME_SOLVER//2, threads=1)
-    solve_with_progress(prob, solver, TIME_SOLVER//2, cfg["show_solver_progress"])
+    solve_with_progress(prob, solver, TIME_SOLVER//2, cfg["show_solver_progress"], cfg.get("job_id"))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in pt_shifts:
@@ -1476,7 +1485,7 @@ def solve_with_pulp(demand_matrix, patterns, config):
     threads = cfg["cbc_threads"] or detect_cpu_threads()
     solver = pl.PULP_CBC_CMD(msg=int(cfg["show_solver_progress"]),
                              timeLimit=cfg["TIME_SOLVER"], threads=threads)
-    status = solve_with_progress(prob, solver, cfg["TIME_SOLVER"], cfg["show_solver_progress"])
+    status = solve_with_progress(prob, solver, cfg["TIME_SOLVER"], cfg["show_solver_progress"], cfg.get("job_id"))
 
     assignments = {
         s: int(pl.value(v))
