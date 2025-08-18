@@ -52,7 +52,7 @@ except Exception:
 
 print(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
 
-from threading import RLock
+from threading import RLock, Event, Thread
 from functools import wraps
 
 _MODEL_LOCK = RLock()
@@ -93,6 +93,7 @@ DEFAULT_CONFIG = {
     "ACTIVE_DAYS": list(range(7)),
     "K": 1000,
     "cbc_threads": 0,  # 0 auto-detects CPUs, >0 sets manual limit
+    "show_solver_progress": False,
 }
 
 
@@ -102,6 +103,37 @@ def merge_config(cfg=None):
     if cfg:
         merged.update({k: v for k, v in cfg.items() if v is not None})
     return merged
+
+
+def log_solver_progress(time_limit, stop_event):
+    """Log progress percentage every second until ``stop_event`` is set."""
+    start = time.time()
+    while not stop_event.is_set():
+        elapsed = time.time() - start
+        percent = min(100, (elapsed / time_limit) * 100) if time_limit else 100
+        print(f"[SOLVER] {percent:.0f}%")
+        if elapsed >= time_limit:
+            break
+        time.sleep(1)
+
+
+def solve_with_progress(prob, solver, time_limit, show_progress=False):
+    """Solve ``prob`` using ``solver`` while optionally logging progress."""
+    start = time.time()
+    stop_event = Event()
+    thread = None
+    if show_progress:
+        thread = Thread(target=log_solver_progress, args=(time_limit, stop_event))
+        thread.daemon = True
+        thread.start()
+    status = prob.solve(solver)
+    stop_event.set()
+    if thread:
+        thread.join()
+    elapsed = time.time() - start
+    status_str = pl.LpStatus.get(prob.status, str(prob.status))
+    print(f"[SOLVER] Final status: {status_str} in {elapsed:.2f}s")
+    return status
 
 
 def _build_pattern(days, durations, start_hour, break_len, break_from_start,
@@ -1095,7 +1127,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         print("[PRECISION] Configurando solver...")
 
         solver = pl.PULP_CBC_CMD(
-            msg=1,
+            msg=int(cfg["show_solver_progress"]),
             timeLimit=30,
             gapRel=0.1,
             threads=1,
@@ -1104,8 +1136,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         )
 
         print("[PRECISION] Ejecutando solver PuLP...")
-        prob.solve(solver)
-        print(f"[PRECISION] Solver terminado con status: {prob.status}")
+        solve_with_progress(prob, solver, 30, cfg["show_solver_progress"])
 
         daily_totals = demand_matrix.sum(axis=1)
         hourly_totals = demand_matrix.sum(axis=0)
@@ -1238,7 +1269,9 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
             demand = demand_matrix[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage <= demand
-    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=1))
+    solver = pl.PULP_CBC_CMD(msg=int(cfg["show_solver_progress"]),
+                             timeLimit=TIME_SOLVER//2, threads=1)
+    solve_with_progress(prob, solver, TIME_SOLVER//2, cfg["show_solver_progress"])
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in ft_shifts:
@@ -1284,7 +1317,9 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
             demand = remaining_demand[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage - excess_vars[(d, h)] <= demand
-    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=1))
+    solver = pl.PULP_CBC_CMD(msg=int(cfg["show_solver_progress"]),
+                             timeLimit=TIME_SOLVER//2, threads=1)
+    solve_with_progress(prob, solver, TIME_SOLVER//2, cfg["show_solver_progress"])
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in pt_shifts:
@@ -1439,8 +1474,9 @@ def solve_with_pulp(demand_matrix, patterns, config):
             prob += coverage_expr - excess[(d, h)] <= demand
 
     threads = cfg["cbc_threads"] or detect_cpu_threads()
-    solver = pl.PULP_CBC_CMD(msg=0, timeLimit=cfg["TIME_SOLVER"], threads=threads)
-    status = prob.solve(solver)
+    solver = pl.PULP_CBC_CMD(msg=int(cfg["show_solver_progress"]),
+                             timeLimit=cfg["TIME_SOLVER"], threads=threads)
+    status = solve_with_progress(prob, solver, cfg["TIME_SOLVER"], cfg["show_solver_progress"])
 
     assignments = {
         s: int(pl.value(v))
