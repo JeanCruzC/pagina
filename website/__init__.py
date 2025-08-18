@@ -3,7 +3,7 @@ import os
 from flask import Flask
 from dotenv import load_dotenv
 
-from .extensions import csrf, scheduler
+from .extensions import csrf, scheduler_ext
 from .blueprints.core import bp as core_bp
 from .blueprints.apps import apps_bp
 
@@ -32,7 +32,7 @@ def create_app(config=None):
 
     # Extensions
     csrf.init_app(app)
-    scheduler.init_app(app)
+    scheduler_ext.init_app(app)
 
     # Blueprints
     app.register_blueprint(core_bp)
