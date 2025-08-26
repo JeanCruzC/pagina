@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1>Contacto</h1>
+<p class="mb-4">¿Tienes preguntas? Envíanos un mensaje y te responderemos pronto.</p>
+
+<form method="post" class="mb-4">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="mb-3">
+    <label for="name" class="form-label">Nombre</label>
+    <input type="text" class="form-control" id="name" placeholder="Tu nombre">
+  </div>
+  <div class="mb-3">
+    <label for="email" class="form-label">Correo</label>
+    <input type="email" class="form-control" id="email" placeholder="nombre@ejemplo.com">
+  </div>
+  <div class="mb-3">
+    <label for="message" class="form-label">Mensaje</label>
+    <textarea class="form-control" id="message" rows="4" placeholder="¿En qué podemos ayudarte?"></textarea>
+  </div>
+  <button type="submit" class="btn btn-primary">Enviar</button>
+</form>
+{% endblock %}
+
