@@ -43,6 +43,18 @@ except Exception:
 
 print(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
 
+
+_DEFAULT_SOLVER_TIME = object()
+
+
+def _cbc_solver(solver_time=_DEFAULT_SOLVER_TIME, **kwargs):
+    """Return a configured CBC solver with optional time limit."""
+    kwargs.setdefault("msg", 1)
+    kwargs.setdefault("threads", 1)
+    if solver_time is not _DEFAULT_SOLVER_TIME and solver_time is not None:
+        kwargs["timeLimit"] = solver_time
+    return pl.PULP_CBC_CMD(**kwargs)
+
 from threading import RLock
 from functools import wraps
 
@@ -1196,7 +1208,7 @@ def generate_shifts_coverage_optimized(
 
 
 @single_model
-def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=None):
+def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=None, solver_time=_DEFAULT_SOLVER_TIME):
     """Precision solver with greedy fallback.
 
     This implementation follows the logic of ``optimize_with_precision_targeting``
@@ -1207,7 +1219,8 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
     print(f"[PRECISION] Demanda total: {demand_matrix.sum()}")
 
     cfg = merge_config(cfg)
-    TIME_SOLVER = cfg["TIME_SOLVER"]
+    if solver_time is _DEFAULT_SOLVER_TIME:
+        solver_time = cfg["TIME_SOLVER"]
     agent_limit_factor = cfg["agent_limit_factor"]
     excess_penalty = cfg["excess_penalty"]
     peak_bonus = cfg["peak_bonus"]
@@ -1286,11 +1299,9 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         print(f"[PRECISION] Total restricciones: {restriction_count}")
         print("[PRECISION] Configurando solver...")
 
-        solver = pl.PULP_CBC_CMD(
-            msg=1,
-            timeLimit=30,
+        solver = _cbc_solver(
+            solver_time,
             gapRel=0.1,
-            threads=1,
             presolve=1,
             cuts=0,
         )
@@ -1402,11 +1413,12 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None):
 
 
 @single_model
-def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
+def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None, solver_time=_DEFAULT_SOLVER_TIME):
     """Linear program focusing on full-time coverage only."""
     cfg = merge_config(cfg)
     agent_limit_factor = cfg["agent_limit_factor"]
-    TIME_SOLVER = cfg["TIME_SOLVER"]
+    if solver_time is _DEFAULT_SOLVER_TIME:
+        solver_time = cfg["TIME_SOLVER"]
     if not ft_shifts:
         return {}
     prob = pl.LpProblem("FT_No_Excess", pl.LpMinimize)
@@ -1430,7 +1442,8 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
             demand = demand_matrix[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage <= demand
-    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=1))
+    limit = solver_time//2 if solver_time is not None else None
+    prob.solve(_cbc_solver(limit))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in ft_shifts:
@@ -1441,12 +1454,13 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
 
 
 @single_model
-def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
+def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None, solver_time=_DEFAULT_SOLVER_TIME):
     """Solve for part-time assignments covering ``remaining_demand``."""
     cfg = merge_config(cfg)
     agent_limit_factor = cfg["agent_limit_factor"]
     excess_penalty = cfg["excess_penalty"]
-    TIME_SOLVER = cfg["TIME_SOLVER"]
+    if solver_time is _DEFAULT_SOLVER_TIME:
+        solver_time = cfg["TIME_SOLVER"]
     optimization_profile = cfg["optimization_profile"]
     if not pt_shifts or remaining_demand.sum() == 0:
         return {}
@@ -1476,7 +1490,8 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
             demand = remaining_demand[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage - excess_vars[(d, h)] <= demand
-    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=1))
+    limit = solver_time//2 if solver_time is not None else None
+    prob.solve(_cbc_solver(limit))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in pt_shifts:
@@ -1570,7 +1585,7 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
 
 
 @single_model
-def solve_with_pulp(demand_matrix, patterns, config):
+def solve_with_pulp(demand_matrix, patterns, config, solver_time=_DEFAULT_SOLVER_TIME):
     """Solve assignment problem using PuLP.
 
     Parameters
@@ -1591,6 +1606,8 @@ def solve_with_pulp(demand_matrix, patterns, config):
         raise RuntimeError("PuLP is not available")
 
     cfg = merge_config(config)
+    if solver_time is _DEFAULT_SOLVER_TIME:
+        solver_time = cfg["TIME_SOLVER"]
     hours = demand_matrix.shape[1]
     shifts = list(patterns.keys())
     patterns_unpacked = {
@@ -1630,7 +1647,7 @@ def solve_with_pulp(demand_matrix, patterns, config):
             prob += coverage_expr + deficit[(d, h)] >= demand
             prob += coverage_expr - excess[(d, h)] <= demand
 
-    solver = pl.PULP_CBC_CMD(msg=0, timeLimit=cfg["TIME_SOLVER"], threads=1)
+    solver = _cbc_solver(solver_time)
     status = prob.solve(solver)
 
     assignments = {
