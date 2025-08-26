@@ -10,6 +10,7 @@ import heapq
 
 import tempfile
 import csv
+from flask import current_app
 
 import numpy as np
 try:
@@ -68,6 +69,7 @@ DEFAULT_CONFIG = {
     "peak_bonus": 1.5,
     "critical_bonus": 2.0,
     "iterations": 30,
+    "solver_threads": os.cpu_count() or 1,
     "max_patterns": None,
     "batch_size": 2000,
     "quality_threshold": 0,
@@ -89,6 +91,11 @@ DEFAULT_CONFIG = {
 def merge_config(cfg=None):
     """Return a configuration dictionary overlaying defaults with ``cfg``."""
     merged = DEFAULT_CONFIG.copy()
+    try:
+        app_cfg = current_app.config
+        merged.update({k: app_cfg[k] for k in DEFAULT_CONFIG.keys() if k in app_cfg})
+    except Exception:
+        pass
     if cfg:
         merged.update({k: v for k, v in cfg.items() if v is not None})
     return merged
@@ -1290,7 +1297,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
             msg=1,
             timeLimit=30,
             gapRel=0.1,
-            threads=1,
+            threads=cfg["solver_threads"],
             presolve=1,
             cuts=0,
         )
@@ -1430,7 +1437,7 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
             demand = demand_matrix[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage <= demand
-    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=1))
+    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=cfg["solver_threads"]))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in ft_shifts:
@@ -1476,7 +1483,7 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
             demand = remaining_demand[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage - excess_vars[(d, h)] <= demand
-    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=1))
+    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=cfg["solver_threads"]))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in pt_shifts:
@@ -1630,7 +1637,7 @@ def solve_with_pulp(demand_matrix, patterns, config):
             prob += coverage_expr + deficit[(d, h)] >= demand
             prob += coverage_expr - excess[(d, h)] <= demand
 
-    solver = pl.PULP_CBC_CMD(msg=0, timeLimit=cfg["TIME_SOLVER"], threads=1)
+    solver = pl.PULP_CBC_CMD(msg=0, timeLimit=cfg["TIME_SOLVER"], threads=cfg["solver_threads"])
     status = prob.solve(solver)
 
     assignments = {
