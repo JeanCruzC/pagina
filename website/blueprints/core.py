@@ -27,6 +27,23 @@ bp = Blueprint("core", __name__)
 # Default temporary directory
 temp_dir = tempfile.gettempdir()
 
+# Running optimization jobs per-user so they can be cancelled
+running_jobs = {}
+
+
+def _stop_thread(thread):
+    """Forcefully stop a thread by raising SystemExit inside it."""
+    if not thread or not thread.is_alive():
+        return
+    import ctypes
+
+    tid = thread.ident
+    if tid is None:
+        return
+    ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_long(tid), ctypes.py_object(SystemExit)
+    )
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -129,9 +146,34 @@ def generador():
             config["solver_time"] = 300
 
         if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
-            result, excel_bytes, csv_bytes = run_complete_optimization(
-                excel_file, config=config, generate_charts=generate_charts
-            )
+            import threading, queue
+            from io import BytesIO
+
+            excel_bytes = excel_file.read()
+            q = queue.Queue()
+
+            def worker():
+                try:
+                    result = run_complete_optimization(
+                        BytesIO(excel_bytes), config=config, generate_charts=generate_charts
+                    )
+                    q.put(("ok", result))
+                except Exception as exc:  # pragma: no cover
+                    q.put(("err", exc))
+
+            t = threading.Thread(target=worker, daemon=True)
+            running_jobs[session.get("user")] = {"thread": t, "queue": q}
+            t.start()
+
+            status, payload = q.get()
+            running_jobs.pop(session.get("user"), None)
+
+            if status == "cancel":
+                return ("", 499)
+            if status == "err":
+                return jsonify({"error": str(payload)}), 500
+
+            result, excel_bytes, csv_bytes = payload
             if not result or result.get("error"):
                 error_msg = result.get("error") if isinstance(result, dict) else "Error desconocido"
                 return jsonify({"error": error_msg}), 500
@@ -165,54 +207,61 @@ def generador():
             session["job_id"] = job_id
             return jsonify({"job_id": job_id, **result})
 
-        def stream():
-            yield "<!doctype html><html><head><meta charset='utf-8'><title>Procesando</title></head><body><p>Procesando… por favor espera.</p>"
-            result, excel_bytes, csv_bytes = run_complete_optimization(
-                excel_file, config=config, generate_charts=generate_charts
+        result, excel_bytes, csv_bytes = run_complete_optimization(
+            excel_file, config=config, generate_charts=generate_charts
+        )
+        if result.get("status") == "TimeLimit":
+            flash(
+                "El solver alcanzó el límite de tiempo; se devolvió la mejor solución parcial disponible.",
+                "warning",
             )
-            if result.get("status") == "TimeLimit":
-                flash(
-                    "El solver alcanzó el límite de tiempo; se devolvió la mejor solución parcial disponible.",
-                    "warning",
-                )
-            if not result or result.get("error"):
-                error_msg = result.get("error") if isinstance(result, dict) else "Error desconocido"
-                flash(f"Ocurrió un error al procesar el archivo: {error_msg}", "danger")
-                yield f"<script>window.location='{url_for('core.generador')}';</script></body></html>"
-                return
-            job_id = uuid.uuid4().hex
-            heatmaps = result.get("heatmaps", {})
-            if heatmaps:
-                heatmap_dir = os.path.join(temp_dir, job_id)
-                os.makedirs(heatmap_dir, exist_ok=True)
-                for key, path in list(heatmaps.items()):
-                    try:
-                        new_name = f"{key}.png"
-                        dest = os.path.join(heatmap_dir, new_name)
-                        os.replace(path, dest)
-                        heatmaps[key] = new_name
-                    except OSError:
-                        heatmaps[key] = None
-                result["heatmaps"] = heatmaps
-            if excel_bytes:
-                xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
-                with open(xlsx_path, "wb") as f:
-                    f.write(excel_bytes)
-                result["download_url"] = url_for("core.download_excel", job_id=job_id)
-            if csv_bytes:
-                csv_path = os.path.join(temp_dir, f"{job_id}.csv")
-                with open(csv_path, "wb") as f:
-                    f.write(csv_bytes)
-                result["csv_url"] = url_for("core.download_csv", job_id=job_id)
-            json_path = os.path.join(temp_dir, f"{job_id}.json")
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(result, f)
-            session["job_id"] = job_id
-            yield f"<script>window.location='{url_for('core.resultados')}';</script></body></html>"
-
-        return Response(stream_with_context(stream()), mimetype="text/html")
+        if not result or result.get("error"):
+            error_msg = result.get("error") if isinstance(result, dict) else "Error desconocido"
+            flash(f"Ocurrió un error al procesar el archivo: {error_msg}", "danger")
+            return redirect(url_for("core.generador"))
+        job_id = uuid.uuid4().hex
+        heatmaps = result.get("heatmaps", {})
+        if heatmaps:
+            heatmap_dir = os.path.join(temp_dir, job_id)
+            os.makedirs(heatmap_dir, exist_ok=True)
+            for key, path in list(heatmaps.items()):
+                try:
+                    new_name = f"{key}.png"
+                    dest = os.path.join(heatmap_dir, new_name)
+                    os.replace(path, dest)
+                    heatmaps[key] = new_name
+                except OSError:
+                    heatmaps[key] = None
+            result["heatmaps"] = heatmaps
+        if excel_bytes:
+            xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
+            with open(xlsx_path, "wb") as f:
+                f.write(excel_bytes)
+            result["download_url"] = url_for("core.download_excel", job_id=job_id)
+        if csv_bytes:
+            csv_path = os.path.join(temp_dir, f"{job_id}.csv")
+            with open(csv_path, "wb") as f:
+                f.write(csv_bytes)
+            result["csv_url"] = url_for("core.download_csv", job_id=job_id)
+        json_path = os.path.join(temp_dir, f"{job_id}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(result, f)
+        session["job_id"] = job_id
+        return redirect(url_for("core.resultados"))
 
     return render_template("generador.html")
+
+
+@bp.route("/cancel", methods=["POST"])
+@login_required
+def cancel_job():
+    job = running_jobs.pop(session.get("user"), None)
+    if job:
+        _stop_thread(job.get("thread"))
+        q = job.get("queue")
+        if q:
+            q.put(("cancel", None))
+    return ("", 204)
 
 
 @bp.route("/resultados")
