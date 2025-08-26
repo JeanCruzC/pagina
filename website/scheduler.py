@@ -1305,14 +1305,15 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         print(f"[PRECISION] Total restricciones: {restriction_count}")
         print("[PRECISION] Configurando solver...")
 
-        solver = pl.PULP_CBC_CMD(
-            msg=1,
-            timeLimit=30,
-            gapRel=0.1,
-            threads=cfg["solver_threads"],
-            presolve=1,
-            cuts=0,
-        )
+        solver_kwargs = {
+            "msg": 1,
+            "timeLimit": 30,
+            "gapRel": 0.1,
+            "threads": cfg["solver_threads"],
+            "presolve": 1,
+            "cuts": 0,
+        }
+        solver = pl.PULP_CBC_CMD(**solver_kwargs)
 
         print("[PRECISION] Ejecutando solver PuLP...")
         prob.solve(solver)
