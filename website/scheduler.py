@@ -111,12 +111,16 @@ def log_solver_progress(time_limit, stop_event, job_id=None):
     start = time.time()
     while not stop_event.is_set():
         elapsed = time.time() - start
-        percent = min(100, (elapsed / time_limit) * 100) if time_limit else 100
+        if time_limit:
+            if elapsed >= time_limit:
+                percent = 99
+            else:
+                percent = (elapsed / time_limit) * 100
+        else:
+            percent = 99
         if job_id is not None:
             PROGRESS[job_id] = percent
         print(f"[SOLVER] {percent:.0f}%")
-        if elapsed >= time_limit:
-            break
         time.sleep(1)
     if job_id is not None:
         PROGRESS[job_id] = 100
