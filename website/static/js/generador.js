@@ -5,10 +5,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnExcel = document.getElementById('btnExcel');
   const btnCharts = document.getElementById('btnCharts');
   let generateCharts = false;
+  let slowTimer;
 
   if (!form || !spinner || !slowMsg || !btnExcel || !btnCharts) return;
 
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     generateCharts = e.submitter === btnCharts;
     if (!form.checkValidity()) {
       e.preventDefault();
@@ -16,13 +17,34 @@ document.addEventListener('DOMContentLoaded', () => {
       form.classList.add('was-validated');
       return;
     }
+
+    e.preventDefault();
+
     btnExcel.disabled = true;
     btnCharts.disabled = true;
     spinner.classList.remove('d-none');
-    setTimeout(() => slowMsg.classList.remove('d-none'), 10000);
-  });
+    slowTimer = setTimeout(() => slowMsg.classList.remove('d-none'), 10000);
 
-  form.addEventListener('formdata', (e) => {
-    e.formData.append('generate_charts', generateCharts ? 'true' : 'false');
+    const data = new FormData(form);
+    data.append('generate_charts', generateCharts ? 'true' : 'false');
+
+    try {
+      const resp = await fetch(form.action, {
+        method: form.method,
+        body: data
+      });
+      if (resp.redirected) {
+        window.location.href = resp.url;
+        return;
+      }
+      throw new Error('non-redirect');
+    } catch (err) {
+      alert('La generación falló. Por favor inténtalo nuevamente.');
+      spinner.classList.add('d-none');
+      slowMsg.classList.add('d-none');
+      btnExcel.disabled = false;
+      btnCharts.disabled = false;
+      clearTimeout(slowTimer);
+    }
   });
 });
