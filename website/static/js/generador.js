@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let generateCharts = false;
   let slowTimer;
   let controller;
-  let jobId;
+  let job_id;
 
   if (!form || !spinner || !slowMsg || !btnExcel || !btnCharts) return;
 
@@ -27,11 +27,11 @@ document.addEventListener('DOMContentLoaded', () => {
     spinner.classList.remove('d-none');
     slowTimer = setTimeout(() => slowMsg.classList.remove('d-none'), 10000);
 
-    jobId = crypto.randomUUID();
+    job_id = crypto.randomUUID();
 
     const data = new FormData(form);
     data.append('generate_charts', generateCharts ? 'true' : 'false');
-    data.append('job_id', jobId);
+    data.append('job_id', job_id);
     controller = new AbortController();
 
     try {
@@ -42,9 +42,9 @@ document.addEventListener('DOMContentLoaded', () => {
         signal: controller.signal
       });
       const info = await resp.json();
-      jobId = info.job_id || jobId;
-      if (!jobId) throw new Error('sin id');
-      pollStatus(jobId);
+      job_id = info.job_id || job_id;
+      if (!job_id) throw new Error('sin id');
+      pollStatus(job_id);
     } catch (err) {
       alert('La generación falló. Por favor inténtalo nuevamente.');
       resetUI();
@@ -54,14 +54,14 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('pagehide', () => {
     if (controller) {
       controller.abort();
-      navigator.sendBeacon('/cancel', JSON.stringify({ job_id: jobId }));
+      navigator.sendBeacon('/cancel', JSON.stringify({ job_id }));
       resetUI();
     }
   });
 
-  async function pollStatus(jobId) {
+  async function pollStatus(job_id) {
     try {
-      const resp = await fetch(`/generador/status/${jobId}`);
+      const resp = await fetch(`/generador/status/${job_id}`);
       const data = await resp.json();
       if (data.status === 'finished') {
         window.location.href = '/resultados';
@@ -75,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
       resetUI();
       return;
     }
-    setTimeout(() => pollStatus(jobId), 3000);
+    setTimeout(() => pollStatus(job_id), 3000);
   }
 
   function resetUI() {
@@ -84,5 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnExcel.disabled = false;
     btnCharts.disabled = false;
     clearTimeout(slowTimer);
+    controller = null;
+    job_id = null;
   }
 });
