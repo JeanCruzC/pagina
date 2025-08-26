@@ -62,7 +62,8 @@ def single_model(func):
 # Default configuration values used when no override is supplied
 DEFAULT_CONFIG = {
     # Streamlit legacy defaults from ``legacy/app1.py``
-    "TIME_SOLVER": 240,
+    "solver_time": None,
+    "solver_msg": 1,
     "TARGET_COVERAGE": 98.0,
     "agent_limit_factor": 12,
     "excess_penalty": 2.0,
@@ -1226,7 +1227,6 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
     print(f"[PRECISION] Demanda total: {demand_matrix.sum()}")
 
     cfg = merge_config(cfg)
-    TIME_SOLVER = cfg["TIME_SOLVER"]
     agent_limit_factor = cfg["agent_limit_factor"]
     excess_penalty = cfg["excess_penalty"]
     peak_bonus = cfg["peak_bonus"]
@@ -1425,7 +1425,7 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
     """Linear program focusing on full-time coverage only."""
     cfg = merge_config(cfg)
     agent_limit_factor = cfg["agent_limit_factor"]
-    TIME_SOLVER = cfg["TIME_SOLVER"]
+    solver_time = cfg.get("solver_time")
     if not ft_shifts:
         return {}
     prob = pl.LpProblem("FT_No_Excess", pl.LpMinimize)
@@ -1449,7 +1449,10 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
             demand = demand_matrix[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage <= demand
-    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=cfg["solver_threads"]))
+    solver_kwargs = {"msg": cfg.get("solver_msg", 1), "threads": cfg["solver_threads"]}
+    if solver_time is not None:
+        solver_kwargs["timeLimit"] = solver_time // 2
+    prob.solve(pl.PULP_CBC_CMD(**solver_kwargs))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in ft_shifts:
@@ -1465,7 +1468,7 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
     cfg = merge_config(cfg)
     agent_limit_factor = cfg["agent_limit_factor"]
     excess_penalty = cfg["excess_penalty"]
-    TIME_SOLVER = cfg["TIME_SOLVER"]
+    solver_time = cfg.get("solver_time")
     optimization_profile = cfg["optimization_profile"]
     if not pt_shifts or remaining_demand.sum() == 0:
         return {}
@@ -1495,7 +1498,10 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
             demand = remaining_demand[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage - excess_vars[(d, h)] <= demand
-    prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=cfg["solver_threads"]))
+    solver_kwargs = {"msg": cfg.get("solver_msg", 1), "threads": cfg["solver_threads"]}
+    if solver_time is not None:
+        solver_kwargs["timeLimit"] = solver_time // 2
+    prob.solve(pl.PULP_CBC_CMD(**solver_kwargs))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
         for s in pt_shifts:
@@ -1649,7 +1655,10 @@ def solve_with_pulp(demand_matrix, patterns, config):
             prob += coverage_expr + deficit[(d, h)] >= demand
             prob += coverage_expr - excess[(d, h)] <= demand
 
-    solver = pl.PULP_CBC_CMD(msg=0, timeLimit=cfg["TIME_SOLVER"], threads=cfg["solver_threads"])
+    solver_kwargs = {"msg": cfg.get("solver_msg", 1), "threads": cfg["solver_threads"]}
+    if cfg.get("solver_time") is not None:
+        solver_kwargs["timeLimit"] = cfg["solver_time"]
+    solver = pl.PULP_CBC_CMD(**solver_kwargs)
     status = prob.solve(solver)
 
     assignments = {

@@ -39,9 +39,10 @@ This project creates optimized work schedules using Flask.
    Estas opciones inician un único worker para evitar duplicar la memoria.
 
 
-4. The generator request times out after **240 s** by default. To use a different value set the `data-timeout` attribute (milliseconds) on the `<form id="genForm">` element in `generador.html`.
-5. Choose the **JEAN** profile from the sidebar to minimise the sum of excess and deficit while keeping coverage near 100%.
-6. Select **JEAN Personalizado** to choose the working days, hours per day and break placement. All other solver parameters use the JEAN profile automatically.
+4. `solver_time` sets the CBC time limit in seconds. Leave it blank (`None`) to run without a limit. Use `solver_msg=1` to display progress or `0` to hide it.
+5. The generator request times out after **240 s** by default. To use a different value set the `data-timeout` attribute (milliseconds) on the `<form id="genForm">` element in `generador.html`.
+6. Choose the **JEAN** profile from the sidebar to minimise the sum of excess and deficit while keeping coverage near 100%.
+7. Select **JEAN Personalizado** to choose the working days, hours per day and break placement. All other solver parameters use the JEAN profile automatically.
 
 ## Allowlist
 
