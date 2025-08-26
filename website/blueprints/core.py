@@ -20,7 +20,7 @@ from flask_wtf.csrf import CSRFError
 
 from ..utils.allowlist import verify_user
 from ..utils import kpis_core
-from ..scheduler import PROGRESS
+from ..scheduler import PROGRESS, clear_progress
 
 bp = Blueprint("core", __name__)
 
@@ -179,37 +179,42 @@ def generador():
 
         from ..scheduler import run_complete_optimization
 
-        # Run optimization using the saved file
-        result, excel_bytes, csv_bytes = run_complete_optimization(
-            excel_path, config=config, generate_charts=generate_charts
-        )
+        config["job_id"] = job_id
 
-        heatmaps = result.get("heatmaps", {})
-        if heatmaps:
-            result["heatmaps"] = heatmaps
+        try:
+            # Run optimization using the saved file
+            result, excel_bytes, csv_bytes = run_complete_optimization(
+                excel_path, config=config, generate_charts=generate_charts
+            )
 
-        if excel_bytes:
-            xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
-            with open(xlsx_path, "wb") as f:
-                f.write(excel_bytes)
-            result["download_url"] = url_for("core.download_excel", job_id=job_id)
+            heatmaps = result.get("heatmaps", {})
+            if heatmaps:
+                result["heatmaps"] = heatmaps
 
-        if csv_bytes:
-            csv_path = os.path.join(temp_dir, f"{job_id}.csv")
-            with open(csv_path, "wb") as f:
-                f.write(csv_bytes)
-            result["csv_url"] = url_for("core.download_csv", job_id=job_id)
+            if excel_bytes:
+                xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
+                with open(xlsx_path, "wb") as f:
+                    f.write(excel_bytes)
+                result["download_url"] = url_for("core.download_excel", job_id=job_id)
 
-        json_path = os.path.join(temp_dir, f"{job_id}.json")
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(result, f)
+            if csv_bytes:
+                csv_path = os.path.join(temp_dir, f"{job_id}.csv")
+                with open(csv_path, "wb") as f:
+                    f.write(csv_bytes)
+                result["csv_url"] = url_for("core.download_csv", job_id=job_id)
 
-        session["job_id"] = job_id
+            json_path = os.path.join(temp_dir, f"{job_id}.json")
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(result, f)
 
-        if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
-            return jsonify({"job_id": job_id, **result})
+            session["job_id"] = job_id
 
-        return redirect(url_for("core.resultados"))
+            if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
+                return jsonify({"job_id": job_id, **result})
+
+            return redirect(url_for("core.resultados"))
+        finally:
+            clear_progress(job_id)
 
     return render_template("generador.html")
 
@@ -238,6 +243,7 @@ def resultados():
     except OSError:
         pass
 
+    clear_progress(job_id)
     session.pop("job_id", None)
 
     return render_template("resultados.html", resultado=resultado)
