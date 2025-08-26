@@ -193,17 +193,24 @@
     </div><!-- /accordion -->
 
     <div class="d-flex align-items-center gap-3">
-      <button type="submit" class="btn btn-primary px-4" id="btnExcel">
+      <button type="submit" class="btn btn-primary px-4" id="btnExcel" name="generate_charts" value="false">
         Generar Excel
       </button>
-      <button type="submit" class="btn btn-secondary px-4" id="btnCharts">
+      <button type="submit" class="btn btn-secondary px-4" id="btnCharts" name="generate_charts" value="true">
         Generar Gráficas
       </button>
-      <div class="spinner-border text-primary d-none" id="spinner" role="status" aria-hidden="true"></div>
-      <div class="text-warning-emphasis d-none" id="slowMsg">La generación está tardando más de lo esperado…</div>
+    </div>
+
+    <div class="d-flex align-items-center gap-2 mt-3 d-none" id="loadingIndicator">
+      <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
+      <span>Procesando…</span>
     </div>
 
   </form>
 
-<script src="{{ url_for('static', filename='js/generador.js') }}"></script>
+<script>
+  const form = document.getElementById('genForm');
+  const indicator = document.getElementById('loadingIndicator');
+  form.addEventListener('submit', () => indicator.classList.remove('d-none'));
+</script>
 {% endblock %}
