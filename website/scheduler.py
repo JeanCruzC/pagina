@@ -11,6 +11,7 @@ import heapq
 import csv
 
 import numpy as np
+from threading import Thread
 try:
     import psutil
 except Exception:  # pragma: no cover - optional dependency
@@ -39,6 +40,31 @@ from website.other.kpis_core import analyze_results
 POP = np.fromiter((bin(i).count("1") for i in range(256)), dtype=np.uint8)
 CONTEXT = {}
 PROGRESS = {}
+_PROGRESS_TIMES = {}
+
+
+def clear_progress(job_id):
+    """Remove ``job_id`` from progress tracking structures."""
+    PROGRESS.pop(job_id, None)
+    _PROGRESS_TIMES.pop(job_id, None)
+
+
+def _purge_old_progress(max_age=3600):
+    """Purge progress entries older than ``max_age`` seconds."""
+    now = time.time()
+    stale = [k for k, ts in list(_PROGRESS_TIMES.items()) if now - ts > max_age]
+    for key in stale:
+        clear_progress(key)
+
+
+def _progress_purge_loop():
+    """Background thread that periodically purges stale progress keys."""
+    while True:
+        _purge_old_progress()
+        time.sleep(600)
+
+
+Thread(target=_progress_purge_loop, daemon=True).start()
 
 
 def unpack_pattern(packed: np.ndarray, cols: int) -> np.ndarray:
@@ -53,7 +79,7 @@ except Exception:
 
 print(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
 
-from threading import RLock, Event, Thread
+from threading import RLock, Event
 from functools import wraps
 
 _MODEL_LOCK = RLock()
@@ -114,12 +140,14 @@ def log_solver_progress(time_limit, stop_event, job_id=None):
         percent = min(100, (elapsed / time_limit) * 100) if time_limit else 100
         if job_id is not None:
             PROGRESS[job_id] = percent
+            _PROGRESS_TIMES[job_id] = time.time()
         print(f"[SOLVER] {percent:.0f}%")
         if elapsed >= time_limit:
             break
         time.sleep(1)
     if job_id is not None:
         PROGRESS[job_id] = 100
+        _PROGRESS_TIMES[job_id] = time.time()
 
 
 def solve_with_progress(prob, solver, time_limit, show_progress=False, job_id=None):
@@ -129,6 +157,7 @@ def solve_with_progress(prob, solver, time_limit, show_progress=False, job_id=No
     thread = None
     if job_id is not None:
         PROGRESS[job_id] = 0
+        _PROGRESS_TIMES[job_id] = time.time()
     if show_progress or job_id is not None:
         thread = Thread(target=log_solver_progress, args=(time_limit, stop_event, job_id))
         thread.daemon = True
@@ -139,6 +168,7 @@ def solve_with_progress(prob, solver, time_limit, show_progress=False, job_id=No
         thread.join()
     if job_id is not None:
         PROGRESS[job_id] = 100
+        _PROGRESS_TIMES[job_id] = time.time()
     elapsed = time.time() - start
     status_str = pl.LpStatus.get(prob.status, str(prob.status))
     print(f"[SOLVER] Final status: {status_str} in {elapsed:.2f}s")
