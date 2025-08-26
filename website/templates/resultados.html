@@ -13,6 +13,10 @@
     </div>
   </div>
 
+  {% if resultado and resultado.message %}
+  <div class="alert alert-warning">{{ resultado.message }}</div>
+  {% endif %}
+
   <!-- KPIs -->
   {% if resultado and resultado.metrics %}
   <div class="row g-3 mb-4 text-center">

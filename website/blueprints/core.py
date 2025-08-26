@@ -117,9 +117,23 @@ def generador():
 
         from ..scheduler import run_complete_optimization
 
+        solver_time_val = request.form.get("solver_time")
+        if solver_time_val:
+            try:
+                config["solver_time"] = int(solver_time_val)
+            except ValueError:
+                config["solver_time"] = 300
+        else:
+            config.setdefault("solver_time", 300)
+
         result, excel_bytes, csv_bytes = run_complete_optimization(
             excel_file, config=config, generate_charts=generate_charts
         )
+        if result.get("status") == "TimeLimit":
+            flash(
+                "El solver alcanzó el límite de tiempo; se devolvió la mejor solución parcial disponible.",
+                "warning",
+            )
         if not result or result.get("error"):
             error_msg = result.get("error") if isinstance(result, dict) else "Error desconocido"
             if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
