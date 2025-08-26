@@ -216,15 +216,16 @@ for a complete example.
 
 `load_shift_patterns()` and the internal `generate_shifts_coverage_optimized()`
 functions accept an optional `max_patterns` argument. When omitted the loader
-now estimates how many patterns fit in roughly 4&nbsp;GB of the available
-memory and caps generation automatically.  Patterns are generated and solved
-in batches (2000 patterns by default), sorted by a quick heuristic score, so even 50&nbsp;000+ combinations
-can be handled without exhausting RAM.  `generate_shifts_coverage_optimized()`
-still honours the `batch_size` option to emit patterns in smaller chunks.
-The configuration also exposes a `K` parameter that bounds how many of the
-best scoring patterns are kept in memory.  A heap is used internally to retain
-only the top `K` entries, discarding lower scored ones to further reduce the
-memory footprint.
+estimates how many patterns fit in memory and caps generation automatically.
+The calculation can be limited via the `max_memory_gb` configuration value
+(``None`` uses all available RAM).  Patterns are generated and solved in
+batches (2000 patterns by default), sorted by a quick heuristic score, so even
+50&nbsp;000+ combinations can be handled without exhausting RAM.
+`generate_shifts_coverage_optimized()` still honours the `batch_size` option to
+emit patterns in smaller chunks. The configuration also exposes a `K` parameter
+that bounds how many of the best scoring patterns are kept in memory.  A heap
+is used internally to retain only the top `K` entries, discarding lower scored
+ones to further reduce the memory footprint.
 
 ## Memory-aware Generation
 

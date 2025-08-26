@@ -75,7 +75,8 @@ def memory_limit_patterns(slots_per_day: int, max_gb: float | None = None) -> in
         Number of slots in a day.
     max_gb:
         Optional memory cap in gigabytes. If provided, ``available`` memory is
-        capped to ``max_gb`` before calculating the limit.
+        capped to ``max_gb`` before calculating the limit. If ``max_gb`` is
+        ``None`` all available memory is used.
     """
     if slots_per_day <= 0:
         return 0
@@ -257,7 +258,10 @@ def load_shift_patterns(
         base_slot_min = mins and min(mins) or 60
     slots_per_day = 24 * (60 // base_slot_min)
     if max_patterns is None:
-        max_patterns = memory_limit_patterns(slots_per_day, max_gb=None)
+        max_gb = cfg.get("max_memory_gb")
+        if isinstance(max_gb, str) and not max_gb.strip():
+            max_gb = None
+        max_patterns = memory_limit_patterns(slots_per_day, max_gb=max_gb)
 
     shifts_coverage: Dict[str, np.ndarray] = {}
     unique_patterns: Dict[bytes, str] = {}
@@ -1041,7 +1045,10 @@ def generate_shifts_coverage_corrected(*, max_patterns: int | None = None, batch
         step = slot_minutes / 60
     slots_per_day = 24 * (60 // slot_minutes)
     if max_patterns is None:
-        max_patterns = memory_limit_patterns(slots_per_day, max_gb=None)
+        max_gb = template_cfg.get("max_memory_gb")
+        if isinstance(max_gb, str) and not max_gb.strip():
+            max_gb = None
+        max_patterns = memory_limit_patterns(slots_per_day, max_gb=max_gb)
 
     start_hours = [h for h in np.arange(0, 24, step) if h <= 23.5]
 
