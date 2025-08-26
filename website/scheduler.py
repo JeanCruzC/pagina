@@ -44,8 +44,29 @@ except Exception:
 
 print(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
 
-from threading import RLock
+from threading import RLock, current_thread
 from functools import wraps
+
+
+# Dictionary mapping job_id to the associated Thread object
+active_jobs = {}
+
+
+def _stop_thread(thread):
+    """Attempt to asynchronously stop a thread."""
+    if thread is None:
+        return
+    ident = getattr(thread, "ident", None)
+    if ident is None:
+        return
+    import ctypes
+
+    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_long(ident), ctypes.py_object(SystemExit)
+    )
+    if res > 1:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(ident), 0)
+        raise SystemError("PyThreadState_SetAsyncExc failed")
 
 _MODEL_LOCK = RLock()
 
@@ -1931,7 +1952,9 @@ def export_detailed_schedule(assignments, shifts_coverage):
     return excel_bytes, csv_bytes
 
 
-def run_complete_optimization(file_stream, config=None, generate_charts=False):
+def run_complete_optimization(
+    file_stream, config=None, generate_charts=False, job_id=None
+):
     """Run the full optimization pipeline and return serialized results.
 
     The logic mirrors the interactive workflow in ``legacy/app1.py``.
@@ -1946,6 +1969,9 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
         When ``True`` heatmaps for demand and coverage are generated. This
         is disabled by default to save processing time and memory.
     """
+    if job_id is not None:
+        active_jobs[job_id] = current_thread()
+
     print("\U0001F50D [SCHEDULER] Iniciando run_complete_optimization")
     print(f"\U0001F50D [SCHEDULER] Config recibido: {config}")
 

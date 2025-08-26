@@ -124,7 +124,7 @@ def generador():
             request.form.get("generate_charts", "false").lower() in {"on", "true", "1"}
         )
 
-        from ..scheduler import run_complete_optimization
+        from ..scheduler import active_jobs, run_complete_optimization
 
         solver_time_val = request.form.get("solver_time")
         if solver_time_val:
@@ -145,7 +145,10 @@ def generador():
                 with app.app_context():
                     try:
                         result, excel_out, csv_bytes = run_complete_optimization(
-                            BytesIO(excel_bytes), config=config, generate_charts=generate_charts
+                            BytesIO(excel_bytes),
+                            config=config,
+                            generate_charts=generate_charts,
+                            job_id=job_id,
                         )
                         if not result or result.get("error"):
                             error_msg = (
@@ -182,6 +185,8 @@ def generador():
                         JOBS[job_id] = {"status": "finished"}
                     except Exception as e:  # pragma: no cover - unexpected errors
                         JOBS[job_id] = {"status": "error", "error": str(e)}
+                    finally:
+                        active_jobs.pop(job_id, None)
 
             JOBS[job_id] = {"status": "running"}
             Thread(target=task, daemon=True).start()
@@ -244,6 +249,21 @@ def generador_status(job_id):
     if not info:
         return jsonify({"status": "unknown"}), 404
     return jsonify({"status": info.get("status", "unknown")})
+
+
+@bp.route("/cancel", methods=["POST"])
+@login_required
+def cancel_job():
+    from ..scheduler import active_jobs, _stop_thread
+
+    data = request.get_json(silent=True) or {}
+    job_id = data.get("job_id") or request.form.get("job_id")
+    thread = active_jobs.pop(job_id, None)
+    if not thread:
+        return jsonify({"status": "unknown"}), 404
+    _stop_thread(thread)
+    JOBS[job_id] = {"status": "cancelled"}
+    return jsonify({"status": "cancelled"})
 
 
 @bp.route("/resultados")

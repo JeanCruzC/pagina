@@ -5,7 +5,10 @@ import types
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
+module = types.ModuleType("scheduler")
+module.active_jobs = {}
+module._stop_thread = lambda t: None
+sys.modules.setdefault('website.scheduler', module)
 
 from website import create_app
 from website.utils import allowlist as allowlist_module

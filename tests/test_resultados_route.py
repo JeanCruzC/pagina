@@ -6,10 +6,14 @@ from io import BytesIO
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
+module = types.ModuleType("scheduler")
+module.active_jobs = {}
+module._stop_thread = lambda t: None
+sys.modules['website.scheduler'] = module
 
 from website import create_app
 from website.utils import allowlist as allowlist_module
+from website.blueprints.core import JOBS
 
 app = create_app()
 add_to_allowlist = allowlist_module.add_to_allowlist
@@ -26,6 +30,7 @@ def _csrf_token(client, path):
 @pytest.fixture(autouse=True)
 def temp_allowlist(tmp_path):
     allowlist_module.ALLOWLIST_FILE = tmp_path / "allowlist.json"
+    sys.modules['website.scheduler'].active_jobs = {}
     yield
 
 
@@ -76,3 +81,33 @@ def test_generador_stores_and_renders_result():
     response_again = client.get('/resultados')
     assert response_again.status_code == 302
     assert response_again.headers['Location'].endswith('/generador')
+
+
+def test_cancel_route_stops_job(monkeypatch):
+    client = app.test_client()
+    login(client)
+
+    scheduler = sys.modules['website.scheduler']
+    job_id = 'abc123'
+    thread_obj = object()
+    scheduler.active_jobs[job_id] = thread_obj
+
+    called = {}
+
+    def fake_stop_thread(t):
+        called['thread'] = t
+
+    monkeypatch.setattr(scheduler, '_stop_thread', fake_stop_thread)
+    JOBS[job_id] = {'status': 'running'}
+
+    token = _csrf_token(client, '/generador')
+    resp = client.post(
+        '/cancel',
+        json={'job_id': job_id},
+        headers={'X-CSRFToken': token},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()['status'] == 'cancelled'
+    assert job_id not in scheduler.active_jobs
+    assert called['thread'] is thread_obj
+    assert JOBS[job_id]['status'] == 'cancelled'
