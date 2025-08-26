@@ -62,7 +62,7 @@ def single_model(func):
 # Default configuration values used when no override is supplied
 DEFAULT_CONFIG = {
     # Streamlit legacy defaults from ``legacy/app1.py``
-    "solver_time": None,
+    "solver_time": 300,
     "solver_msg": 1,
     "TARGET_COVERAGE": 98.0,
     "agent_limit_factor": 12,
@@ -2017,6 +2017,11 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
             coverage_matrix = pulp_out["coverage_matrix"]
             status = pulp_out["status"]
             total_agents = pulp_out["total_agents"]
+            warning_msg = (
+                "El solver alcanzó el límite de tiempo; se devolvió la mejor solución parcial disponible."
+                if status == "TimeLimit"
+                else None
+            )
         else:
             print("[OPTIMIZER] PuLP no disponible, usando greedy")
             assignments, coverage_matrix = solve_in_chunks_optimized(
@@ -2028,6 +2033,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
             )
             status = "GREEDY"
             total_agents = sum(assignments.values())
+            warning_msg = None
         print(f"[MEM] Después de resolver: {monitor_memory_usage():.1f}%")
         print(f"[OPTIMIZER] Status: {status}")
         print(f"[OPTIMIZER] Total agents: {total_agents}")
@@ -2073,7 +2079,10 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
             "assignments": assignments,
             "metrics": _convert(metrics),
             "heatmaps": heatmaps,
+            "status": status,
         }
+        if warning_msg:
+            result["message"] = warning_msg
         result["effective_config"] = _convert(cfg)
         print("\u2705 [SCHEDULER] Resultados preparados - RETORNANDO")
         return result, excel_bytes, csv_bytes
