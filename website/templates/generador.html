@@ -124,7 +124,14 @@
             <div class="row g-3">
               <div class="col-md-3">
                 <label class="form-label">Tiempo del solver (s)</label>
-                <input type="number" class="form-control" name="solver_time" value="240">
+                <input type="number" class="form-control" name="solver_time" placeholder="Sin límite">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Mostrar progreso del solver</label>
+                <select class="form-select" name="solver_msg">
+                  <option value="1" selected>Sí</option>
+                  <option value="0">No</option>
+                </select>
               </div>
               <div class="col-md-3">
                 <label class="form-label">Cobertura objetivo (%)</label>
