@@ -146,7 +146,10 @@ def generador():
                 with app.app_context():
                     try:
                         result, excel_out, csv_bytes = run_complete_optimization(
-                            BytesIO(excel_bytes), config=config, generate_charts=generate_charts
+                            BytesIO(excel_bytes),
+                            config=config,
+                            generate_charts=generate_charts,
+                            job_id=job_id,
                         )
                         if not result or result.get("error"):
                             error_msg = (
@@ -254,6 +257,14 @@ def cancel_job():
     data = request.get_json(silent=True) or {}
     job_id = data.get("job_id")
     if job_id:
+        from .. import scheduler
+
+        active = getattr(scheduler, "active_jobs", {})
+        thread = active.get(job_id)
+        stopper = getattr(scheduler, "_stop_thread", None)
+        if thread and stopper:
+            stopper(thread)
+        active.pop(job_id, None)
         JOBS[job_id] = {"status": "cancelled"}
         if session.get("job_id") == job_id:
             session.pop("job_id", None)
