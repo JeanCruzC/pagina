@@ -33,9 +33,6 @@ document.addEventListener('DOMContentLoaded', () => {
     data.append('generate_charts', generateCharts ? 'true' : 'false');
 
     controller = new AbortController();
-    controller.signal.addEventListener('abort', () => {
-      navigator.sendBeacon('/cancel');
-    }, { once: true });
     btnCancel.addEventListener('click', () => {
       controller.abort();
     }, { once: true });
