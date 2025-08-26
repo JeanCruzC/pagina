@@ -44,10 +44,22 @@ except Exception:
 
 print(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
 
-from threading import RLock
+from threading import RLock, current_thread
 from functools import wraps
+import ctypes
 
 _MODEL_LOCK = RLock()
+
+# Registry of active optimization jobs
+active_jobs = {}
+
+
+def _stop_thread(thread):
+    """Attempt to stop a running thread by raising ``SystemExit`` inside it."""
+    if thread and thread.is_alive():  # pragma: no cover - safety guard
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_long(thread.ident), ctypes.py_object(SystemExit)
+        )
 
 
 def single_model(func):
@@ -1931,7 +1943,7 @@ def export_detailed_schedule(assignments, shifts_coverage):
     return excel_bytes, csv_bytes
 
 
-def run_complete_optimization(file_stream, config=None, generate_charts=False):
+def run_complete_optimization(file_stream, config=None, generate_charts=False, job_id=None):
     """Run the full optimization pipeline and return serialized results.
 
     The logic mirrors the interactive workflow in ``legacy/app1.py``.
@@ -1948,6 +1960,9 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
     """
     print("\U0001F50D [SCHEDULER] Iniciando run_complete_optimization")
     print(f"\U0001F50D [SCHEDULER] Config recibido: {config}")
+
+    if job_id:
+        active_jobs[job_id] = current_thread()
 
     try:
         cfg = apply_configuration(config)
@@ -2090,3 +2105,6 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
     except Exception as e:
         print(f"\u274C [SCHEDULER] ERROR CRÍTICO: {str(e)}")
         return {"error": str(e)}, None, None
+    finally:
+        if job_id:
+            active_jobs.pop(job_id, None)
