@@ -70,6 +70,7 @@ DEFAULT_CONFIG = {
     "critical_bonus": 2.0,
     "iterations": 30,
     "solver_threads": os.cpu_count() or 1,
+    "max_memory_gb": None,  # None uses all available memory
     "max_patterns": None,
     "batch_size": 2000,
     "quality_threshold": 0,
@@ -137,7 +138,8 @@ def memory_limit_patterns(slots_per_day, max_gb=None):
     """Return the max number of patterns that fit in memory.
 
     ``max_gb`` caps the available memory (in gigabytes) used for the
-    calculation when provided.
+    calculation when provided. When ``max_gb`` is ``None`` all available
+    memory is considered.
     """
     if slots_per_day <= 0:
         return 0
@@ -264,7 +266,10 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
     base_slot_min = slot_duration_minutes or 60
     slots_per_day = 24 * (60 // base_slot_min)
     if max_patterns is None:
-        max_patterns = memory_limit_patterns(slots_per_day, max_gb=None)
+        max_gb = cfg.get("max_memory_gb")
+        if isinstance(max_gb, str) and not max_gb.strip():
+            max_gb = None
+        max_patterns = memory_limit_patterns(slots_per_day, max_gb=max_gb)
     shifts_coverage = {}
     unique_patterns = {}
     for shift in data.get("shifts", []):
