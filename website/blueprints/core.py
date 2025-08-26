@@ -124,7 +124,7 @@ def generador():
             except ValueError:
                 config["solver_time"] = 300
         else:
-            config.setdefault("solver_time", 300)
+            config["solver_time"] = 300
 
         result, excel_bytes, csv_bytes = run_complete_optimization(
             excel_file, config=config, generate_charts=generate_charts
