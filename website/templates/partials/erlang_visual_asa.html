@@ -1,7 +1,0 @@
-{% if asa_bar %}
-<div class="progress mb-3" style="height:20px;">
-  <div class="progress-bar" role="progressbar" style="width: {{ asa_bar.percent }}%; background-color: {{ asa_bar.color }};">
-    ASA {{ asa_bar.value|round(1) }}s / {{ asa_bar.target }}s
-  </div>
-</div>
-{% endif %}
