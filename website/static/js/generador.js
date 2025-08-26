@@ -6,6 +6,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnCharts = document.getElementById('btnCharts');
   let generateCharts = false;
   let slowTimer;
+  let controller;
+  let jobId;
 
   if (!form || !spinner || !slowMsg || !btnExcel || !btnCharts) return;
 
@@ -25,26 +27,35 @@ document.addEventListener('DOMContentLoaded', () => {
     spinner.classList.remove('d-none');
     slowTimer = setTimeout(() => slowMsg.classList.remove('d-none'), 10000);
 
+    jobId = crypto.randomUUID();
+
     const data = new FormData(form);
     data.append('generate_charts', generateCharts ? 'true' : 'false');
+    data.append('job_id', jobId);
+    controller = new AbortController();
 
     try {
       const resp = await fetch(form.action, {
         method: form.method,
         body: data,
-        headers: { 'Accept': 'application/json' }
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
       });
       const info = await resp.json();
-      const jobId = info.job_id;
+      jobId = info.job_id || jobId;
       if (!jobId) throw new Error('sin id');
       pollStatus(jobId);
     } catch (err) {
       alert('La generación falló. Por favor inténtalo nuevamente.');
-      spinner.classList.add('d-none');
-      slowMsg.classList.add('d-none');
-      btnExcel.disabled = false;
-      btnCharts.disabled = false;
-      clearTimeout(slowTimer);
+      resetUI();
+    }
+  });
+
+  window.addEventListener('pagehide', () => {
+    if (controller) {
+      controller.abort();
+      navigator.sendBeacon('/cancel', JSON.stringify({ job_id: jobId }));
+      resetUI();
     }
   });
 
@@ -61,13 +72,17 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } catch (err) {
       alert('La generación falló. Por favor inténtalo nuevamente.');
-      spinner.classList.add('d-none');
-      slowMsg.classList.add('d-none');
-      btnExcel.disabled = false;
-      btnCharts.disabled = false;
-      clearTimeout(slowTimer);
+      resetUI();
       return;
     }
     setTimeout(() => pollStatus(jobId), 3000);
+  }
+
+  function resetUI() {
+    spinner.classList.add('d-none');
+    slowMsg.classList.add('d-none');
+    btnExcel.disabled = false;
+    btnCharts.disabled = false;
+    clearTimeout(slowTimer);
   }
 });

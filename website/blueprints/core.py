@@ -25,6 +25,7 @@ from flask import (
 from flask_wtf.csrf import CSRFError
 
 from ..utils.allowlist import verify_user
+from ..extensions import csrf
 
 bp = Blueprint("core", __name__)
 
@@ -137,7 +138,7 @@ def generador():
 
         if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
             excel_bytes = excel_file.read()
-            job_id = uuid.uuid4().hex
+            job_id = request.form.get("job_id") or uuid.uuid4().hex
             session["job_id"] = job_id
             app = current_app._get_current_object()
 
@@ -244,6 +245,19 @@ def generador_status(job_id):
     if not info:
         return jsonify({"status": "unknown"}), 404
     return jsonify({"status": info.get("status", "unknown")})
+
+
+@bp.route("/cancel", methods=["POST"])
+@login_required
+@csrf.exempt
+def cancel_job():
+    data = request.get_json(silent=True) or {}
+    job_id = data.get("job_id")
+    if job_id:
+        JOBS[job_id] = {"status": "cancelled"}
+        if session.get("job_id") == job_id:
+            session.pop("job_id", None)
+    return "", 204
 
 
 @bp.route("/resultados")
