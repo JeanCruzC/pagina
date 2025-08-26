@@ -28,6 +28,11 @@ This project creates optimized work schedules using Flask.
 
    When prompted on /generador upload the demand Excel file.
 
+   The reloader is disabled by default. Enable it during development with `FLASK_DEBUG=1`:
+   ```bash
+   FLASK_DEBUG=1 flask --app website.app run
+   ```
+
    Para despliegues de producción utiliza Gunicorn y establece las opciones
    recomendadas mediante `GUNICORN_CMD_ARGS`:
 
