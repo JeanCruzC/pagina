@@ -15,6 +15,8 @@ from flask import (
     send_file,
     abort,
     after_this_request,
+    Response,
+    stream_with_context,
 )
 from flask_wtf.csrf import CSRFError
 
@@ -126,59 +128,89 @@ def generador():
         else:
             config["solver_time"] = 300
 
-        result, excel_bytes, csv_bytes = run_complete_optimization(
-            excel_file, config=config, generate_charts=generate_charts
-        )
-        if result.get("status") == "TimeLimit":
-            flash(
-                "El solver alcanzó el límite de tiempo; se devolvió la mejor solución parcial disponible.",
-                "warning",
-            )
-        if not result or result.get("error"):
-            error_msg = result.get("error") if isinstance(result, dict) else "Error desconocido"
-            if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
-                return jsonify({"error": error_msg}), 500
-            flash(f"Ocurrió un error al procesar el archivo: {error_msg}", "danger")
-            return render_template("generador.html"), 500
-
-        job_id = uuid.uuid4().hex
-
-        heatmaps = result.get("heatmaps", {})
-        if heatmaps:
-            heatmap_dir = os.path.join(temp_dir, job_id)
-            os.makedirs(heatmap_dir, exist_ok=True)
-            for key, path in list(heatmaps.items()):
-                try:
-                    new_name = f"{key}.png"
-                    dest = os.path.join(heatmap_dir, new_name)
-                    os.replace(path, dest)
-                    heatmaps[key] = new_name
-                except OSError:
-                    heatmaps[key] = None
-            result["heatmaps"] = heatmaps
-
-        if excel_bytes:
-            xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
-            with open(xlsx_path, "wb") as f:
-                f.write(excel_bytes)
-            result["download_url"] = url_for("core.download_excel", job_id=job_id)
-
-        if csv_bytes:
-            csv_path = os.path.join(temp_dir, f"{job_id}.csv")
-            with open(csv_path, "wb") as f:
-                f.write(csv_bytes)
-            result["csv_url"] = url_for("core.download_csv", job_id=job_id)
-
-        json_path = os.path.join(temp_dir, f"{job_id}.json")
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(result, f)
-
-        session["job_id"] = job_id
-
         if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
+            result, excel_bytes, csv_bytes = run_complete_optimization(
+                excel_file, config=config, generate_charts=generate_charts
+            )
+            if not result or result.get("error"):
+                error_msg = result.get("error") if isinstance(result, dict) else "Error desconocido"
+                return jsonify({"error": error_msg}), 500
+            job_id = uuid.uuid4().hex
+            heatmaps = result.get("heatmaps", {})
+            if heatmaps:
+                heatmap_dir = os.path.join(temp_dir, job_id)
+                os.makedirs(heatmap_dir, exist_ok=True)
+                for key, path in list(heatmaps.items()):
+                    try:
+                        new_name = f"{key}.png"
+                        dest = os.path.join(heatmap_dir, new_name)
+                        os.replace(path, dest)
+                        heatmaps[key] = new_name
+                    except OSError:
+                        heatmaps[key] = None
+                result["heatmaps"] = heatmaps
+            if excel_bytes:
+                xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
+                with open(xlsx_path, "wb") as f:
+                    f.write(excel_bytes)
+                result["download_url"] = url_for("core.download_excel", job_id=job_id)
+            if csv_bytes:
+                csv_path = os.path.join(temp_dir, f"{job_id}.csv")
+                with open(csv_path, "wb") as f:
+                    f.write(csv_bytes)
+                result["csv_url"] = url_for("core.download_csv", job_id=job_id)
+            json_path = os.path.join(temp_dir, f"{job_id}.json")
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(result, f)
+            session["job_id"] = job_id
             return jsonify({"job_id": job_id, **result})
 
-        return redirect(url_for("core.resultados"))
+        def stream():
+            yield "<!doctype html><html><head><meta charset='utf-8'><title>Procesando</title></head><body><p>Procesando… por favor espera.</p>"
+            result, excel_bytes, csv_bytes = run_complete_optimization(
+                excel_file, config=config, generate_charts=generate_charts
+            )
+            if result.get("status") == "TimeLimit":
+                flash(
+                    "El solver alcanzó el límite de tiempo; se devolvió la mejor solución parcial disponible.",
+                    "warning",
+                )
+            if not result or result.get("error"):
+                error_msg = result.get("error") if isinstance(result, dict) else "Error desconocido"
+                flash(f"Ocurrió un error al procesar el archivo: {error_msg}", "danger")
+                yield f"<script>window.location='{url_for('core.generador')}';</script></body></html>"
+                return
+            job_id = uuid.uuid4().hex
+            heatmaps = result.get("heatmaps", {})
+            if heatmaps:
+                heatmap_dir = os.path.join(temp_dir, job_id)
+                os.makedirs(heatmap_dir, exist_ok=True)
+                for key, path in list(heatmaps.items()):
+                    try:
+                        new_name = f"{key}.png"
+                        dest = os.path.join(heatmap_dir, new_name)
+                        os.replace(path, dest)
+                        heatmaps[key] = new_name
+                    except OSError:
+                        heatmaps[key] = None
+                result["heatmaps"] = heatmaps
+            if excel_bytes:
+                xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
+                with open(xlsx_path, "wb") as f:
+                    f.write(excel_bytes)
+                result["download_url"] = url_for("core.download_excel", job_id=job_id)
+            if csv_bytes:
+                csv_path = os.path.join(temp_dir, f"{job_id}.csv")
+                with open(csv_path, "wb") as f:
+                    f.write(csv_bytes)
+                result["csv_url"] = url_for("core.download_csv", job_id=job_id)
+            json_path = os.path.join(temp_dir, f"{job_id}.json")
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(result, f)
+            session["job_id"] = job_id
+            yield f"<script>window.location='{url_for('core.resultados')}';</script></body></html>"
+
+        return Response(stream_with_context(stream()), mimetype="text/html")
 
     return render_template("generador.html")
 
