@@ -601,6 +601,16 @@ df = pd.read_excel(uploaded)
 st.sidebar.header("⚙️ Configuración")
 MAX_ITER = int(st.sidebar.number_input("Iteraciones máximas", 10, 100, 30))
 TIME_SOLVER = float(st.sidebar.number_input("Tiempo solver (s)", 60, 600, 240))
+SOLVER_THREADS = int(
+    st.sidebar.number_input(
+        "Threads solver (PuLP)",
+        min_value=1,
+        max_value=int(os.cpu_count() or 1),
+        value=int(os.cpu_count() or 1),
+        step=1,
+        help="Número de hilos para CBC solver",
+    )
+)
 TARGET_COVERAGE = float(st.sidebar.slider("Cobertura objetivo (%)", 95, 100, 98))
 VERBOSE = st.sidebar.checkbox("Modo verbose/debug", False)
 
@@ -1456,7 +1466,7 @@ def optimize_single_type(shifts, demand_matrix, shift_type):
         prob += total_excess <= demand_matrix.sum() * 0.05
     
     # Resolver
-    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER, threads=1))
+    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER, threads=SOLVER_THREADS))
     
     # Extraer resultados
     assignments = {}
@@ -1626,7 +1636,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
             msg=0,
             timeLimit=TIME_SOLVER,
             gapRel=0.02,   # 2% gap de optimalidad (más flexible)
-            threads=1,
+            threads=SOLVER_THREADS,
             presolve=1,
             cuts=1
         )
@@ -1747,7 +1757,7 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix):
             prob += coverage <= demand
     
     # Resolver
-    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=1))
+    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=SOLVER_THREADS))
     
     ft_assignments = {}
     if prob.status == pulp.LpStatusOptimal:
@@ -1805,7 +1815,7 @@ def optimize_pt_complete(pt_shifts, remaining_demand):
             prob += coverage - excess_vars[(day, hour)] <= demand
     
     # Resolver
-    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=1))
+    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=SOLVER_THREADS))
     
     pt_assignments = {}
     if prob.status == pulp.LpStatusOptimal:
@@ -1863,7 +1873,7 @@ def optimize_with_relaxed_constraints(shifts_coverage, demand_matrix):
         prob += total_agents <= int(total_demand / 3)
         
         # Resolver con configuración básica
-        prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=1))
+        prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2, threads=SOLVER_THREADS))
         
         assignments = {}
         if prob.status == pulp.LpStatusOptimal:
@@ -2054,7 +2064,7 @@ def optimize_direct_improved(shifts_coverage, demand_matrix):
             msg=0,
             timeLimit=TIME_SOLVER,
             gapRel=0.02,  # 2% gap de optimalidad
-            threads=1
+            threads=SOLVER_THREADS
         )
         prob.solve(solver)
         
@@ -2130,7 +2140,7 @@ def optimize_single_type_improved(shifts_coverage, demand_matrix, shift_type):
     prob += total_excess <= demand_matrix.sum() * 0.15
     
     # Resolver
-    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER, threads=1))
+    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER, threads=SOLVER_THREADS))
     
     assignments = {}
     if prob.status == pulp.LpStatusOptimal:
