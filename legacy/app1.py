@@ -258,10 +258,7 @@ def load_shift_patterns(
         base_slot_min = mins and min(mins) or 60
     slots_per_day = 24 * (60 // base_slot_min)
     if max_patterns is None:
-        max_gb = cfg.get("max_memory_gb")
-        if isinstance(max_gb, str) and not max_gb.strip():
-            max_gb = None
-        max_patterns = memory_limit_patterns(slots_per_day, max_gb=max_gb)
+        max_patterns = memory_limit_patterns(slots_per_day, max_gb=MAX_MEMORY_GB)
 
     shifts_coverage: Dict[str, np.ndarray] = {}
     unique_patterns: Dict[bytes, str] = {}
@@ -606,6 +603,13 @@ st.sidebar.header("⚙️ Configuración")
 MAX_ITER = int(st.sidebar.number_input("Iteraciones máximas", 10, 100, 30))
 TIME_SOLVER = st.sidebar.number_input("Tiempo solver (s)", min_value=0, max_value=600, value=0)
 TIME_SOLVER = None if TIME_SOLVER == 0 else float(TIME_SOLVER)
+MAX_MEMORY_GB = st.sidebar.number_input(
+    "Memoria máxima en GB (0 = sin límite)",
+    min_value=0.0,
+    max_value=64.0,
+    value=0.0,
+)
+MAX_MEMORY_GB = None if MAX_MEMORY_GB == 0 else float(MAX_MEMORY_GB)
 SOLVER_MSG = st.sidebar.selectbox("Mostrar progreso solver", [1, 0], index=0)
 SOLVER_THREADS = int(
     st.sidebar.number_input(
@@ -619,6 +623,7 @@ SOLVER_THREADS = int(
 )
 TARGET_COVERAGE = float(st.sidebar.slider("Cobertura objetivo (%)", 95, 100, 98))
 VERBOSE = st.sidebar.checkbox("Modo verbose/debug", False)
+cfg = {"max_memory_gb": MAX_MEMORY_GB}
 
 # Configuración de contratos
 st.sidebar.subheader("📋 Tipos de Contrato")
@@ -742,6 +747,8 @@ elif optimization_profile == "JEAN Personalizado":
         st.stop()
     try:
         template_cfg = json.load(template_file)
+        cfg.update(template_cfg)
+        cfg["max_memory_gb"] = MAX_MEMORY_GB
     except Exception as e:
         st.sidebar.error(f"Error al leer plantilla: {e}")
         st.stop()
@@ -1047,17 +1054,14 @@ def generate_shifts_coverage_corrected(*, max_patterns: int | None = None, batch
         step = slot_minutes / 60
     slots_per_day = 24 * (60 // slot_minutes)
     if max_patterns is None:
-        max_gb = template_cfg.get("max_memory_gb")
-        if isinstance(max_gb, str) and not max_gb.strip():
-            max_gb = None
-        max_patterns = memory_limit_patterns(slots_per_day, max_gb=max_gb)
+        max_patterns = memory_limit_patterns(slots_per_day, max_gb=MAX_MEMORY_GB)
 
     start_hours = [h for h in np.arange(0, 24, step) if h <= 23.5]
 
     # Perfil JEAN Personalizado: leer patrones desde JSON y retornar
     if optimization_profile == "JEAN Personalizado":
         shifts_coverage = load_shift_patterns(
-            template_cfg,
+            cfg,
             start_hours=start_hours,
             break_from_start=break_from_start,
             break_from_end=break_from_end,
