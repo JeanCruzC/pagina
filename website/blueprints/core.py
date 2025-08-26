@@ -120,6 +120,12 @@ def generador():
         result, excel_bytes, csv_bytes = run_complete_optimization(
             excel_file, config=config, generate_charts=generate_charts
         )
+        if not result or result.get("error"):
+            error_msg = result.get("error") if isinstance(result, dict) else "Error desconocido"
+            if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
+                return jsonify({"error": error_msg}), 500
+            flash(f"Ocurrió un error al procesar el archivo: {error_msg}", "danger")
+            return render_template("generador.html"), 500
 
         job_id = uuid.uuid4().hex
 

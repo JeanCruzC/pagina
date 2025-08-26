@@ -2069,3 +2069,4 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False):
 
     except Exception as e:
         print(f"\u274C [SCHEDULER] ERROR CRÍTICO: {str(e)}")
+        return {"error": str(e)}, None, None
