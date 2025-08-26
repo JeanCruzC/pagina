@@ -126,12 +126,19 @@ def _build_pattern(days, durations, start_hour, break_len, break_from_start,
     return pattern.reshape(-1)
 
 
-def memory_limit_patterns(slots_per_day):
-    """Return the max number of patterns that fit in memory."""
+def memory_limit_patterns(slots_per_day, max_gb=None):
+    """Return the max number of patterns that fit in memory.
+
+    ``max_gb`` caps the available memory (in gigabytes) used for the
+    calculation when provided.
+    """
     if slots_per_day <= 0:
         return 0
     available = psutil.virtual_memory().available
-    cap = min(available, 4 * 1024 ** 3)
+    if max_gb is not None:
+        cap = min(available, max_gb * 1024 ** 3)
+    else:
+        cap = available
     return int(cap // (7 * slots_per_day))
 
 
@@ -250,7 +257,7 @@ def load_shift_patterns(cfg, *, start_hours=None, break_from_start=2.0,
     base_slot_min = slot_duration_minutes or 60
     slots_per_day = 24 * (60 // base_slot_min)
     if max_patterns is None:
-        max_patterns = memory_limit_patterns(slots_per_day)
+        max_patterns = memory_limit_patterns(slots_per_day, max_gb=None)
     shifts_coverage = {}
     unique_patterns = {}
     for shift in data.get("shifts", []):
