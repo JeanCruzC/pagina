@@ -3,6 +3,9 @@ import json
 import uuid
 import tempfile
 from functools import wraps
+from threading import Thread
+from io import BytesIO
+
 from flask import (
     Blueprint,
     render_template,
@@ -17,6 +20,7 @@ from flask import (
     after_this_request,
     Response,
     stream_with_context,
+    current_app,
 )
 from flask_wtf.csrf import CSRFError
 
@@ -26,6 +30,9 @@ bp = Blueprint("core", __name__)
 
 # Default temporary directory
 temp_dir = tempfile.gettempdir()
+
+# In-memory job store for background optimization tasks
+JOBS = {}
 
 
 # ---------------------------------------------------------------------------
@@ -129,41 +136,56 @@ def generador():
             config["solver_time"] = 300
 
         if request.accept_mimetypes["application/json"] > request.accept_mimetypes["text/html"]:
-            result, excel_bytes, csv_bytes = run_complete_optimization(
-                excel_file, config=config, generate_charts=generate_charts
-            )
-            if not result or result.get("error"):
-                error_msg = result.get("error") if isinstance(result, dict) else "Error desconocido"
-                return jsonify({"error": error_msg}), 500
+            excel_bytes = excel_file.read()
             job_id = uuid.uuid4().hex
-            heatmaps = result.get("heatmaps", {})
-            if heatmaps:
-                heatmap_dir = os.path.join(temp_dir, job_id)
-                os.makedirs(heatmap_dir, exist_ok=True)
-                for key, path in list(heatmaps.items()):
-                    try:
-                        new_name = f"{key}.png"
-                        dest = os.path.join(heatmap_dir, new_name)
-                        os.replace(path, dest)
-                        heatmaps[key] = new_name
-                    except OSError:
-                        heatmaps[key] = None
-                result["heatmaps"] = heatmaps
-            if excel_bytes:
-                xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
-                with open(xlsx_path, "wb") as f:
-                    f.write(excel_bytes)
-                result["download_url"] = url_for("core.download_excel", job_id=job_id)
-            if csv_bytes:
-                csv_path = os.path.join(temp_dir, f"{job_id}.csv")
-                with open(csv_path, "wb") as f:
-                    f.write(csv_bytes)
-                result["csv_url"] = url_for("core.download_csv", job_id=job_id)
-            json_path = os.path.join(temp_dir, f"{job_id}.json")
-            with open(json_path, "w", encoding="utf-8") as f:
-                json.dump(result, f)
             session["job_id"] = job_id
-            return jsonify({"job_id": job_id, **result})
+            app = current_app._get_current_object()
+
+            def task():
+                with app.app_context():
+                    try:
+                        result, excel_out, csv_bytes = run_complete_optimization(
+                            BytesIO(excel_bytes), config=config, generate_charts=generate_charts
+                        )
+                        if not result or result.get("error"):
+                            error_msg = (
+                                result.get("error") if isinstance(result, dict) else "Error desconocido"
+                            )
+                            JOBS[job_id] = {"status": "error", "error": error_msg}
+                            return
+                        heatmaps = result.get("heatmaps", {})
+                        if heatmaps:
+                            heatmap_dir = os.path.join(temp_dir, job_id)
+                            os.makedirs(heatmap_dir, exist_ok=True)
+                            for key, path in list(heatmaps.items()):
+                                try:
+                                    new_name = f"{key}.png"
+                                    dest = os.path.join(heatmap_dir, new_name)
+                                    os.replace(path, dest)
+                                    heatmaps[key] = new_name
+                                except OSError:
+                                    heatmaps[key] = None
+                            result["heatmaps"] = heatmaps
+                        if excel_out:
+                            xlsx_path = os.path.join(temp_dir, f"{job_id}.xlsx")
+                            with open(xlsx_path, "wb") as f:
+                                f.write(excel_out)
+                            result["download_url"] = url_for("core.download_excel", job_id=job_id)
+                        if csv_bytes:
+                            csv_path = os.path.join(temp_dir, f"{job_id}.csv")
+                            with open(csv_path, "wb") as f:
+                                f.write(csv_bytes)
+                            result["csv_url"] = url_for("core.download_csv", job_id=job_id)
+                        json_path = os.path.join(temp_dir, f"{job_id}.json")
+                        with open(json_path, "w", encoding="utf-8") as f:
+                            json.dump(result, f)
+                        JOBS[job_id] = {"status": "finished"}
+                    except Exception as e:  # pragma: no cover - unexpected errors
+                        JOBS[job_id] = {"status": "error", "error": str(e)}
+
+            JOBS[job_id] = {"status": "running"}
+            Thread(target=task, daemon=True).start()
+            return jsonify({"job_id": job_id, "status": "running"})
 
         def stream():
             yield "<!doctype html><html><head><meta charset='utf-8'><title>Procesando</title></head><body><p>Procesando… por favor espera.</p>"
@@ -213,6 +235,15 @@ def generador():
         return Response(stream_with_context(stream()), mimetype="text/html")
 
     return render_template("generador.html")
+
+
+@bp.route("/generador/status/<job_id>")
+@login_required
+def generador_status(job_id):
+    info = JOBS.get(job_id)
+    if not info:
+        return jsonify({"status": "unknown"}), 404
+    return jsonify({"status": info.get("status", "unknown")})
 
 
 @bp.route("/resultados")
