@@ -31,13 +31,13 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const resp = await fetch(form.action, {
         method: form.method,
-        body: data
+        body: data,
+        headers: { 'Accept': 'application/json' }
       });
-      if (resp.redirected) {
-        window.location.href = resp.url;
-        return;
-      }
-      throw new Error('non-redirect');
+      const info = await resp.json();
+      const jobId = info.job_id;
+      if (!jobId) throw new Error('sin id');
+      pollStatus(jobId);
     } catch (err) {
       alert('La generación falló. Por favor inténtalo nuevamente.');
       spinner.classList.add('d-none');
@@ -47,4 +47,27 @@ document.addEventListener('DOMContentLoaded', () => {
       clearTimeout(slowTimer);
     }
   });
+
+  async function pollStatus(jobId) {
+    try {
+      const resp = await fetch(`/generador/status/${jobId}`);
+      const data = await resp.json();
+      if (data.status === 'finished') {
+        window.location.href = '/resultados';
+        return;
+      }
+      if (data.status === 'error') {
+        throw new Error('error');
+      }
+    } catch (err) {
+      alert('La generación falló. Por favor inténtalo nuevamente.');
+      spinner.classList.add('d-none');
+      slowMsg.classList.add('d-none');
+      btnExcel.disabled = false;
+      btnCharts.disabled = false;
+      clearTimeout(slowTimer);
+      return;
+    }
+    setTimeout(() => pollStatus(jobId), 3000);
+  }
 });

@@ -55,9 +55,20 @@ def test_generador_stores_and_renders_result():
     )
     token = _csrf_token(client, '/generador')
     data = {'excel': (BytesIO(b'data'), 'test.xlsx'), 'csrf_token': token}
-    response = client.post('/generador', data=data, content_type='multipart/form-data', follow_redirects=False)
-    assert response.status_code == 302
-    assert response.headers['Location'].endswith('/resultados')
+    response = client.post(
+        '/generador',
+        data=data,
+        content_type='multipart/form-data',
+        headers={'Accept': 'application/json'},
+    )
+    assert response.status_code == 200
+    job_id = response.get_json()['job_id']
+    import time
+    for _ in range(20):
+        status = client.get(f'/generador/status/{job_id}').get_json()['status']
+        if status == 'finished':
+            break
+        time.sleep(0.1)
     result_page = client.get('/resultados')
     assert result_page.status_code == 200
     assert b'Resultados' in result_page.data
