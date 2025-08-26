@@ -98,6 +98,12 @@ def merge_config(cfg=None):
         pass
     if cfg:
         merged.update({k: v for k, v in cfg.items() if v is not None})
+    try:
+        merged["solver_threads"] = int(merged.get("solver_threads", 1))
+    except (TypeError, ValueError):
+        merged["solver_threads"] = 1
+    if merged["solver_threads"] < 1:
+        raise ValueError("solver_threads must be >= 1")
     return merged
 
 

@@ -80,11 +80,12 @@ def register():
 @bp.route("/generador", methods=["GET", "POST"])
 @login_required
 def generador():
+    default_threads = os.cpu_count() or 1
     if request.method == "POST":
         excel_file = request.files.get("excel")
         if not excel_file:
             flash("Se requiere un archivo Excel", "warning")
-            return render_template("generador.html"), 400
+            return render_template("generador.html", default_threads=default_threads), 400
 
         config = {}
         for key, value in request.form.items():
@@ -157,7 +158,7 @@ def generador():
 
         return redirect(url_for("core.resultados"))
 
-    return render_template("generador.html")
+    return render_template("generador.html", default_threads=default_threads)
 
 
 @bp.route("/resultados")
