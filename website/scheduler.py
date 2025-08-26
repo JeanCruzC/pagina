@@ -144,21 +144,30 @@ def memory_limit_patterns(slots_per_day, max_gb=None):
     """
     if slots_per_day <= 0:
         return 0
-    available = psutil.virtual_memory().available
-    if max_gb is not None:
-        cap = min(available, max_gb * 1024 ** 3)
+    if psutil is None:
+        if max_gb is None:
+            raise RuntimeError("psutil is required to determine available memory")
+        cap = max_gb * 1024 ** 3
     else:
-        cap = available
+        available = psutil.virtual_memory().available
+        if max_gb is not None:
+            cap = min(available, max_gb * 1024 ** 3)
+        else:
+            cap = available
     return int(cap // (7 * slots_per_day))
 
 
 def monitor_memory_usage():
     """Return current memory usage percentage."""
+    if psutil is None:
+        return 0.0
     return psutil.virtual_memory().percent
 
 
 def adaptive_chunk_size(base=5000):
     """Adjust chunk size based on memory usage."""
+    if psutil is None:
+        return base
     usage = monitor_memory_usage()
     if usage > 80:
         return max(1000, base // 4)
@@ -169,6 +178,8 @@ def adaptive_chunk_size(base=5000):
 
 def emergency_cleanup(threshold=85.0):
     """Trigger ``gc.collect`` if usage exceeds ``threshold``."""
+    if psutil is None:
+        return False
     if monitor_memory_usage() >= threshold:
         gc.collect()
         return True
