@@ -2,6 +2,8 @@ import os
 import json
 import uuid
 import tempfile
+import time
+import shutil
 from functools import wraps
 from threading import Thread
 from io import BytesIO
@@ -26,7 +28,10 @@ from flask_wtf.csrf import CSRFError
 
 from ..utils.allowlist import verify_user
 from ..extensions import csrf
-from .. import scheduler
+import importlib
+
+# Ensure we import the ``website.scheduler`` module, not the extension object
+scheduler = importlib.import_module("website.scheduler")
 
 core = Blueprint("core", __name__)
 bp = core  # backward compatibility
@@ -34,10 +39,79 @@ bp = core  # backward compatibility
 # Default temporary directory
 temp_dir = tempfile.gettempdir()
 
-_RESULTS = {}  # {job_id: {"resultado": ..., "excel": ..., "csv": ...}}
+_RESULTS = {}  # {job_id: {"resultado": ..., "excel": ..., "csv": ..., "timestamp": ...}}
 
 # In-memory job store for background optimization tasks (used by /cancel)
 JOBS = {}
+
+
+# ---------------------------------------------------------------------------
+# Cleanup helpers
+# ---------------------------------------------------------------------------
+
+def _cleanup_job_dir(job_id):
+    """Remove temporary files associated with ``job_id`` if they exist."""
+    try:  # pragma: no cover - best effort
+        shutil.rmtree(os.path.join(temp_dir, job_id))
+    except OSError:
+        pass
+
+
+def cleanup_results(max_age=None, max_entries=None):
+    """Remove old entries from ``_RESULTS``.
+
+    Entries older than ``max_age`` seconds or exceeding ``max_entries`` are
+    discarded. Default values are taken from application configuration keys
+    ``RESULT_TTL`` and ``RESULT_MAX_ENTRIES``.
+    """
+
+    app = current_app._get_current_object()
+    now = time.time()
+    max_age = max_age if max_age is not None else app.config.get("RESULT_TTL", 3600)
+    max_entries = (
+        max_entries
+        if max_entries is not None
+        else app.config.get("RESULT_MAX_ENTRIES", 100)
+    )
+
+    # Remove entries older than ``max_age``
+    for job_id, data in list(_RESULTS.items()):
+        ts = data.get("timestamp", 0)
+        if now - ts > max_age:
+            _RESULTS.pop(job_id, None)
+            _cleanup_job_dir(job_id)
+
+    # Trim if exceeding ``max_entries`` keeping the newest results
+    if len(_RESULTS) > max_entries:
+        sorted_items = sorted(
+            _RESULTS.items(), key=lambda item: item[1].get("timestamp", 0)
+        )
+        for job_id, _ in sorted_items[:-max_entries]:
+            _RESULTS.pop(job_id, None)
+            _cleanup_job_dir(job_id)
+
+
+_cleanup_thread_started = False
+
+
+@bp.before_app_request
+def _start_cleanup_thread():  # pragma: no cover - background job
+    """Start a background thread to periodically clean ``_RESULTS``."""
+
+    global _cleanup_thread_started
+    if _cleanup_thread_started:
+        return
+    app = current_app._get_current_object()
+    interval = app.config.get("RESULT_CLEAN_INTERVAL", 600)
+
+    def _worker():
+        while True:
+            time.sleep(interval)
+            with app.app_context():
+                cleanup_results()
+
+    Thread(target=_worker, daemon=True).start()
+    _cleanup_thread_started = True
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +234,9 @@ def generar():
                 "resultado": result,
                 "excel": excel_out,
                 "csv": csv_out,
+                "timestamp": time.time(),
             }
+            cleanup_results()
 
     Thread(target=_worker, daemon=True).start()
     session["last_job_id"] = job_id
@@ -185,8 +261,6 @@ def cancel_job():
     data = request.get_json(silent=True) or {}
     job_id = data.get("job_id")
     if job_id:
-        from .. import scheduler
-
         active = getattr(scheduler, "active_jobs", {})
         thread = active.get(job_id)
         stopper = getattr(scheduler, "_stop_thread", None)
