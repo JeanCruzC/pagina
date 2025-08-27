@@ -138,10 +138,17 @@ def generador_form():
 def generador_status(job_id):
     job = JOBS.get(job_id)
     if not job:
-        return jsonify({"status": "error"}), 404
-    if job.get("status") == "finished":
+        return jsonify({"status": "unknown"}), 200
+
+    status = job.get("status")
+    if status == "finished":
         session["resultado"] = job.get("result")
-    return jsonify({"status": job.get("status")})
+        print(f"\u2705 [GENERATOR] Job {job_id} finished")
+        return jsonify({"status": "finished"})
+    if status == "error":
+        print(f"\u274C [GENERATOR] Job {job_id} error: {job.get('error')}")
+        return jsonify({"status": "error", "error": job.get("error")})
+    return jsonify({"status": "running"})
 
 
 @bp.get("/resultados")
