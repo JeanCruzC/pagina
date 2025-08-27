@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 
 from .extensions import csrf, scheduler
 from .blueprints.core import core as core_bp
+from . import generator_routes
 
 
 def create_app(config=None):
@@ -29,9 +30,11 @@ def create_app(config=None):
 
     # Extensions
     csrf.init_app(app)
-    scheduler.init_app(app)
+    if hasattr(scheduler, "init_app"):
+        scheduler.init_app(app)
 
     # Blueprints
     app.register_blueprint(core_bp)
+    app.register_blueprint(generator_routes.bp)
 
     return app

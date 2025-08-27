@@ -1,12 +1,9 @@
 import os
-import json
-import uuid
 import tempfile
 import time
 import shutil
 from functools import wraps
 from threading import Thread
-from io import BytesIO
 
 from flask import (
     Blueprint,
@@ -40,9 +37,6 @@ bp = core  # backward compatibility
 temp_dir = tempfile.gettempdir()
 
 _RESULTS = {}  # {job_id: {"resultado": ..., "excel": ..., "csv": ..., "timestamp": ...}}
-
-# In-memory job store for background optimization tasks (used by /cancel)
-JOBS = {}
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +143,7 @@ def login():
         password = request.form.get("password", "")
         if verify_user(email, password):
             session["user"] = email
-            return redirect(url_for("core.generador"))
+            return redirect(url_for("generator.generador"))
         flash("Credenciales inválidas", "warning")
     return render_template("login.html")
 
@@ -165,161 +159,6 @@ def register():
     return redirect(url_for("core.login"))
 
 
-@core.get("/generador")
-@login_required
-def generador():
-    return render_template("generador.html")
-
-
-@core.post("/generador")
-@login_required
-def generar():
-    file = request.files.get("excel")
-    if not file:
-        return jsonify({"error": "Se requiere un archivo Excel"}), 400
-
-    cfg = {}
-    for key, value in request.form.items():
-        if key in {"csrf_token", "generate_charts", "job_id"}:
-            continue
-        if value == "":
-            continue
-        low = value.lower()
-        if low in {"on", "true", "1"}:
-            cfg[key] = True
-        elif low in {"off", "false", "0"}:
-            cfg[key] = False
-        else:
-            try:
-                cfg[key] = int(value) if value.isdigit() else float(value)
-            except ValueError:
-                cfg[key] = value
-
-    jean_file = request.files.get("jean_file")
-    if jean_file and jean_file.filename:
-        try:
-            cfg.update(json.load(jean_file))
-        except Exception:
-            pass
-
-    generate_charts = (
-        request.form.get("generate_charts", "false").lower() in {"on", "true", "1"}
-    )
-    job_id = request.form.get("job_id") or uuid.uuid4().hex
-    excel_bytes = file.read()
-    app = current_app._get_current_object()
-
-    def _worker():
-        with app.app_context():
-            result, excel_out, csv_out = scheduler.run_complete_optimization(
-                BytesIO(excel_bytes),
-                config=cfg,
-                generate_charts=generate_charts,
-                job_id=job_id,
-            )
-            heatmaps = result.get("heatmaps", {})
-            if heatmaps:
-                heatmap_dir = os.path.join(temp_dir, job_id)
-                os.makedirs(heatmap_dir, exist_ok=True)
-                for key, path in list(heatmaps.items()):
-                    try:
-                        new_name = f"{key}.png"
-                        dest = os.path.join(heatmap_dir, new_name)
-                        os.replace(path, dest)
-                        heatmaps[key] = new_name
-                    except OSError:
-                        heatmaps[key] = None
-                result["heatmaps"] = heatmaps
-            _RESULTS[job_id] = {
-                "resultado": result,
-                "excel": excel_out,
-                "csv": csv_out,
-                "timestamp": time.time(),
-            }
-            cleanup_results()
-
-    Thread(target=_worker, daemon=True).start()
-    session["last_job_id"] = job_id
-    return jsonify({"job_id": job_id}), 202
-
-
-@core.get("/generador/status/<job_id>")
-@login_required
-def generador_status(job_id):
-    if job_id in _RESULTS:
-        return jsonify({"status": "finished"})
-    active = getattr(scheduler, "active_jobs", {})
-    if active.get(job_id):
-        return jsonify({"status": "running"})
-    return jsonify({"status": "error"}), 404
-
-
-@bp.route("/cancel", methods=["POST"])
-@login_required
-@csrf.exempt
-def cancel_job():
-    data = request.get_json(silent=True) or {}
-    job_id = data.get("job_id")
-    if job_id:
-        active = getattr(scheduler, "active_jobs", {})
-        thread = active.get(job_id)
-        stopper = getattr(scheduler, "_stop_thread", None)
-        if thread and stopper:
-            stopper(thread)
-        active.pop(job_id, None)
-        JOBS[job_id] = {"status": "cancelled"}
-        if session.get("last_job_id") == job_id:
-            session.pop("last_job_id", None)
-    return "", 204
-
-
-@core.get("/resultados")
-@login_required
-def resultados():
-    job_id = session.get("last_job_id")
-    data = _RESULTS.get(job_id)
-    if not job_id or not data:
-        return redirect(url_for("core.generador"))
-
-    resultado = data.get("resultado", {}) or {}
-    resultado["download_url"] = url_for("core.descargar_excel", job_id=job_id)
-    resultado["csv_url"] = url_for("core.descargar_csv", job_id=job_id)
-    heatmaps = resultado.get("heatmaps", {})
-    for key, fname in list(heatmaps.items()):
-        if fname:
-            heatmaps[key] = url_for("core.heatmap", job_id=job_id, filename=fname)
-        else:
-            heatmaps[key] = None
-    resultado["heatmaps"] = heatmaps
-    return render_template("resultados.html", resultado=resultado)
-
-
-@core.get("/descargar/excel/<job_id>")
-@login_required
-def descargar_excel(job_id):
-    data = _RESULTS.get(job_id)
-    if not data or not data.get("excel"):
-        abort(404)
-    return send_file(
-        BytesIO(data["excel"]),
-        as_attachment=True,
-        download_name=f"{job_id}.xlsx",
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-
-@core.get("/descargar/csv/<job_id>")
-@login_required
-def descargar_csv(job_id):
-    data = _RESULTS.get(job_id)
-    if not data or not data.get("csv"):
-        abort(404)
-    return send_file(
-        BytesIO(data["csv"]),
-        as_attachment=True,
-        download_name=f"{job_id}.csv",
-        mimetype="text/csv",
-    )
 
 
 @bp.route("/heatmap/<job_id>/<path:filename>")
