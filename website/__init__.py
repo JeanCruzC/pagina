@@ -4,7 +4,7 @@ from flask import Flask
 from dotenv import load_dotenv
 
 from .extensions import csrf, scheduler
-from .blueprints.core import bp as core_bp
+from .blueprints.core import core as core_bp
 
 
 def create_app(config=None):
