@@ -1,3 +1,4 @@
+import os
 import uuid
 import tempfile
 from threading import Thread
@@ -28,9 +29,6 @@ bp = Blueprint("generator", __name__)
 # {job_id: {"status": "running"|"finished"|"error"|"cancelled", "result": {...}}}
 JOBS = {}
 
-# Token to temporary file mapping
-# {token: {"path": ..., "mimetype": ..., "filename": ...}}
-_DOWNLOADS = {}
 
 
 def _worker(app, job_id, excel_bytes, cfg, generate_charts):
@@ -45,30 +43,18 @@ def _worker(app, job_id, excel_bytes, cfg, generate_charts):
             )
             # Save Excel output
             if excel_out:
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-                tmp.write(excel_out)
-                tmp.flush()
-                tmp.close()
-                token = uuid.uuid4().hex
-                _DOWNLOADS[token] = {
-                    "path": tmp.name,
-                    "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "filename": f"{job_id}.xlsx",
-                }
+                token = uuid.uuid4().hex + ".xlsx"
+                path = os.path.join(tempfile.gettempdir(), token)
+                with open(path, "wb") as tmp:
+                    tmp.write(excel_out)
                 result["download_url"] = url_for("generator.download", token=token)
             # Save CSV output
             if csv_out:
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
-                tmp.write(csv_out)
-                tmp.flush()
-                tmp.close()
-                token = uuid.uuid4().hex
-                _DOWNLOADS[token] = {
-                    "path": tmp.name,
-                    "mimetype": "text/csv",
-                    "filename": f"{job_id}.csv",
-                }
-                result["csv_url"] = url_for("generator.download", token=token)
+                token = uuid.uuid4().hex + ".csv"
+                path = os.path.join(tempfile.gettempdir(), token)
+                with open(path, "wb") as tmp:
+                    tmp.write(csv_out)
+                result["csv_url"] = url_for("generator.download", token=token, csv=1)
             JOBS[job_id] = {"status": "finished", "result": result}
         except Exception:
             JOBS[job_id] = {"status": "error"}
@@ -154,14 +140,20 @@ def resultados():
 @bp.get("/download/<token>")
 @login_required
 def download(token):
-    info = _DOWNLOADS.get(token)
-    if not info:
+    path = os.path.join(tempfile.gettempdir(), token)
+    if not os.path.exists(path):
         abort(404)
+    if request.args.get("csv") == "1":
+        filename = "horarios.csv"
+        mimetype = "text/csv"
+    else:
+        filename = "horarios.xlsx"
+        mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     return send_file(
-        info["path"],
+        path,
         as_attachment=True,
-        download_name=info["filename"],
-        mimetype=info["mimetype"],
+        download_name=filename,
+        mimetype=mimetype,
     )
 
 
