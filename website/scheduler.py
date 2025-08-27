@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from flask import current_app
 import json
 import time
 import os
@@ -10,7 +11,6 @@ import heapq
 
 import tempfile
 import csv
-from flask import current_app
 
 import numpy as np
 try:
@@ -52,6 +52,41 @@ _MODEL_LOCK = RLock()
 
 # Registry of active optimization jobs
 active_jobs = {}
+
+
+def init_app(app):
+    """Initialize scheduler storage and defaults on ``app``."""
+
+    app.extensions.setdefault("scheduler", {
+        "active_jobs": active_jobs,
+        "results": {},
+    })
+    app.config.setdefault("SCHEDULER_MAX_RUNTIME", 300)
+    app.config.setdefault("SCHEDULER_MAX_MEMORY_GB", None)
+
+
+def get_store(app=None):
+    """Return the scheduler store for ``app`` or the current application."""
+
+    app = app or current_app
+    return app.extensions.setdefault("scheduler", {
+        "active_jobs": active_jobs,
+        "results": {},
+    })
+
+
+def set_result(job_id, payload, app=None):
+    """Store a result payload under ``job_id``."""
+
+    store = get_store(app)
+    store.setdefault("results", {})[job_id] = payload
+
+
+def get_result(job_id, app=None):
+    """Retrieve a previously stored result for ``job_id``."""
+
+    store = get_store(app)
+    return store.get("results", {}).get(job_id)
 
 
 def _stop_thread(thread):
