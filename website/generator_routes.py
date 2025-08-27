@@ -3,6 +3,7 @@ import tempfile
 from threading import Thread
 from io import BytesIO
 import importlib
+import os
 
 from flask import (
     Blueprint,
@@ -179,5 +180,13 @@ def cancel_job():
             stopper(thread)
         if isinstance(active, dict):
             active.pop(job_id, None)
-        JOBS[job_id] = {"status": "cancelled"}
+        job_info = JOBS.pop(job_id, None)
+        if job_info:
+            for key in ("excel_path", "csv_path"):
+                path = job_info.get(key) or job_info.get("result", {}).get(key)
+                if path:
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
     return "", 204
