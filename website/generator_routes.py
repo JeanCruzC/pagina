@@ -3,7 +3,6 @@ import tempfile
 from threading import Thread
 from io import BytesIO
 import importlib
-
 from flask import (
     Blueprint,
     render_template,
@@ -12,8 +11,6 @@ from flask import (
     jsonify,
     send_file,
     abort,
-    current_app,
-    url_for,
 )
 
 from .extensions import csrf
@@ -33,45 +30,44 @@ JOBS = {}
 _DOWNLOADS = {}
 
 
-def _worker(app, job_id, excel_bytes, cfg, generate_charts):
+def _worker(job_id, excel_bytes, cfg, generate_charts):
     """Background worker that runs the optimization and stores results."""
-    with app.app_context():
-        try:
-            result, excel_out, csv_out = scheduler.run_complete_optimization(
-                BytesIO(excel_bytes),
-                config=cfg,
-                generate_charts=generate_charts,
-                job_id=job_id,
-            )
-            # Save Excel output
-            if excel_out:
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
-                tmp.write(excel_out)
-                tmp.flush()
-                tmp.close()
-                token = uuid.uuid4().hex
-                _DOWNLOADS[token] = {
-                    "path": tmp.name,
-                    "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "filename": f"{job_id}.xlsx",
-                }
-                result["download_url"] = url_for("generator.download", token=token)
-            # Save CSV output
-            if csv_out:
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
-                tmp.write(csv_out)
-                tmp.flush()
-                tmp.close()
-                token = uuid.uuid4().hex
-                _DOWNLOADS[token] = {
-                    "path": tmp.name,
-                    "mimetype": "text/csv",
-                    "filename": f"{job_id}.csv",
-                }
-                result["csv_url"] = url_for("generator.download", token=token)
-            JOBS[job_id] = {"status": "finished", "result": result}
-        except Exception:
-            JOBS[job_id] = {"status": "error"}
+    try:
+        result, excel_out, csv_out = scheduler.run_complete_optimization(
+            BytesIO(excel_bytes),
+            config=cfg,
+            generate_charts=generate_charts,
+            job_id=job_id,
+        )
+        # Save Excel output
+        if excel_out:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+            tmp.write(excel_out)
+            tmp.flush()
+            tmp.close()
+            token = uuid.uuid4().hex
+            _DOWNLOADS[token] = {
+                "path": tmp.name,
+                "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "filename": f"{job_id}.xlsx",
+            }
+            result["download_url"] = f"/download/{token}"
+        # Save CSV output
+        if csv_out:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
+            tmp.write(csv_out)
+            tmp.flush()
+            tmp.close()
+            token = uuid.uuid4().hex
+            _DOWNLOADS[token] = {
+                "path": tmp.name,
+                "mimetype": "text/csv",
+                "filename": f"{job_id}.csv",
+            }
+            result["csv_url"] = f"/download/{token}"
+        JOBS[job_id] = {"status": "finished", "result": result}
+    except Exception:
+        JOBS[job_id] = {"status": "error"}
 
 
 @bp.get("/generador")
@@ -82,10 +78,17 @@ def generador():
 
 @bp.post("/generador")
 @login_required
-def generador_form():
-    file = request.files.get("excel")
+def generador_run():
+    file = request.files.get("archivo")
     if not file:
         return jsonify({"error": "Se requiere un archivo Excel"}), 400
+
+    job_id = request.form.get("job_id") or uuid.uuid4().hex
+    generate_charts = request.form.get("generate_charts", "false").lower() in {
+        "on",
+        "true",
+        "1",
+    }
 
     cfg = {}
     for key, value in request.form.items():
@@ -113,20 +116,11 @@ def generador_form():
         except Exception:
             pass
 
-    generate_charts = request.form.get("generate_charts", "false").lower() in {
-        "on",
-        "true",
-        "1",
-    }
-    job_id = request.form.get("job_id") or uuid.uuid4().hex
-    excel_bytes = file.read()
-
     JOBS[job_id] = {"status": "running"}
 
-    app_obj = current_app._get_current_object()
     Thread(
         target=_worker,
-        args=(app_obj, job_id, excel_bytes, cfg, generate_charts),
+        args=(job_id, file.read(), cfg, generate_charts),
         daemon=True,
     ).start()
 

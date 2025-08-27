@@ -6,15 +6,15 @@
     <span class="text-muted small">Replica mejorada del app1 (Streamlit)</span>
   </div>
 
-  <form id="genForm" method="POST" action="{{ url_for('generator.generador_form') }}" enctype="multipart/form-data" class="needs-validation" novalidate>
+  <form id="genForm" method="POST" action="{{ url_for('generator.generador_run') }}" enctype="multipart/form-data" class="needs-validation" novalidate>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <!-- Archivo + Perfil -->
     <div class="card mb-4">
       <div class="card-body">
         <div class="row g-3 align-items-end">
           <div class="col-md-6">
-            <label for="excel" class="form-label">Archivo Excel</label>
-            <input type="file" class="form-control" id="excel" name="excel" accept=".xlsx" required>
+            <label for="archivo" class="form-label">Archivo Excel</label>
+            <input type="file" class="form-control" id="archivo" name="archivo" accept=".xlsx" required>
             <div class="invalid-feedback">Sube un archivo .xlsx</div>
           </div>
           <div class="col-md-6">
