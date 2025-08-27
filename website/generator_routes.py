@@ -1,9 +1,9 @@
 import os
 import uuid
 import tempfile
-from threading import Thread
+import threading
+import json
 from io import BytesIO
-import importlib
 import numpy as np
 import pandas as pd
 
@@ -16,14 +16,10 @@ from flask import (
     send_file,
     abort,
     current_app,
-    url_for,
 )
 
 from .extensions import csrf
 from .blueprints.core import login_required
-
-# Ensure scheduler module is imported (not extension)
-scheduler = importlib.import_module("website.scheduler")
 
 bp = Blueprint("generator", __name__)
 
@@ -40,6 +36,8 @@ def _to_jsonable(obj):
         return obj.to_dict()
     if isinstance(obj, np.ndarray):
         return obj.tolist()
+    if isinstance(obj, np.generic):
+        return obj.item()
     if isinstance(obj, dict):
         return {k: _to_jsonable(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
@@ -47,15 +45,15 @@ def _to_jsonable(obj):
     return obj
 
 
-def _worker(app, job_id, file_bytes, cfg, generate_charts):
+def _worker(app, job_id, file_bytes, config, generate_charts):
     """Background worker that runs the optimization and stores results."""
-    from . import scheduler  # Import inside to avoid extension confusion
+    from website import scheduler
 
     with app.app_context():
         try:
             result, excel_bytes, csv_bytes = scheduler.run_complete_optimization(
                 BytesIO(file_bytes),
-                config=cfg,
+                config=config,
                 generate_charts=generate_charts,
                 job_id=job_id,
             )
@@ -65,16 +63,14 @@ def _worker(app, job_id, file_bytes, cfg, generate_charts):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
                     tmp.write(excel_bytes)
                     excel_path = tmp.name
-                result["download_url"] = url_for(
-                    "generator.download", token=os.path.basename(excel_path)
-                )
+                token = os.path.basename(excel_path)
+                result["download_url"] = f"/download/{token}"
             if csv_bytes:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
                     tmp.write(csv_bytes)
                     csv_path = tmp.name
-                result["csv_url"] = url_for(
-                    "generator.download", token=os.path.basename(csv_path), csv=1
-                )
+                token = os.path.basename(csv_path)
+                result["csv_url"] = f"/download/{token}?csv=1"
             JOBS[job_id] = {
                 "status": "finished",
                 "result": result,
@@ -118,8 +114,6 @@ def generador_form():
     jean_file = request.files.get("jean_file")
     if jean_file and jean_file.filename:
         try:
-            import json
-
             cfg.update(json.load(jean_file))
         except Exception:
             pass
@@ -132,10 +126,13 @@ def generador_form():
     job_id = request.form.get("job_id") or uuid.uuid4().hex
     excel_bytes = file.read()
 
+    cfg.setdefault("solver_time", 20)
+    cfg.setdefault("iterations", 5)
+
     JOBS[job_id] = {"status": "running"}
 
     app_obj = current_app._get_current_object()
-    Thread(
+    threading.Thread(
         target=_worker,
         args=(app_obj, job_id, excel_bytes, cfg, generate_charts),
         daemon=True,
@@ -193,6 +190,8 @@ def download(token):
 @login_required
 @csrf.exempt
 def cancel_job():
+    from website import scheduler
+
     data = request.get_json(silent=True) or {}
     job_id = data.get("job_id")
     if job_id:
