@@ -39,12 +39,12 @@ def login(client):
     )
 
 
-def test_resultados_redirects_without_result():
+def test_resultados_without_result_shows_message():
     client = app.test_client()
     login(client)
     response = client.get('/resultados')
-    assert response.status_code == 302
-    assert response.headers['Location'].endswith('/generador')
+    assert response.status_code == 200
+    assert b'No hay resultados' in response.data
 
 
 def test_generador_stores_and_renders_result():

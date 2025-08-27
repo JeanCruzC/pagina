@@ -9,7 +9,7 @@ sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
 
 from website import create_app
 from website.utils import allowlist as allowlist_module
-from website.blueprints.core import JOBS
+from website.generator_routes import JOBS
 
 app = create_app()
 add_to_allowlist = allowlist_module.add_to_allowlist
