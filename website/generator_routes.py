@@ -27,7 +27,8 @@ scheduler = importlib.import_module("website.scheduler")
 bp = Blueprint("generator", __name__)
 
 # In-memory job store
-# {job_id: {"status": "running"|"finished"|"error"|"cancelled", "result": {...}}}
+# {job_id: {"status": "running"|"finished"|"error", "result": {...},
+#           "excel_path": str | None, "csv_path": str | None}}
 JOBS = {}
 
 
@@ -42,21 +43,28 @@ def _worker(app, job_id, excel_bytes, cfg, generate_charts):
                 generate_charts=generate_charts,
                 job_id=job_id,
             )
+            excel_path = None
+            csv_path = None
             # Save Excel output
             if excel_out:
                 token = uuid.uuid4().hex + ".xlsx"
-                path = os.path.join(tempfile.gettempdir(), token)
-                with open(path, "wb") as tmp:
+                excel_path = os.path.join(tempfile.gettempdir(), token)
+                with open(excel_path, "wb") as tmp:
                     tmp.write(excel_out)
                 result["download_url"] = url_for("generator.download", token=token)
             # Save CSV output
             if csv_out:
                 token = uuid.uuid4().hex + ".csv"
-                path = os.path.join(tempfile.gettempdir(), token)
-                with open(path, "wb") as tmp:
+                csv_path = os.path.join(tempfile.gettempdir(), token)
+                with open(csv_path, "wb") as tmp:
                     tmp.write(csv_out)
                 result["csv_url"] = url_for("generator.download", token=token, csv=1)
-            JOBS[job_id] = {"status": "finished", "result": result}
+            JOBS[job_id] = {
+                "status": "finished",
+                "result": result,
+                "excel_path": excel_path,
+                "csv_path": csv_path,
+            }
         except Exception:
             JOBS[job_id] = {"status": "error"}
 
@@ -179,13 +187,14 @@ def cancel_job():
             stopper(thread)
         if isinstance(active, dict):
             active.pop(job_id, None)
-        job_info = JOBS.pop(job_id, None)
+        job_info = JOBS.get(job_id)
         if job_info:
             for key in ("excel_path", "csv_path"):
-                path = job_info.get(key) or job_info.get("result", {}).get(key)
+                path = job_info.get(key)
                 if path:
                     try:
                         os.remove(path)
                     except Exception:
                         pass
+            JOBS.pop(job_id, None)
     return "", 204

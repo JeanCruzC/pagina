@@ -39,11 +39,21 @@ def login(client):
     )
 
 
-def test_cancel_route_updates_status():
+def test_cancel_route_cleans_up_job(tmp_path):
     client = app.test_client()
     login(client)
     job_id = 'testjob'
-    JOBS[job_id] = {'status': 'running'}
+    excel_path = tmp_path / 'file.xlsx'
+    csv_path = tmp_path / 'file.csv'
+    excel_path.write_text('dummy')
+    csv_path.write_text('dummy')
+    JOBS[job_id] = {
+        'status': 'running',
+        'excel_path': str(excel_path),
+        'csv_path': str(csv_path),
+    }
     response = client.post('/cancel', json={'job_id': job_id})
     assert response.status_code == 204
-    assert JOBS[job_id]['status'] == 'cancelled'
+    assert job_id not in JOBS
+    assert not excel_path.exists()
+    assert not csv_path.exists()
