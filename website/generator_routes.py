@@ -4,7 +4,8 @@ import tempfile
 from threading import Thread
 from io import BytesIO
 import importlib
-import os
+import numpy as np
+import pandas as pd
 
 from flask import (
     Blueprint,
@@ -31,34 +32,57 @@ bp = Blueprint("generator", __name__)
 JOBS = {}
 
 
+def _to_jsonable(obj):
+    """Recursively convert pandas and numpy objects to JSON-serializable types."""
+    if isinstance(obj, pd.DataFrame):
+        return obj.to_dict(orient="records")
+    if isinstance(obj, pd.Series):
+        return obj.to_dict()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, dict):
+        return {k: _to_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_jsonable(v) for v in obj]
+    return obj
 
-def _worker(app, job_id, excel_bytes, cfg, generate_charts):
+
+def _worker(app, job_id, file_bytes, cfg, generate_charts):
     """Background worker that runs the optimization and stores results."""
+    from . import scheduler  # Import inside to avoid extension confusion
+
     with app.app_context():
         try:
-            result, excel_out, csv_out = scheduler.run_complete_optimization(
-                BytesIO(excel_bytes),
+            result, excel_bytes, csv_bytes = scheduler.run_complete_optimization(
+                BytesIO(file_bytes),
                 config=cfg,
                 generate_charts=generate_charts,
                 job_id=job_id,
             )
-            # Save Excel output
-            if excel_out:
-                token = uuid.uuid4().hex + ".xlsx"
-                path = os.path.join(tempfile.gettempdir(), token)
-                with open(path, "wb") as tmp:
-                    tmp.write(excel_out)
-                result["download_url"] = url_for("generator.download", token=token)
-            # Save CSV output
-            if csv_out:
-                token = uuid.uuid4().hex + ".csv"
-                path = os.path.join(tempfile.gettempdir(), token)
-                with open(path, "wb") as tmp:
-                    tmp.write(csv_out)
-                result["csv_url"] = url_for("generator.download", token=token, csv=1)
-            JOBS[job_id] = {"status": "finished", "result": result}
-        except Exception:
-            JOBS[job_id] = {"status": "error"}
+            excel_path = csv_path = None
+            result = _to_jsonable(result)
+            if excel_bytes:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                    tmp.write(excel_bytes)
+                    excel_path = tmp.name
+                result["download_url"] = url_for(
+                    "generator.download", token=os.path.basename(excel_path)
+                )
+            if csv_bytes:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+                    tmp.write(csv_bytes)
+                    csv_path = tmp.name
+                result["csv_url"] = url_for(
+                    "generator.download", token=os.path.basename(csv_path), csv=1
+                )
+            JOBS[job_id] = {
+                "status": "finished",
+                "result": result,
+                "excel_path": excel_path,
+                "csv_path": csv_path,
+            }
+        except Exception as e:
+            JOBS[job_id] = {"status": "error", "error": str(e)}
 
 
 @bp.get("/generador")
@@ -179,8 +203,9 @@ def cancel_job():
             stopper(thread)
         if isinstance(active, dict):
             active.pop(job_id, None)
-        job_info = JOBS.pop(job_id, None)
+        job_info = JOBS.get(job_id)
         if job_info:
+            job_info["status"] = "cancelled"
             for key in ("excel_path", "csv_path"):
                 path = job_info.get(key) or job_info.get("result", {}).get(key)
                 if path:
@@ -188,4 +213,5 @@ def cancel_job():
                         os.remove(path)
                     except Exception:
                         pass
+                    job_info[key] = None
     return "", 204
