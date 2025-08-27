@@ -65,7 +65,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await resp.json();
       if (data.status === 'finished') {
         window.location.href = '/resultados';
-        return;
       }
       if (data.status === 'error') {
         throw new Error('error');
