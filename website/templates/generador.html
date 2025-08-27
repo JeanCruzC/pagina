@@ -6,7 +6,7 @@
     <span class="text-muted small">Replica mejorada del app1 (Streamlit)</span>
   </div>
 
-  <form id="genForm" class="needs-validation" novalidate action="{{ url_for('core.generador') }}" method="post" enctype="multipart/form-data">
+  <form id="genForm" method="POST" action="{{ url_for('core.generador') }}" enctype="multipart/form-data" class="needs-validation" novalidate>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <!-- Archivo + Perfil -->
     <div class="card mb-4">
@@ -193,24 +193,13 @@
     </div><!-- /accordion -->
 
     <div class="d-flex align-items-center gap-3">
-      <button type="submit" class="btn btn-primary px-4" id="btnExcel" name="generate_charts" value="false">
-        Generar Excel
-      </button>
-      <button type="submit" class="btn btn-secondary px-4" id="btnCharts" name="generate_charts" value="true">
-        Generar Gráficas
-      </button>
+      <button id="btnExcel" type="submit" class="btn btn-primary px-4">Generar Excel</button>
+      <button id="btnCharts" type="submit" class="btn btn-secondary px-4">Generar con Gráficas</button>
     </div>
-
-    <div class="d-flex align-items-center gap-2 mt-3 d-none" id="loadingIndicator">
-      <div class="spinner-border text-primary" role="status" aria-hidden="true"></div>
-      <span>Procesando…</span>
-    </div>
+    <div id="spinner" class="d-none">Procesando…</div>
+    <div id="slowMsg" class="d-none">Esto puede tardar unos minutos…</div>
 
   </form>
 
-<script>
-  const form = document.getElementById('genForm');
-  const indicator = document.getElementById('loadingIndicator');
-  form.addEventListener('submit', () => indicator.classList.remove('d-none'));
-</script>
+  <script src="{{ url_for('static', filename='js/generador.js') }}" defer></script>
 {% endblock %}

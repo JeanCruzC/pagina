@@ -61,7 +61,7 @@ def test_generador_stores_and_renders_result():
         content_type='multipart/form-data',
         headers={'Accept': 'application/json'},
     )
-    assert response.status_code == 200
+    assert response.status_code == 202
     job_id = response.get_json()['job_id']
     import time
     for _ in range(20):
@@ -72,7 +72,3 @@ def test_generador_stores_and_renders_result():
     result_page = client.get('/resultados')
     assert result_page.status_code == 200
     assert b'Resultados' in result_page.data
-    # After rendering once, the result should be cleared
-    response_again = client.get('/resultados')
-    assert response_again.status_code == 302
-    assert response_again.headers['Location'].endswith('/generador')
