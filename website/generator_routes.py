@@ -57,8 +57,8 @@ def _worker(app, job_id, excel_bytes, cfg, generate_charts):
                     tmp.write(csv_out)
                 result["csv_url"] = url_for("generator.download", token=token, csv=1)
             JOBS[job_id] = {"status": "finished", "result": result}
-        except Exception:
-            JOBS[job_id] = {"status": "error"}
+        except Exception as e:
+            JOBS[job_id] = {"status": "error", "error": str(e)}
 
 
 @bp.get("/generador")
@@ -127,13 +127,13 @@ def generador_status(job_id):
     if not job:
         return jsonify({"status": "unknown"}), 200
 
-    status = job.get("status")
-    if status == "finished":
-        session["resultado"] = job.get("result")
-        print(f"\u2705 [GENERATOR] Job {job_id} finished")
+    st = job.get("status")
+    if st == "finished":
+        session["resultado"] = job["result"]
+        print(f"[STATUS] job={job_id} -> finished")
         return jsonify({"status": "finished"})
-    if status == "error":
-        print(f"\u274C [GENERATOR] Job {job_id} error: {job.get('error')}")
+    if st == "error":
+        print(f"[STATUS] job={job_id} -> error: {job.get('error')}")
         return jsonify({"status": "error", "error": job.get("error")})
     return jsonify({"status": "running"})
 
