@@ -54,7 +54,7 @@ def test_generador_stores_and_renders_result():
         lambda *a, **k: ({'metrics': {}}, b'', b'')
     )
     token = _csrf_token(client, '/generador')
-    data = {'excel': (BytesIO(b'data'), 'test.xlsx'), 'csrf_token': token}
+    data = {'archivo': (BytesIO(b'data'), 'test.xlsx'), 'csrf_token': token}
     response = client.post(
         '/generador',
         data=data,

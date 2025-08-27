@@ -1,10 +1,9 @@
 import os
 import uuid
 import tempfile
-from threading import Thread
+import threading
 from io import BytesIO
 import importlib
-import os
 
 from flask import (
     Blueprint,
@@ -32,33 +31,32 @@ JOBS = {}
 
 
 
-def _worker(app, job_id, excel_bytes, cfg, generate_charts):
+def _worker(job_id, excel_bytes, config, generate_charts):
     """Background worker that runs the optimization and stores results."""
-    with app.app_context():
-        try:
-            result, excel_out, csv_out = scheduler.run_complete_optimization(
-                BytesIO(excel_bytes),
-                config=cfg,
-                generate_charts=generate_charts,
-                job_id=job_id,
-            )
-            # Save Excel output
-            if excel_out:
-                token = uuid.uuid4().hex + ".xlsx"
-                path = os.path.join(tempfile.gettempdir(), token)
-                with open(path, "wb") as tmp:
-                    tmp.write(excel_out)
-                result["download_url"] = url_for("generator.download", token=token)
-            # Save CSV output
-            if csv_out:
-                token = uuid.uuid4().hex + ".csv"
-                path = os.path.join(tempfile.gettempdir(), token)
-                with open(path, "wb") as tmp:
-                    tmp.write(csv_out)
-                result["csv_url"] = url_for("generator.download", token=token, csv=1)
-            JOBS[job_id] = {"status": "finished", "result": result}
-        except Exception:
-            JOBS[job_id] = {"status": "error"}
+    try:
+        result, excel_out, csv_out = scheduler.run_complete_optimization(
+            BytesIO(excel_bytes),
+            config=config,
+            generate_charts=generate_charts,
+            job_id=job_id,
+        )
+        # Save Excel output
+        if excel_out:
+            token = uuid.uuid4().hex + ".xlsx"
+            path = os.path.join(tempfile.gettempdir(), token)
+            with open(path, "wb") as tmp:
+                tmp.write(excel_out)
+            result["download_url"] = url_for("generator.download", token=token)
+        # Save CSV output
+        if csv_out:
+            token = uuid.uuid4().hex + ".csv"
+            path = os.path.join(tempfile.gettempdir(), token)
+            with open(path, "wb") as tmp:
+                tmp.write(csv_out)
+            result["csv_url"] = url_for("generator.download", token=token, csv=1)
+        JOBS[job_id] = {"status": "finished", "result": result}
+    except Exception:
+        JOBS[job_id] = {"status": "error"}
 
 
 @bp.get("/generador")
@@ -69,12 +67,12 @@ def generador():
 
 @bp.post("/generador")
 @login_required
-def generador_form():
-    file = request.files.get("excel")
+def generador_run():
+    file = request.files.get("archivo")
     if not file:
         return jsonify({"error": "Se requiere un archivo Excel"}), 400
 
-    cfg = {}
+    config = {}
     for key, value in request.form.items():
         if key in {"csrf_token", "generate_charts", "job_id"}:
             continue
@@ -82,21 +80,21 @@ def generador_form():
             continue
         low = value.lower()
         if low in {"on", "true", "1"}:
-            cfg[key] = True
+            config[key] = True
         elif low in {"off", "false", "0"}:
-            cfg[key] = False
+            config[key] = False
         else:
             try:
-                cfg[key] = int(value) if value.isdigit() else float(value)
+                config[key] = int(value) if value.isdigit() else float(value)
             except ValueError:
-                cfg[key] = value
+                config[key] = value
 
     jean_file = request.files.get("jean_file")
     if jean_file and jean_file.filename:
         try:
             import json
 
-            cfg.update(json.load(jean_file))
+            config.update(json.load(jean_file))
         except Exception:
             pass
 
@@ -106,14 +104,12 @@ def generador_form():
         "1",
     }
     job_id = request.form.get("job_id") or uuid.uuid4().hex
-    excel_bytes = file.read()
 
     JOBS[job_id] = {"status": "running"}
 
-    app_obj = current_app._get_current_object()
-    Thread(
+    threading.Thread(
         target=_worker,
-        args=(app_obj, job_id, excel_bytes, cfg, generate_charts),
+        args=(job_id, file.read(), config, generate_charts),
         daemon=True,
     ).start()
 
@@ -179,7 +175,7 @@ def cancel_job():
             stopper(thread)
         if isinstance(active, dict):
             active.pop(job_id, None)
-        job_info = JOBS.pop(job_id, None)
+        job_info = JOBS.get(job_id)
         if job_info:
             for key in ("excel_path", "csv_path"):
                 path = job_info.get(key) or job_info.get("result", {}).get(key)
@@ -188,4 +184,5 @@ def cancel_job():
                         os.remove(path)
                     except Exception:
                         pass
+            job_info["status"] = "cancelled"
     return "", 204
