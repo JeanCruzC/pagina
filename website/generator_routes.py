@@ -20,10 +20,15 @@ from flask import (
 from .extensions import csrf
 from .blueprints.core import login_required
 
-# Motor de optimización (módulo)
-from website import scheduler as engine
-# Store de jobs (estado/progreso/resultados)
 from website.extensions import scheduler as store
+# Motor de optimización (módulo)
+from website import scheduler
+# Utility to stop running threads
+try:  # pragma: no cover - allow tests to stub scheduler
+    from website.scheduler import _stop_thread
+except Exception:  # pragma: no cover - fallback when scheduler is a stub
+    def _stop_thread(thread):
+        return None
 
 bp = Blueprint("generator", __name__)
 
@@ -53,7 +58,7 @@ def _worker(app, job_id, file_bytes, config, generate_charts):
             print(f"[WORKER] Running optimization for job {job_id}")
             
             # Use modern scheduler module con timeout simple
-            result, excel_bytes, csv_bytes = engine.run_complete_optimization(
+            result, excel_bytes, csv_bytes = scheduler.run_complete_optimization(
                 BytesIO(file_bytes), config=config, generate_charts=generate_charts, job_id=job_id
             )
             
@@ -74,11 +79,13 @@ def _worker(app, job_id, file_bytes, config, generate_charts):
                 result["csv_url"] = f"/download/{token}?csv=1"
             print(f"[WORKER] job={job_id} FINISHED -> calling mark_finished")
             store.mark_finished(job_id, result, excel_path, csv_path, app=app)
+            store.active_jobs.pop(job_id, None)
             print(f"[WORKER] mark_finished called for job {job_id}")
         except Exception as e:
             print(f"[WORKER] ERROR in job {job_id}: {str(e)}")
             current_app.logger.exception(e)
             store.mark_error(job_id, str(e), app=app)
+            store.active_jobs.pop(job_id, None)
 
 
 @bp.get("/generador")
@@ -260,13 +267,10 @@ def cancel_job():
             data = {}
     job_id = data.get("job_id")
     if job_id:
-        active = getattr(store, "active_jobs", {}) or {}
-        thread = active.get(job_id) if isinstance(active, dict) else None
-        stopper = getattr(store, "_stop_thread", None)
-        if thread and stopper:
-            stopper(thread)
-        if isinstance(active, dict):
-            active.pop(job_id, None)
+        thread = store.active_jobs.get(job_id)
+        if thread:
+            _stop_thread(thread)
+            store.active_jobs.pop(job_id, None)
         store.mark_cancelled(job_id)
         payload = store.get_payload(job_id)
         if payload:
