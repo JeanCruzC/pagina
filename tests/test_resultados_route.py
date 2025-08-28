@@ -1,25 +1,36 @@
 import os
 import sys
 import types
+import time
 from io import BytesIO
 
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-_store = {"jobs": {}, "results": {}}
+STORE = {"jobs": {}, "results": {}}
 sys.modules['website.scheduler'] = types.SimpleNamespace(
     init_app=lambda app: None,
-    mark_running=lambda job_id, app=None: _store["jobs"].update({job_id: {"status": "running"}}),
+    mark_running=lambda job_id, app=None: STORE["jobs"].update({job_id: {"status": "running"}}),
     mark_finished=lambda job_id, result, excel_path, csv_path, app=None: (
-        _store["jobs"].update({job_id: {"status": "finished"}}),
-        _store["results"].update({job_id: {"result": result, "excel_path": excel_path, "csv_path": csv_path}}),
+        STORE["jobs"].update({job_id: {"status": "finished"}}),
+        STORE["results"].update(
+            {
+                job_id: {
+                    "result": result,
+                    "excel_path": excel_path,
+                    "csv_path": csv_path,
+                    "timestamp": time.time(),
+                }
+            }
+        ),
     ),
-    mark_error=lambda job_id, msg, app=None: _store["jobs"].update({job_id: {"status": "error", "error": msg}}),
-    mark_cancelled=lambda job_id, app=None: _store["jobs"].update({job_id: {"status": "cancelled"}}),
-    get_status=lambda job_id, app=None: _store["jobs"].get(job_id, {"status": "unknown"}),
-    get_result=lambda job_id, app=None: _store["results"].get(job_id),
+    mark_error=lambda job_id, msg, app=None: STORE["jobs"].update({job_id: {"status": "error", "error": msg}}),
+    mark_cancelled=lambda job_id, app=None: STORE["jobs"].update({job_id: {"status": "cancelled"}}),
+    get_status=lambda job_id, app=None: STORE["jobs"].get(job_id, {"status": "unknown"}),
+    get_result=lambda job_id, app=None: STORE["results"].get(job_id),
     run_complete_optimization=lambda *a, **k: ({}, b"", b""),
     active_jobs={},
+    _store=lambda app=None: STORE,
 )
 
 import website.generator_routes as generator_module
