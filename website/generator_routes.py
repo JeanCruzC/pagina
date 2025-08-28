@@ -69,6 +69,7 @@ def _worker(app, job_id, file_bytes, config, generate_charts):
                 result["csv_url"] = f"/download/{token}?csv=1"
             scheduler.mark_finished(job_id, result, excel_path, csv_path, app=app)
         except Exception as e:
+            current_app.logger.exception(e)
             scheduler.mark_error(job_id, str(e), app=app)
 
 
