@@ -3,7 +3,7 @@ import os
 from flask import Flask
 from dotenv import load_dotenv
 
-from .extensions import csrf, scheduler
+from website.extensions import csrf, scheduler
 from .blueprints.core import core as core_bp
 from . import generator_routes
 

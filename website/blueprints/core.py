@@ -24,10 +24,10 @@ from flask import (
 from flask_wtf.csrf import CSRFError
 
 from ..utils.allowlist import verify_user
-from ..extensions import csrf
+from website.extensions import csrf
 import importlib
 
-# Ensure we import the ``website.scheduler`` module, not the extension object
+# Import the scheduler module explicitly to avoid conflicts with the extension object
 scheduler = importlib.import_module("website.scheduler")
 
 core = Blueprint("core", __name__)
