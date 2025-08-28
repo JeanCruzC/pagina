@@ -56,7 +56,10 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('pagehide', () => {
     if (controller) {
       controller.abort();
-      navigator.sendBeacon('/cancel', JSON.stringify({ job_id }));
+      navigator.sendBeacon(
+        '/cancel',
+        new Blob([JSON.stringify({ job_id })], { type: 'application/json' })
+      );
       resetUI();
     }
   });
