@@ -108,6 +108,10 @@ def get_result(job_id, app=None):
     return _store(app).get("results", {}).get(job_id)
 
 
+def get_payload(job_id, app=None):
+    return get_result(job_id, app)
+
+
 def _stop_thread(thread):
     """Attempt to stop a running thread by raising ``SystemExit`` inside it."""
     if thread and thread.is_alive():  # pragma: no cover - safety guard

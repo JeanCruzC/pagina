@@ -189,7 +189,7 @@ def cancel_job():
         if isinstance(active, dict):
             active.pop(job_id, None)
         scheduler.mark_cancelled(job_id)
-        payload = scheduler.get_result(job_id)
+        payload = scheduler.get_payload(job_id)
         if payload:
             for key in ("excel_path", "csv_path"):
                 path = payload.get(key)
