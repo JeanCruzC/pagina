@@ -861,6 +861,7 @@ PROFILES = {
         "precision_mode": True,
         "iterative_search": True,
         "search_iterations": 5,
+        "use_jean_search": True,
     },
     "JEAN Personalizado": {
         "agent_limit_factor": 30,
@@ -870,10 +871,12 @@ PROFILES = {
         "TARGET_COVERAGE": 98.0,
         "description": "JEAN con configuración personalizada de turnos",
         "strategy": "jean_custom",
-        "solver_time": 400,
+        "solver_time": 240,  # EXACTO del legacy
         "precision_mode": True,
         "custom_shifts": True,
         "ft_pt_strategy": True,
+        "use_jean_search": True,
+        "slot_duration_minutes": 30,
     },
     "Personalizado": {
         "agent_limit_factor": 25,
@@ -2187,6 +2190,111 @@ def solve_with_pulp(demand_matrix, patterns, config):
     }
 
 
+def optimize_schedule_iterative_legacy(shifts_coverage, demand_matrix, *, cfg=None):
+    """Función principal EXACTA del legacy Streamlit con estrategia FT primero + PT después."""
+    cfg = merge_config(cfg)
+    
+    if PULP_AVAILABLE:
+        profile = cfg.get("optimization_profile", "Equilibrado (Recomendado)")
+        
+        if profile == "JEAN":
+            print("[LEGACY] Búsqueda JEAN: cobertura sin exceso")
+            return optimize_jean_search(shifts_coverage, demand_matrix, cfg=cfg, target_coverage=cfg.get("TARGET_COVERAGE", 98.0))
+
+        if profile == "JEAN Personalizado":
+            if cfg.get("use_ft") and cfg.get("use_pt"):
+                print("[LEGACY] Estrategia 2 Fases: FT sin exceso -> PT para completar")
+                assignments, method = optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=cfg)
+
+                results = analyze_results(assignments, shifts_coverage, demand_matrix)
+                if results:
+                    cov = results["coverage_percentage"]
+                    score = results["overstaffing"] + results["understaffing"]
+                    target_coverage = cfg.get("TARGET_COVERAGE", 98.0)
+                    if cov < target_coverage or score > 0:
+                        print("[LEGACY] Refinando con búsqueda JEAN")
+                        assignments, method = optimize_jean_search(shifts_coverage, demand_matrix, cfg=cfg, target_coverage=target_coverage)
+
+                return assignments, method
+            else:
+                print("[LEGACY] Búsqueda JEAN: cobertura sin exceso")
+                return optimize_jean_search(shifts_coverage, demand_matrix, cfg=cfg, target_coverage=cfg.get("TARGET_COVERAGE", 98.0))
+
+        if cfg.get("use_ft") and cfg.get("use_pt"):
+            print("[LEGACY] Estrategia 2 Fases: FT sin exceso -> PT para completar")
+            return optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=cfg)
+        else:
+            print("[LEGACY] Modo Precisión: Optimización directa")
+            return optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=cfg)
+    else:
+        print("[LEGACY] Solver Básico: Greedy mejorado")
+        return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg)
+
+
+def optimize_jean_personalizado_legacy(shifts_coverage, demand_matrix, *, cfg=None, job_id=None):
+    """JEAN Personalizado EXACTO del legacy con carga de patrones JSON."""
+    cfg = merge_config(cfg)
+    
+    print(f"[JEAN_CUSTOM] Iniciando JEAN Personalizado legacy")
+    
+    # Si hay configuración JSON personalizada, cargar patrones
+    if cfg.get("custom_shifts_json"):
+        try:
+            slot_minutes = int(cfg.get("slot_duration_minutes", 30))
+            start_hours = [h for h in np.arange(0, 24, slot_minutes / 60) if h <= 23.5]
+            
+            custom_patterns = load_shift_patterns(
+                cfg["custom_shifts_json"],
+                start_hours=start_hours,
+                break_from_start=cfg.get("break_from_start", DEFAULT_CONFIG["break_from_start"]),
+                break_from_end=cfg.get("break_from_end", DEFAULT_CONFIG["break_from_end"]),
+                slot_duration_minutes=slot_minutes,
+                demand_matrix=demand_matrix,
+                keep_percentage=cfg.get("keep_percentage", 0.3),
+                peak_bonus=cfg.get("peak_bonus", 1.5),
+                critical_bonus=cfg.get("critical_bonus", 2.0),
+                efficiency_bonus=cfg.get("efficiency_bonus", 1.0),
+                max_patterns=cfg.get("max_patterns")
+            )
+            
+            if custom_patterns:
+                # Filtrar por tipo de contrato
+                if not cfg.get("use_ft", True):
+                    custom_patterns = {k: v for k, v in custom_patterns.items() if not k.startswith("FT")}
+                if not cfg.get("use_pt", True):
+                    custom_patterns = {k: v for k, v in custom_patterns.items() if not k.startswith("PT")}
+                
+                shifts_coverage = custom_patterns
+                print(f"[JEAN_CUSTOM] Cargados {len(custom_patterns)} patrones personalizados")
+        except Exception as e:
+            print(f"[JEAN_CUSTOM] Error cargando patrones personalizados: {e}")
+    
+    # Estrategia 2 fases si se usan FT y PT
+    if cfg.get("use_ft") and cfg.get("use_pt"):
+        print(f"[JEAN_CUSTOM] Usando estrategia 2 fases FT->PT")
+        assignments, status = optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=cfg)
+        
+        # Verificar si necesita refinamiento con búsqueda JEAN
+        results = analyze_results(assignments, shifts_coverage, demand_matrix)
+        if results:
+            coverage = results["coverage_percentage"]
+            score = results["overstaffing"] + results["understaffing"]
+            target = cfg.get("TARGET_COVERAGE", 98.0)
+            
+            if coverage < target or score > 0:
+                print(f"[JEAN_CUSTOM] Refinando con búsqueda JEAN (cov: {coverage:.1f}%, score: {score:.1f})")
+                refined_assignments, refined_status = optimize_jean_search(
+                    shifts_coverage, demand_matrix, cfg=cfg, target_coverage=target, job_id=job_id
+                )
+                if refined_assignments:
+                    return refined_assignments, f"JEAN_CUSTOM_REFINED_{refined_status}"
+        
+        return assignments, f"JEAN_CUSTOM_{status}"
+    else:
+        # Usar búsqueda JEAN estándar
+        return optimize_jean_search(shifts_coverage, demand_matrix, cfg=cfg, target_coverage=cfg.get("TARGET_COVERAGE", 98.0), job_id=job_id)
+
+
 def solve_in_chunks_optimized_legacy(shifts_coverage, demand_matrix, *, cfg=None):
     """Solve EXACTO del legacy Streamlit usando chunks ordenados por score."""
     scored = []
@@ -2213,11 +2321,7 @@ def solve_in_chunks_optimized_legacy(shifts_coverage, demand_matrix, *, cfg=None
             break
         
         # Usar la función de optimización según el perfil
-        profile = cfg.get("optimization_profile", "Equilibrado (Recomendado)")
-        if profile == "JEAN":
-            assigns, _ = optimize_jean_search(chunk_dict, remaining, cfg=cfg, target_coverage=cfg.get("TARGET_COVERAGE", 98.0))
-        else:
-            assigns, _ = optimize_with_precision_targeting(chunk_dict, remaining, cfg=cfg)
+        assigns, _ = optimize_schedule_iterative_legacy(chunk_dict, remaining, cfg=cfg)
         
         for name, val in assigns.items():
             assignments_total[name] = assignments_total.get(name, 0) + val
@@ -2477,8 +2581,8 @@ def update_job_progress(job_id, progress_info):
 
 def run_complete_optimization(file_stream, config=None, generate_charts=False, job_id=None):
     """Run the full optimization pipeline matching legacy behavior."""
-    print("\U0001F50D [SCHEDULER] Iniciando run_complete_optimization")
-    print(f"\U0001F50D [SCHEDULER] Config recibido: {config}")
+    print("[SCHEDULER] Iniciando run_complete_optimization")
+    print(f"[SCHEDULER] Config recibido: {config}")
 
     if job_id:
         active_jobs[job_id] = current_thread()
@@ -2488,19 +2592,19 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         cfg = apply_configuration(config)
 
         print(f"[MEM] Antes de carga de demanda: {monitor_memory_usage():.1f}%")
-        print("\U0001F4D6 [SCHEDULER] Leyendo archivo Excel...")
+        print("[SCHEDULER] Leyendo archivo Excel...")
         import pandas as pd
         df = pd.read_excel(file_stream)
-        print("\u2705 [SCHEDULER] Archivo Excel leído correctamente")
+        print("[SCHEDULER] Archivo Excel leído correctamente")
 
-        print("\U0001F4CA [SCHEDULER] Procesando matriz de demanda...")
+        print("[SCHEDULER] Procesando matriz de demanda...")
         demand_matrix = load_demand_matrix_from_df(df)
         analysis = analyze_demand_matrix(demand_matrix)
-        print("\u2705 [SCHEDULER] Matriz de demanda procesada")
+        print("[SCHEDULER] Matriz de demanda procesada")
         print(f"[MEM] Después de procesar demanda: {monitor_memory_usage():.1f}%")
 
         print(f"[MEM] Antes de generación de patrones: {monitor_memory_usage():.1f}%")
-        print("\U0001F501 [SCHEDULER] Generando patrones de turnos...")
+        print("[SCHEDULER] Generando patrones de turnos...")
         patterns = {}
         if cfg.get("optimization_profile") == "JEAN Personalizado" and cfg.get("custom_shifts_json"):
             # Solo usar load_shift_patterns si hay un JSON personalizado
@@ -2547,15 +2651,32 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         # Usar lógica EXACTA del legacy Streamlit
         print("[SCHEDULER] Ejecutando optimización con lógica legacy...")
         
-        # Usar solve_in_chunks_optimized como en el legacy
-        assignments = solve_in_chunks_optimized_legacy(patterns, demand_matrix, cfg=cfg)
-        
-        # Status según el perfil usado
         profile = cfg.get("optimization_profile", "Equilibrado (Recomendado)")
+        
+        # LÓGICA EXACTA DEL LEGACY STREAMLIT
         if profile == "JEAN":
-            status = "JEAN_SEARCH"
+            print("[SCHEDULER] Ejecutando búsqueda JEAN")
+            assignments, status = optimize_jean_search(
+                patterns, demand_matrix, cfg=cfg, 
+                target_coverage=cfg.get("TARGET_COVERAGE", 98.0),
+                max_iterations=cfg.get("search_iterations", 5),
+                job_id=job_id
+            )
+        elif profile == "JEAN Personalizado":
+            print("[SCHEDULER] Ejecutando JEAN Personalizado")
+            assignments, status = optimize_jean_personalizado_legacy(
+                patterns, demand_matrix, cfg=cfg, job_id=job_id
+            )
+        elif profile == "Aprendizaje Adaptativo":
+            print("[SCHEDULER] Ejecutando Aprendizaje Adaptativo")
+            # Aplicar parámetros adaptativos
+            adaptive_params = get_adaptive_params(demand_matrix, cfg.get("TARGET_COVERAGE", 98.0))
+            temp_cfg = cfg.copy()
+            temp_cfg.update(adaptive_params)
+            assignments, status = optimize_schedule_iterative_legacy(patterns, demand_matrix, cfg=temp_cfg)
         else:
-            status = "CHUNKED_OPTIMIZATION"
+            print(f"[SCHEDULER] Ejecutando perfil estándar: {profile}")
+            assignments, status = optimize_schedule_iterative_legacy(patterns, demand_matrix, cfg=cfg)
         
         total_agents = sum(assignments.values()) if assignments else 0
         
@@ -2686,7 +2807,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
             plt.close("all")
         print(f"[MEM] Después de exportar resultados: {monitor_memory_usage():.1f}%")
 
-        print("\U0001F4E4 [SCHEDULER] Preparando resultados...")
+        print("[SCHEDULER] Preparando resultados...")
 
         def _convert(obj):
             """Recursively convert numpy arrays within ``obj`` to Python lists."""
@@ -2720,14 +2841,14 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         if warning_msg:
             result["message"] = warning_msg
         result["effective_config"] = _convert(cfg)
-        print("\u2705 [SCHEDULER] Resultados preparados - RETORNANDO")
+        print("[SCHEDULER] Resultados preparados - RETORNANDO")
         
         # Callback removido - no hay variables use_greedy ni results_queue definidas
         
         return result, excel_bytes, csv_bytes
 
     except Exception as e:
-        print(f"\u274C [SCHEDULER] ERROR CRÍTICO: {str(e)}")
+        print(f"[SCHEDULER] ERROR CRÍTICO: {str(e)}")
         return {"error": str(e)}, None, None
     finally:
         if job_id:

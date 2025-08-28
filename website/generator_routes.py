@@ -19,8 +19,11 @@ from flask import (
 
 from .extensions import csrf
 from .blueprints.core import login_required
-from .extensions import scheduler as store
-from . import scheduler as sched_module
+
+# Motor de optimización (módulo)
+from website import scheduler as engine
+# Store de jobs (estado/progreso/resultados)
+from website.extensions import scheduler as store
 
 bp = Blueprint("generator", __name__)
 
@@ -50,7 +53,7 @@ def _worker(app, job_id, file_bytes, config, generate_charts):
             print(f"[WORKER] Running optimization for job {job_id}")
             
             # Use modern scheduler module con timeout simple
-            result, excel_bytes, csv_bytes = sched_module.run_complete_optimization(
+            result, excel_bytes, csv_bytes = engine.run_complete_optimization(
                 BytesIO(file_bytes), config=config, generate_charts=generate_charts, job_id=job_id
             )
             
@@ -115,8 +118,12 @@ def generador_form():
     jean_file = request.files.get("jean_file")
     if jean_file and jean_file.filename:
         try:
-            cfg.update(json.load(jean_file))
-        except Exception:
+            jean_config = json.load(jean_file)
+            cfg["custom_shifts_json"] = jean_config
+            cfg["use_custom_shifts"] = True
+            print(f"[GENERATOR] Cargado archivo JSON personalizado: {jean_file.filename}")
+        except Exception as e:
+            print(f"[GENERATOR] Error cargando JSON: {e}")
             pass
 
     generate_charts = request.form.get("generate_charts", "false").lower() in {
@@ -159,10 +166,10 @@ def generador_status(job_id):
     progress = st.get("progress", {})
     
     if status == "finished":
-        print(f"\u2705 [GENERATOR] Job {job_id} finished")
+        print(f"[GENERATOR] Job {job_id} finished")
         return jsonify({"status": "finished", "redirect": f"/resultados/{job_id}"})
     if status == "error":
-        print(f"\u274C [GENERATOR] Job {job_id} error: {st.get('error')}")
+        print(f"[GENERATOR] Job {job_id} error: {st.get('error')}")
         return jsonify({"status": "error", "error": st.get("error")})
     
     response = {"status": status or "unknown"}
