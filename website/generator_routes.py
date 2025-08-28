@@ -123,11 +123,13 @@ def generador_form():
     scheduler.mark_running(job_id)
 
     app_obj = current_app._get_current_object()
-    threading.Thread(
+    thread = threading.Thread(
         target=_worker,
         args=(app_obj, job_id, excel_bytes, cfg, generate_charts),
         daemon=True,
-    ).start()
+    )
+    scheduler.active_jobs[job_id] = thread
+    thread.start()
 
     return jsonify({"job_id": job_id}), 202
 
