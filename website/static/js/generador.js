@@ -69,7 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const resp = await fetch(`/generador/status/${job_id}`);
       const data = await resp.json();
       if (data.status === 'finished') {
-        window.location.href = data.redirect || '/resultados';
+        const url = data.redirect || `/resultados/${job_id}`;
+        window.location.href = url;
         return;
       }
       if (data.status === 'error') {
