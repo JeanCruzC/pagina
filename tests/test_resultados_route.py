@@ -98,10 +98,13 @@ def test_generador_stores_and_renders_result():
     job_id = response.get_json()['job_id']
     import time
     for _ in range(20):
-        status = client.get(f'/generador/status/{job_id}').get_json()['status']
-        if status == 'finished':
+        status_resp = client.get(f'/generador/status/{job_id}')
+        status_data = status_resp.get_json()
+        if status_data['status'] == 'finished':
             break
         time.sleep(0.1)
+    assert status_data['status'] == 'finished'
+    assert status_data['redirect'] == f'/resultados/{job_id}'
     result_page = client.get(f'/resultados/{job_id}')
     assert result_page.status_code == 200
     assert b'Resultados' in result_page.data
