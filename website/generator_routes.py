@@ -11,7 +11,6 @@ from flask import (
     Blueprint,
     render_template,
     request,
-    session,
     jsonify,
     send_file,
     abort,
@@ -147,11 +146,13 @@ def generador_status(job_id):
     return jsonify({"status": status or "unknown"})
 
 
-@bp.get("/resultados")
+@bp.get("/resultados/<job_id>")
 @login_required
-def resultados():
-    resultado = session.get("resultado")
-    return render_template("resultados.html", resultado=resultado)
+def resultados(job_id):
+    payload = scheduler.get_payload(job_id)
+    if not payload:
+        return render_template("500.html", message="Resultado no disponible"), 500
+    return render_template("resultados.html", resultado=payload["result"])
 
 
 @bp.get("/download/<token>")
