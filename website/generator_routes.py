@@ -47,13 +47,23 @@ def _worker(app, job_id, file_bytes, config, generate_charts):
     print(f"[WORKER] Starting job {job_id}")
     with app.app_context():
         try:
-            print(f"[WORKER] Calling optimization for job {job_id}")
-            result, excel_bytes, csv_bytes = sched_module.run_complete_optimization(
-                BytesIO(file_bytes),
-                config=config,
-                generate_charts=generate_charts,
-                job_id=job_id,
-            )
+            print(f"[WORKER] Running optimization for job {job_id}")
+            # Import legacy optimizer directly
+            import sys
+            import os
+            legacy_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'legacy')
+            sys.path.insert(0, legacy_path)
+            
+            try:
+                from generador_turnos_2025_cnx_BACKUP_F_FIRST_P_LAST import run_optimization
+                result, excel_bytes, csv_bytes = run_optimization(BytesIO(file_bytes), config)
+            except ImportError:
+                # Fallback to simple greedy if legacy not available
+                from . import scheduler as sched_module
+                result, excel_bytes, csv_bytes = sched_module.run_complete_optimization(
+                    BytesIO(file_bytes), config=config, generate_charts=generate_charts, job_id=job_id
+                )
+            
             print(f"[WORKER] Optimization completed for job {job_id}")
             excel_path = csv_path = None
             result = _to_jsonable(result)
