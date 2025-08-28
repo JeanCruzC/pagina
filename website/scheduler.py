@@ -57,36 +57,54 @@ active_jobs = {}
 def init_app(app):
     """Initialize scheduler storage and defaults on ``app``."""
 
-    app.extensions.setdefault("scheduler", {
-        "active_jobs": active_jobs,
-        "results": {},
-    })
+    if not hasattr(app, "extensions"):
+        app.extensions = {}
+    if "scheduler" not in app.extensions:
+        app.extensions["scheduler"] = {"jobs": {}, "results": {}, "active_jobs": active_jobs}
     app.config.setdefault("SCHEDULER_MAX_RUNTIME", 300)
     app.config.setdefault("SCHEDULER_MAX_MEMORY_GB", None)
 
 
-def get_store(app=None):
-    """Return the scheduler store for ``app`` or the current application."""
+def _store(app=None):
+    """Return the shared scheduler store."""
 
     app = app or current_app
-    return app.extensions.setdefault("scheduler", {
-        "active_jobs": active_jobs,
-        "results": {},
-    })
+    if not hasattr(app, "extensions"):
+        app.extensions = {}
+    return app.extensions.setdefault("scheduler", {"jobs": {}, "results": {}, "active_jobs": active_jobs})
 
 
-def set_result(job_id, payload, app=None):
-    """Store a result payload under ``job_id``."""
+def mark_running(job_id, app=None):
+    s = _store(app)
+    s.setdefault("jobs", {})[job_id] = {"status": "running"}
 
-    store = get_store(app)
-    store.setdefault("results", {})[job_id] = payload
+
+def mark_finished(job_id, result, excel_path, csv_path, app=None):
+    s = _store(app)
+    s.setdefault("jobs", {})[job_id] = {"status": "finished"}
+    s.setdefault("results", {})[job_id] = {
+        "result": result,
+        "excel_path": excel_path,
+        "csv_path": csv_path,
+    }
+
+
+def mark_error(job_id, error_msg, app=None):
+    s = _store(app)
+    s.setdefault("jobs", {})[job_id] = {"status": "error", "error": error_msg}
+
+
+def mark_cancelled(job_id, app=None):
+    s = _store(app)
+    s.setdefault("jobs", {})[job_id] = {"status": "cancelled"}
+
+
+def get_status(job_id, app=None):
+    return _store(app).get("jobs", {}).get(job_id, {"status": "unknown"})
 
 
 def get_result(job_id, app=None):
-    """Retrieve a previously stored result for ``job_id``."""
-
-    store = get_store(app)
-    return store.get("results", {}).get(job_id)
+    return _store(app).get("results", {}).get(job_id)
 
 
 def _stop_thread(thread):
