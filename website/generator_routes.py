@@ -139,11 +139,8 @@ def generador_status(job_id):
     st = scheduler.get_status(job_id)
     status = st.get("status")
     if status == "finished":
-        payload = scheduler.get_result(job_id)
-        if payload:
-            session["resultado"] = payload.get("result")
         print(f"\u2705 [GENERATOR] Job {job_id} finished")
-        return jsonify({"status": "finished"})
+        return jsonify({"status": "finished", "redirect": f"/resultados/{job_id}"})
     if status == "error":
         print(f"\u274C [GENERATOR] Job {job_id} error: {st.get('error')}")
         return jsonify({"status": "error", "error": st.get("error")})
