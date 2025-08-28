@@ -132,6 +132,17 @@ def landing():
     # o: return redirect(url_for("core.login"))
 
 
+@bp.post("/")
+@csrf.exempt
+def landing_post():
+    """Handle stray POST requests to the landing page.
+
+    Some automated clients may POST to ``/`` which previously resulted in a
+    405 error being logged. Redirect them back to the landing page instead.
+    """
+    return redirect(url_for("core.landing"))
+
+
 @bp.route("/index")
 def index():
     return render_template("index.html")
