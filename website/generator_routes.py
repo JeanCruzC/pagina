@@ -19,7 +19,8 @@ from flask import (
 
 from .extensions import csrf
 from .blueprints.core import login_required
-from website import scheduler
+from .extensions import scheduler as store
+from . import scheduler as sched_module
 
 bp = Blueprint("generator", __name__)
 
@@ -43,15 +44,17 @@ def _to_jsonable(obj):
 
 def _worker(app, job_id, file_bytes, config, generate_charts):
     """Background worker that runs the optimization and stores results."""
-
+    print(f"[WORKER] Starting job {job_id}")
     with app.app_context():
         try:
-            result, excel_bytes, csv_bytes = scheduler.run_complete_optimization(
+            print(f"[WORKER] Calling optimization for job {job_id}")
+            result, excel_bytes, csv_bytes = sched_module.run_complete_optimization(
                 BytesIO(file_bytes),
                 config=config,
                 generate_charts=generate_charts,
                 job_id=job_id,
             )
+            print(f"[WORKER] Optimization completed for job {job_id}")
             excel_path = csv_path = None
             result = _to_jsonable(result)
             if excel_bytes:
@@ -66,10 +69,13 @@ def _worker(app, job_id, file_bytes, config, generate_charts):
                     csv_path = tmp.name
                 token = os.path.basename(csv_path)
                 result["csv_url"] = f"/download/{token}?csv=1"
-            scheduler.mark_finished(job_id, result, excel_path, csv_path, app=app)
+            print(f"[WORKER] job={job_id} FINISHED -> calling mark_finished")
+            store.mark_finished(job_id, result, excel_path, csv_path, app=app)
+            print(f"[WORKER] mark_finished called for job {job_id}")
         except Exception as e:
+            print(f"[WORKER] ERROR in job {job_id}: {str(e)}")
             current_app.logger.exception(e)
-            scheduler.mark_error(job_id, str(e), app=app)
+            store.mark_error(job_id, str(e), app=app)
 
 
 @bp.get("/generador")
@@ -117,10 +123,10 @@ def generador_form():
     job_id = request.form.get("job_id") or uuid.uuid4().hex
     excel_bytes = file.read()
 
-    cfg.setdefault("solver_time", 20)
+    cfg.setdefault("solver_time", 10)
     cfg.setdefault("iterations", 5)
 
-    scheduler.mark_running(job_id)
+    store.mark_running(job_id)
 
     app_obj = current_app._get_current_object()
     thread = threading.Thread(
@@ -128,7 +134,7 @@ def generador_form():
         args=(app_obj, job_id, excel_bytes, cfg, generate_charts),
         daemon=True,
     )
-    scheduler.active_jobs[job_id] = thread
+    store.active_jobs[job_id] = thread
     thread.start()
 
     return jsonify({"job_id": job_id}), 202
@@ -137,8 +143,10 @@ def generador_form():
 @bp.get("/generador/status/<job_id>")
 @login_required
 def generador_status(job_id):
-    st = scheduler.get_status(job_id)
+    st = store.get_status(job_id)
     status = st.get("status")
+    current_app.logger.info(f"[STATUS] job={job_id} -> {status}")
+    print(f"[STATUS] job={job_id} -> {status}")
     if status == "finished":
         print(f"\u2705 [GENERATOR] Job {job_id} finished")
         return jsonify({"status": "finished", "redirect": f"/resultados/{job_id}"})
@@ -151,7 +159,7 @@ def generador_status(job_id):
 @bp.get("/resultados/<job_id>")
 @login_required
 def resultados(job_id):
-    payload = scheduler.get_payload(job_id)
+    payload = store.get_payload(job_id)
     if not payload:
         return render_template("500.html", message="Resultado no disponible"), 500
     return render_template("resultados.html", resultado=payload["result"])
@@ -191,15 +199,15 @@ def cancel_job():
             data = {}
     job_id = data.get("job_id")
     if job_id:
-        active = getattr(scheduler, "active_jobs", {}) or {}
+        active = getattr(store, "active_jobs", {}) or {}
         thread = active.get(job_id) if isinstance(active, dict) else None
-        stopper = getattr(scheduler, "_stop_thread", None)
+        stopper = getattr(store, "_stop_thread", None)
         if thread and stopper:
             stopper(thread)
         if isinstance(active, dict):
             active.pop(job_id, None)
-        scheduler.mark_cancelled(job_id)
-        payload = scheduler.get_result(job_id)
+        store.mark_cancelled(job_id)
+        payload = store.get_payload(job_id)
         if payload:
             for key in ("excel_path", "csv_path"):
                 path = payload.get(key)
@@ -210,3 +218,17 @@ def cancel_job():
                         pass
                     payload[key] = None
     return "", 204
+
+
+# Debug route to inspect scheduler store
+@bp.get("/__debug/scheduler")
+def _dbg_scheduler():
+    from flask import jsonify
+    try:
+        s = store._s()
+    except Exception:
+        s = {"jobs": {}, "results": {}}
+    return jsonify({
+        "jobs": s.get("jobs", {}),
+        "results_keys": list(s.get("results", {}).keys()),
+    })

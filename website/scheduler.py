@@ -1388,9 +1388,9 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
 
         solver = pl.PULP_CBC_CMD(
             msg=1,
-            timeLimit=30,
-            gapRel=0.1,
-            threads=cfg["solver_threads"],
+            timeLimit=5,
+            gapRel=0.05,
+            threads=1,
             presolve=1,
             cuts=0,
         )
@@ -1736,9 +1736,7 @@ def solve_with_pulp(demand_matrix, patterns, config):
             prob += coverage_expr + deficit[(d, h)] >= demand
             prob += coverage_expr - excess[(d, h)] <= demand
 
-    solver_kwargs = {"msg": cfg.get("solver_msg", 1), "threads": cfg["solver_threads"]}
-    if cfg.get("solver_time") is not None:
-        solver_kwargs["timeLimit"] = cfg["solver_time"]
+    solver_kwargs = {"msg": cfg.get("solver_msg", 1), "threads": 1, "timeLimit": 5}
     solver = pl.PULP_CBC_CMD(**solver_kwargs)
     status = prob.solve(solver)
 

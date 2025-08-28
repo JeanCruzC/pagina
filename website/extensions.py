@@ -1,5 +1,5 @@
-from flask_wtf import CSRFProtect
 from flask import current_app
+from flask_wtf import CSRFProtect
 
 csrf = CSRFProtect()
 
@@ -8,19 +8,23 @@ class SchedulerStore:
         if not hasattr(app, "extensions"):
             app.extensions = {}
         if "scheduler" not in app.extensions:
-            app.extensions["scheduler"] = {"jobs": {}, "results": {}, "active": {}}
+            app.extensions["scheduler"] = {
+                "jobs": {},      # job_id -> {"status": "running|finished|error|cancelled", ...}
+                "results": {},   # job_id -> {"result": {...}, "excel_path": "...", "csv_path": "..."}
+                "active": {}     # job_id -> thread (opcional)
+            }
 
     def _s(self, app=None):
         app = app or current_app
         return app.extensions["scheduler"]
 
+    # --- API usada por tus rutas/worker ---
     def mark_running(self, job_id, app=None):
-        s = self._s(app)
-        s["jobs"][job_id] = {"status": "running"}
+        self._s(app)["jobs"][job_id] = {"status": "running"}
 
     def mark_finished(self, job_id, result_dict, excel_path, csv_path, app=None):
         s = self._s(app)
-        # CRITICAL: Update status to finished
+        # ⚠️ CLAVE: actualizar SIEMPRE el estado
         s["jobs"][job_id] = {"status": "finished"}
         s["results"][job_id] = {
             "result": result_dict,
@@ -29,20 +33,20 @@ class SchedulerStore:
         }
 
     def mark_error(self, job_id, msg, app=None):
-        s = self._s(app)
-        s["jobs"][job_id] = {"status": "error", "error": msg}
+        self._s(app)["jobs"][job_id] = {"status": "error", "error": msg}
 
     def mark_cancelled(self, job_id, app=None):
-        s = self._s(app)
-        s["jobs"][job_id] = {"status": "cancelled"}
+        self._s(app)["jobs"][job_id] = {"status": "cancelled"}
 
     def get_status(self, job_id, app=None):
-        s = self._s(app)
-        return s["jobs"].get(job_id, {"status": "unknown"})
+        return self._s(app)["jobs"].get(job_id, {"status": "unknown"})
 
     def get_payload(self, job_id, app=None):
-        s = self._s(app)
-        return s["results"].get(job_id)
+        return self._s(app)["results"].get(job_id)
+
+    # Alias si en algún punto llamas get_result(...)
+    def get_result(self, job_id, app=None):
+        return self.get_payload(job_id, app=app)
 
     @property
     def active_jobs(self):
