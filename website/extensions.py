@@ -11,12 +11,16 @@ class SchedulerStore:
             app.extensions["scheduler"] = {
                 "jobs": {},      # job_id -> {"status": "running|finished|error|cancelled", ...}
                 "results": {},   # job_id -> {"result": {...}, "excel_path": "...", "csv_path": "..."}
-                "active": {}     # job_id -> thread (opcional)
+                "active_jobs": {}     # job_id -> thread (opcional)
             }
 
     def _s(self, app=None):
         app = app or current_app
-        return app.extensions["scheduler"]
+        if not hasattr(app, "extensions"):
+            app.extensions = {}
+        return app.extensions.setdefault(
+            "scheduler", {"jobs": {}, "results": {}, "active_jobs": {}}
+        )
 
     # --- API usada por tus rutas/worker ---
     def mark_running(self, job_id, app=None):
@@ -67,6 +71,6 @@ class SchedulerStore:
 
     @property
     def active_jobs(self):
-        return self._s().setdefault("active", {})
+        return self._s().setdefault("active_jobs", {})
 
 scheduler = SchedulerStore()
