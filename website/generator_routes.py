@@ -158,6 +158,8 @@ def resultados(job_id):
 @bp.get("/download/<token>")
 @login_required
 def download(token):
+    if os.path.basename(token) != token:
+        abort(404)
     path = os.path.join(tempfile.gettempdir(), token)
     if not os.path.exists(path):
         abort(404)
