@@ -6,12 +6,33 @@ from io import BytesIO
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
+_store = {"jobs": {}, "results": {}}
+sys.modules['website.scheduler'] = types.SimpleNamespace(
+    init_app=lambda app: None,
+    mark_running=lambda job_id, app=None: _store["jobs"].update({job_id: {"status": "running"}}),
+    mark_finished=lambda job_id, result, excel_path, csv_path, app=None: (
+        _store["jobs"].update({job_id: {"status": "finished"}}),
+        _store["results"].update({job_id: {"result": result, "excel_path": excel_path, "csv_path": csv_path}}),
+    ),
+    mark_error=lambda job_id, msg, app=None: _store["jobs"].update({job_id: {"status": "error", "error": msg}}),
+    mark_cancelled=lambda job_id, app=None: _store["jobs"].update({job_id: {"status": "cancelled"}}),
+    get_status=lambda job_id, app=None: _store["jobs"].get(job_id, {"status": "unknown"}),
+    get_result=lambda job_id, app=None: _store["results"].get(job_id),
+    run_complete_optimization=lambda *a, **k: ({}, b"", b""),
+    active_jobs={},
+)
+
+import website.generator_routes as generator_module
+generator_module.scheduler = sys.modules['website.scheduler']
+import website
+website.scheduler = sys.modules['website.scheduler']
 
 from website import create_app
 from website.utils import allowlist as allowlist_module
 
 app = create_app()
+generator_module.scheduler = sys.modules['website.scheduler']
+website.scheduler = sys.modules['website.scheduler']
 add_to_allowlist = allowlist_module.add_to_allowlist
 
 

@@ -20,12 +20,9 @@ from flask import (
 
 from .extensions import csrf
 from .blueprints.core import login_required
+from website import scheduler
 
 bp = Blueprint("generator", __name__)
-
-# In-memory job store
-# {job_id: {"status": "running"|"finished"|"error"|"cancelled", "result": {...}}}
-JOBS = {}
 
 
 def _to_jsonable(obj):
@@ -47,7 +44,6 @@ def _to_jsonable(obj):
 
 def _worker(app, job_id, file_bytes, config, generate_charts):
     """Background worker that runs the optimization and stores results."""
-    from website import scheduler
 
     with app.app_context():
         try:
@@ -71,14 +67,9 @@ def _worker(app, job_id, file_bytes, config, generate_charts):
                     csv_path = tmp.name
                 token = os.path.basename(csv_path)
                 result["csv_url"] = f"/download/{token}?csv=1"
-            JOBS[job_id] = {
-                "status": "finished",
-                "result": result,
-                "excel_path": excel_path,
-                "csv_path": csv_path,
-            }
+            scheduler.mark_finished(job_id, result, excel_path, csv_path, app=app)
         except Exception as e:
-            JOBS[job_id] = {"status": "error", "error": str(e)}
+            scheduler.mark_error(job_id, str(e), app=app)
 
 
 @bp.get("/generador")
@@ -129,7 +120,7 @@ def generador_form():
     cfg.setdefault("solver_time", 20)
     cfg.setdefault("iterations", 5)
 
-    JOBS[job_id] = {"status": "running"}
+    scheduler.mark_running(job_id)
 
     app_obj = current_app._get_current_object()
     threading.Thread(
@@ -144,19 +135,18 @@ def generador_form():
 @bp.get("/generador/status/<job_id>")
 @login_required
 def generador_status(job_id):
-    job = JOBS.get(job_id)
-    if not job:
-        return jsonify({"status": "unknown"}), 200
-
-    status = job.get("status")
+    st = scheduler.get_status(job_id)
+    status = st.get("status")
     if status == "finished":
-        session["resultado"] = job.get("result")
+        payload = scheduler.get_result(job_id)
+        if payload:
+            session["resultado"] = payload.get("result")
         print(f"\u2705 [GENERATOR] Job {job_id} finished")
         return jsonify({"status": "finished"})
     if status == "error":
-        print(f"\u274C [GENERATOR] Job {job_id} error: {job.get('error')}")
-        return jsonify({"status": "error", "error": job.get("error")})
-    return jsonify({"status": "running"})
+        print(f"\u274C [GENERATOR] Job {job_id} error: {st.get('error')}")
+        return jsonify({"status": "error", "error": st.get("error")})
+    return jsonify({"status": status or "unknown"})
 
 
 @bp.get("/resultados")
@@ -190,8 +180,6 @@ def download(token):
 @login_required
 @csrf.exempt
 def cancel_job():
-    from website import scheduler
-
     data = request.get_json(silent=True) or {}
     job_id = data.get("job_id")
     if job_id:
@@ -202,15 +190,15 @@ def cancel_job():
             stopper(thread)
         if isinstance(active, dict):
             active.pop(job_id, None)
-        job_info = JOBS.get(job_id)
-        if job_info:
-            job_info["status"] = "cancelled"
+        scheduler.mark_cancelled(job_id)
+        payload = scheduler.get_result(job_id)
+        if payload:
             for key in ("excel_path", "csv_path"):
-                path = job_info.get(key) or job_info.get("result", {}).get(key)
+                path = payload.get(key)
                 if path:
                     try:
                         os.remove(path)
                     except Exception:
                         pass
-                    job_info[key] = None
+                    payload[key] = None
     return "", 204
