@@ -18,22 +18,23 @@
             <div class="invalid-feedback">Sube un archivo .xlsx</div>
           </div>
           <div class="col-md-6">
-            <label for="profile" class="form-label">Perfil</label>
+            <label for="profile" class="form-label">Perfil de Optimización</label>
             <select class="form-select" id="profile" name="profile" required>
-              <option selected>Equilibrado (Recomendado)</option>
-              <option>Conservador</option>
-              <option>Agresivo</option>
-              <option>Máxima Cobertura</option>
-              <option>Mínimo Costo</option>
-              <option>100% Cobertura Eficiente</option>
-              <option>100% Cobertura Total</option>
-              <option>Cobertura Perfecta</option>
-              <option>100% Exacto</option>
-              <option>JEAN</option>
-              <option>JEAN Personalizado</option>
-              <option>Personalizado</option>
-              <option>Aprendizaje Adaptativo</option>
+              <option value="Equilibrado (Recomendado)" selected>Equilibrado (Recomendado) - Balance óptimo</option>
+              <option value="Conservador">Conservador - Minimiza riesgos, permite más agentes</option>
+              <option value="Agresivo">Agresivo - Maximiza eficiencia, tolera déficit menor</option>
+              <option value="Máxima Cobertura">Máxima Cobertura - Prioriza cobertura completa</option>
+              <option value="Mínimo Costo">Mínimo Costo - Minimiza número de agentes</option>
+              <option value="100% Cobertura Eficiente">100% Cobertura Eficiente - Cobertura completa con mínimo exceso</option>
+              <option value="100% Cobertura Total">100% Cobertura Total - Cobertura completa sin restricciones</option>
+              <option value="Cobertura Perfecta">Cobertura Perfecta - Balance entre cobertura y eficiencia</option>
+              <option value="100% Exacto">100% Exacto - Cobertura exacta sin déficit ni exceso</option>
+              <option value="JEAN">JEAN - Búsqueda iterativa para minimizar exceso+déficit</option>
+              <option value="JEAN Personalizado">JEAN Personalizado - JEAN con turnos personalizados</option>
+              <option value="Personalizado">Personalizado - Configuración manual de parámetros</option>
+              <option value="Aprendizaje Adaptativo">Aprendizaje Adaptativo - IA que evoluciona automáticamente</option>
             </select>
+            <div class="form-text">Cada perfil optimiza para diferentes objetivos. Ver documentación para detalles.</div>
           </div>
         </div>
       </div>
@@ -164,6 +165,20 @@
                 <label class="form-label">Memoria máx. (GB)</label>
                 <input type="number" step="0.1" min="0" class="form-control" name="max_memory_gb" placeholder="Ej. 4">
                 <div class="form-text">Dejar vacío para usar toda la memoria disponible.</div>
+              </div>
+            </div>
+
+            <div class="row g-3 mt-1">
+              <div class="col-md-4">
+                <label class="form-label">Algoritmos a ejecutar</label>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" id="use_pulp" name="use_pulp" checked>
+                  <label class="form-check-label" for="use_pulp">PuLP (Programación Lineal)</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" id="use_greedy" name="use_greedy" checked>
+                  <label class="form-check-label" for="use_greedy">Greedy (Heurístico)</label>
+                </div>
               </div>
             </div>
           </div>

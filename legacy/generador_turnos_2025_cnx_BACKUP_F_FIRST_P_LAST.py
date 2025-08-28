@@ -19,21 +19,6 @@ import psutil
 
 from typing import Dict, List, Iterable, Union
 
-from threading import RLock
-from functools import wraps
-
-_MODEL_LOCK = RLock()
-
-
-def single_model(func):
-    """Ensure exclusive PuLP model creation/solve."""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        with _MODEL_LOCK:
-            return func(*args, **kwargs)
-
-    return wrapper
-
 
 def _build_pattern(
     days: Iterable[int],
@@ -66,25 +51,12 @@ def _build_pattern(
     return pattern.flatten()
 
 
-def memory_limit_patterns(slots_per_day: int, max_gb: float | None = None) -> int:
-    """Return how many patterns fit in memory.
-
-    Parameters
-    ----------
-    slots_per_day:
-        Number of slots in a day.
-    max_gb:
-        Optional memory cap in gigabytes. If provided, ``available`` memory is
-        capped to ``max_gb`` before calculating the limit. If ``max_gb`` is
-        ``None`` all available memory is used.
-    """
+def memory_limit_patterns(slots_per_day: int) -> int:
+    """Return how many patterns fit in roughly 4GB of RAM."""
     if slots_per_day <= 0:
         return 0
     available = psutil.virtual_memory().available
-    if max_gb is not None:
-        cap = min(available, max_gb * 1024 ** 3)
-    else:
-        cap = available
+    cap = min(available, 4 * 1024 ** 3)
     return int(cap // (7 * slots_per_day))
 
 
@@ -258,10 +230,7 @@ def load_shift_patterns(
         base_slot_min = mins and min(mins) or 60
     slots_per_day = 24 * (60 // base_slot_min)
     if max_patterns is None:
-        max_gb = cfg.get("max_memory_gb")
-        if isinstance(max_gb, str) and not max_gb.strip():
-            max_gb = None
-        max_patterns = memory_limit_patterns(slots_per_day, max_gb=max_gb)
+        max_patterns = memory_limit_patterns(slots_per_day)
 
     shifts_coverage: Dict[str, np.ndarray] = {}
     unique_patterns: Dict[bytes, str] = {}
@@ -604,21 +573,7 @@ df = pd.read_excel(uploaded)
 # ——————————————————————————————————————————————————————————————
 st.sidebar.header("⚙️ Configuración")
 MAX_ITER = int(st.sidebar.number_input("Iteraciones máximas", 10, 100, 30))
-_solver_time = st.sidebar.number_input(
-    "Solver time (0 = sin límite)", min_value=0, max_value=600, value=0
-)
-TIME_SOLVER = None if _solver_time == 0 else float(_solver_time)
-SOLVER_THREADS = int(
-    st.sidebar.number_input(
-        "Threads solver (PuLP)",
-        min_value=1,
-        max_value=int(os.cpu_count() or 1),
-        value=int(os.cpu_count() or 1),
-        step=1,
-        help="Número de hilos para CBC solver",
-    )
-)
-SOLVER_MSG = st.sidebar.selectbox("Mostrar progreso solver", [1, 0], index=0)
+TIME_SOLVER = float(st.sidebar.number_input("Tiempo solver (s)", 60, 600, 240))
 TARGET_COVERAGE = float(st.sidebar.slider("Cobertura objetivo (%)", 95, 100, 98))
 VERBOSE = st.sidebar.checkbox("Modo verbose/debug", False)
 
@@ -1049,10 +1004,7 @@ def generate_shifts_coverage_corrected(*, max_patterns: int | None = None, batch
         step = slot_minutes / 60
     slots_per_day = 24 * (60 // slot_minutes)
     if max_patterns is None:
-        max_gb = template_cfg.get("max_memory_gb")
-        if isinstance(max_gb, str) and not max_gb.strip():
-            max_gb = None
-        max_patterns = memory_limit_patterns(slots_per_day, max_gb=max_gb)
+        max_patterns = memory_limit_patterns(slots_per_day)
 
     start_hours = [h for h in np.arange(0, 24, step) if h <= 23.5]
 
@@ -1403,7 +1355,6 @@ def optimize_with_phased_strategy(shifts_coverage, demand_matrix):
         return {}, "NO_CONTRACT_TYPE_SELECTED"
 
 
-@single_model
 def optimize_single_type(shifts, demand_matrix, shift_type):
     """Optimiza un solo tipo usando parámetros del perfil"""
     if not shifts:
@@ -1477,10 +1428,7 @@ def optimize_single_type(shifts, demand_matrix, shift_type):
         prob += total_excess <= demand_matrix.sum() * 0.05
     
     # Resolver
-    solver_kwargs = {"msg": SOLVER_MSG, "threads": SOLVER_THREADS}
-    if TIME_SOLVER is not None:
-        solver_kwargs["timeLimit"] = TIME_SOLVER
-    prob.solve(pulp.PULP_CBC_CMD(**solver_kwargs))
+    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER))
     
     # Extraer resultados
     assignments = {}
@@ -1492,7 +1440,6 @@ def optimize_single_type(shifts, demand_matrix, shift_type):
     
     return assignments, f"{shift_type}_ONLY_OPTIMAL"
 
-@single_model
 def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
     """Optimización ultra-precisa para cobertura exacta"""
     if not PULP_AVAILABLE:
@@ -1646,16 +1593,14 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
         status_text.text("⚡ Ejecutando solver de precisión...")
         
         # Solver con configuración más flexible
-        solver_kwargs = {
-            "msg": SOLVER_MSG,
-            "threads": SOLVER_THREADS,
-            "gapRel": 0.02,   # 2% gap de optimalidad (más flexible)
-            "presolve": 1,
-            "cuts": 1,
-        }
-        if TIME_SOLVER is not None:
-            solver_kwargs["timeLimit"] = TIME_SOLVER
-        solver = pulp.PULP_CBC_CMD(**solver_kwargs)
+        solver = pulp.PULP_CBC_CMD(
+            msg=0, 
+            timeLimit=TIME_SOLVER,
+            gapRel=0.02,   # 2% gap de optimalidad (más flexible)
+            threads=4,
+            presolve=1,
+            cuts=1
+        )
         prob.solve(solver)
         
         # Extraer solución
@@ -1731,7 +1676,6 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix):
         st.error(f"Error en estrategia 2 fases: {str(e)}")
         return optimize_with_precision_targeting(shifts_coverage, demand_matrix)
 
-@single_model
 def optimize_ft_no_excess(ft_shifts, demand_matrix):
     """Fase 1: FT con CERO exceso permitido"""
     if not ft_shifts:
@@ -1773,10 +1717,7 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix):
             prob += coverage <= demand
     
     # Resolver
-    solver_kwargs = {"msg": SOLVER_MSG, "threads": SOLVER_THREADS}
-    if TIME_SOLVER is not None:
-        solver_kwargs["timeLimit"] = TIME_SOLVER / 2
-    prob.solve(pulp.PULP_CBC_CMD(**solver_kwargs))
+    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
     
     ft_assignments = {}
     if prob.status == pulp.LpStatusOptimal:
@@ -1787,7 +1728,6 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix):
     
     return ft_assignments
 
-@single_model
 def optimize_pt_complete(pt_shifts, remaining_demand):
     """Fase 2: PT para completar el déficit restante"""
     if not pt_shifts or remaining_demand.sum() == 0:
@@ -1834,10 +1774,7 @@ def optimize_pt_complete(pt_shifts, remaining_demand):
             prob += coverage - excess_vars[(day, hour)] <= demand
     
     # Resolver
-    solver_kwargs = {"msg": SOLVER_MSG, "threads": SOLVER_THREADS}
-    if TIME_SOLVER is not None:
-        solver_kwargs["timeLimit"] = TIME_SOLVER / 2
-    prob.solve(pulp.PULP_CBC_CMD(**solver_kwargs))
+    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
     
     pt_assignments = {}
     if prob.status == pulp.LpStatusOptimal:
@@ -1848,7 +1785,6 @@ def optimize_pt_complete(pt_shifts, remaining_demand):
     
     return pt_assignments
 
-@single_model
 def optimize_with_relaxed_constraints(shifts_coverage, demand_matrix):
     """Optimización con restricciones muy relajadas para problemas difíciles"""
     if not PULP_AVAILABLE:
@@ -1895,10 +1831,7 @@ def optimize_with_relaxed_constraints(shifts_coverage, demand_matrix):
         prob += total_agents <= int(total_demand / 3)
         
         # Resolver con configuración básica
-        solver_kwargs = {"msg": SOLVER_MSG, "threads": SOLVER_THREADS}
-        if TIME_SOLVER is not None:
-            solver_kwargs["timeLimit"] = TIME_SOLVER / 2
-        prob.solve(pulp.PULP_CBC_CMD(**solver_kwargs))
+        prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
         
         assignments = {}
         if prob.status == pulp.LpStatusOptimal:
@@ -2015,7 +1948,6 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix):
         return {}, "ERROR"
 
 
-@single_model
 def optimize_direct_improved(shifts_coverage, demand_matrix):
     """Optimización directa mejorada para mejor cobertura"""
     try:
@@ -2085,14 +2017,12 @@ def optimize_direct_improved(shifts_coverage, demand_matrix):
         status_text.text("⚡ Resolviendo optimización...")
         
         # Resolver con configuración optimizada
-        solver_kwargs = {
-            "msg": SOLVER_MSG,
-            "threads": SOLVER_THREADS,
-            "gapRel": 0.02,  # 2% gap de optimalidad
-        }
-        if TIME_SOLVER is not None:
-            solver_kwargs["timeLimit"] = TIME_SOLVER
-        solver = pulp.PULP_CBC_CMD(**solver_kwargs)
+        solver = pulp.PULP_CBC_CMD(
+            msg=0, 
+            timeLimit=TIME_SOLVER,
+            gapRel=0.02,  # 2% gap de optimalidad
+            threads=4
+        )
         prob.solve(solver)
         
         # Extraer solución
@@ -2121,7 +2051,6 @@ def optimize_direct_improved(shifts_coverage, demand_matrix):
 
 
 
-@single_model
 def optimize_single_type_improved(shifts_coverage, demand_matrix, shift_type):
     """Optimización mejorada para un solo tipo de turno"""
     shifts = {k: v for k, v in shifts_coverage.items() if k.startswith(shift_type)}
@@ -2167,10 +2096,7 @@ def optimize_single_type_improved(shifts_coverage, demand_matrix, shift_type):
     prob += total_excess <= demand_matrix.sum() * 0.15
     
     # Resolver
-    solver_kwargs = {"msg": SOLVER_MSG, "threads": SOLVER_THREADS}
-    if TIME_SOLVER is not None:
-        solver_kwargs["timeLimit"] = TIME_SOLVER
-    prob.solve(pulp.PULP_CBC_CMD(**solver_kwargs))
+    prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER))
     
     assignments = {}
     if prob.status == pulp.LpStatusOptimal:

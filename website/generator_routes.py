@@ -48,21 +48,11 @@ def _worker(app, job_id, file_bytes, config, generate_charts):
     with app.app_context():
         try:
             print(f"[WORKER] Running optimization for job {job_id}")
-            # Import legacy optimizer directly
-            import sys
-            import os
-            legacy_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'legacy')
-            sys.path.insert(0, legacy_path)
             
-            try:
-                from generador_turnos_2025_cnx_BACKUP_F_FIRST_P_LAST import run_optimization
-                result, excel_bytes, csv_bytes = run_optimization(BytesIO(file_bytes), config)
-            except ImportError:
-                # Fallback to simple greedy if legacy not available
-                from . import scheduler as sched_module
-                result, excel_bytes, csv_bytes = sched_module.run_complete_optimization(
-                    BytesIO(file_bytes), config=config, generate_charts=generate_charts, job_id=job_id
-                )
+            # Use modern scheduler module con timeout simple
+            result, excel_bytes, csv_bytes = sched_module.run_complete_optimization(
+                BytesIO(file_bytes), config=config, generate_charts=generate_charts, job_id=job_id
+            )
             
             print(f"[WORKER] Optimization completed for job {job_id}")
             excel_path = csv_path = None
@@ -117,6 +107,10 @@ def generador_form():
                 cfg[key] = int(value) if value.isdigit() else float(value)
             except ValueError:
                 cfg[key] = value
+    
+    # Manejar el perfil de optimización
+    if "profile" in cfg:
+        cfg["optimization_profile"] = cfg["profile"]
 
     jean_file = request.files.get("jean_file")
     if jean_file and jean_file.filename:
@@ -135,6 +129,9 @@ def generador_form():
 
     cfg.setdefault("solver_time", 10)
     cfg.setdefault("iterations", 5)
+    cfg.setdefault("use_pulp", True)
+    cfg.setdefault("use_greedy", True)
+    cfg.setdefault("optimization_profile", "Equilibrado (Recomendado)")
 
     store.mark_running(job_id)
 
@@ -157,13 +154,22 @@ def generador_status(job_id):
     status = st.get("status")
     current_app.logger.info(f"[STATUS] job={job_id} -> {status}")
     print(f"[STATUS] job={job_id} -> {status}")
+    
+    # Obtener información de progreso
+    progress = st.get("progress", {})
+    
     if status == "finished":
         print(f"\u2705 [GENERATOR] Job {job_id} finished")
         return jsonify({"status": "finished", "redirect": f"/resultados/{job_id}"})
     if status == "error":
         print(f"\u274C [GENERATOR] Job {job_id} error: {st.get('error')}")
         return jsonify({"status": "error", "error": st.get("error")})
-    return jsonify({"status": status or "unknown"})
+    
+    response = {"status": status or "unknown"}
+    if progress:
+        response["progress"] = progress
+    
+    return jsonify(response)
 
 
 @bp.get("/resultados/<job_id>")
@@ -195,6 +201,44 @@ def download(token):
         download_name=filename,
         mimetype=mimetype,
     )
+
+
+@bp.get("/heatmap/<filename>")
+@login_required
+def serve_heatmap(filename):
+    """Serve heatmap images from temporary files."""
+    if not filename.endswith('.png'):
+        abort(404)
+    
+    # Security check - only allow files that look like temp files
+    if not (filename.startswith('tmp') or 'tmp' in filename):
+        abort(404)
+    
+    path = os.path.join(tempfile.gettempdir(), filename)
+    if not os.path.exists(path):
+        abort(404)
+    
+    return send_file(path, mimetype='image/png')
+
+
+@bp.get("/resultados/<job_id>/refresh")
+@login_required
+def refresh_results(job_id):
+    """Force refresh of results to get latest Greedy data."""
+    payload = store.get_payload(job_id)
+    if not payload:
+        return jsonify({"error": "No results found"}), 404
+    
+    result = payload["result"]
+    has_greedy = bool(result.get("greedy_results", {}).get("assignments"))
+    has_greedy_charts = bool(result.get("greedy_results", {}).get("heatmaps"))
+    
+    return jsonify({
+        "has_greedy_results": has_greedy,
+        "has_greedy_charts": has_greedy_charts,
+        "greedy_status": result.get("greedy_results", {}).get("status", "NO_EJECUTADO"),
+        "should_refresh": not (has_greedy and has_greedy_charts)
+    })
 
 
 @bp.route("/cancel", methods=["POST"])

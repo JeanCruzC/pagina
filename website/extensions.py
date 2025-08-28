@@ -20,7 +20,14 @@ class SchedulerStore:
 
     # --- API usada por tus rutas/worker ---
     def mark_running(self, job_id, app=None):
-        self._s(app)["jobs"][job_id] = {"status": "running"}
+        self._s(app)["jobs"][job_id] = {"status": "running", "progress": {}}
+    
+    def update_progress(self, job_id, progress_info, app=None):
+        """Actualizar información de progreso para un job."""
+        s = self._s(app)
+        if job_id in s["jobs"]:
+            s["jobs"][job_id].setdefault("progress", {}).update(progress_info)
+            print(f"[PROGRESS] Updated {job_id}: {progress_info}")
 
     def mark_finished(self, job_id, result_dict, excel_path, csv_path, app=None):
         s = self._s(app)
