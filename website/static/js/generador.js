@@ -43,10 +43,12 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const info = await resp.json();
       job_id = info.job_id || job_id;
-      if (!job_id) throw new Error('sin id');
+      if (info.status === 'error' || !job_id) {
+        throw new Error(info.error || 'sin id');
+      }
       pollStatus(job_id);
     } catch (err) {
-      alert('La generación falló. Por favor inténtalo nuevamente.');
+      alert(err.message || 'La generación falló. Por favor inténtalo nuevamente.');
       resetUI();
     }
   });
@@ -65,12 +67,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await resp.json();
       if (data.status === 'finished') {
         window.location.href = '/resultados';
+        return;
       }
       if (data.status === 'error') {
-        throw new Error('error');
+        alert(data.error || 'La generación falló. Por favor inténtalo nuevamente.');
+        resetUI();
+        return;
       }
     } catch (err) {
-      alert('La generación falló. Por favor inténtalo nuevamente.');
+      alert(err.message || 'La generación falló. Por favor inténtalo nuevamente.');
       resetUI();
       return;
     }
