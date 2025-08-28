@@ -28,6 +28,7 @@ sys.modules['website.scheduler'] = types.SimpleNamespace(
     mark_cancelled=lambda job_id, app=None: STORE["jobs"].update({job_id: {"status": "cancelled"}}),
     get_status=lambda job_id, app=None: STORE["jobs"].get(job_id, {"status": "unknown"}),
     get_result=lambda job_id, app=None: STORE["results"].get(job_id),
+    get_payload=lambda job_id, app=None: STORE["results"].get(job_id),
     run_complete_optimization=lambda *a, **k: ({}, b"", b""),
     active_jobs={},
     _store=lambda app=None: STORE,
@@ -71,12 +72,12 @@ def login(client):
     )
 
 
-def test_resultados_without_result_shows_message():
+def test_resultados_nonexistent_returns_error():
     client = app.test_client()
     login(client)
-    response = client.get('/resultados')
-    assert response.status_code == 200
-    assert b'No hay resultados' in response.data
+    response = client.get('/resultados/unknown')
+    assert response.status_code == 500
+    assert b'Resultado no disponible' in response.data
 
 
 def test_generador_stores_and_renders_result():
@@ -97,10 +98,12 @@ def test_generador_stores_and_renders_result():
     job_id = response.get_json()['job_id']
     import time
     for _ in range(20):
-        status = client.get(f'/generador/status/{job_id}').get_json()['status']
-        if status == 'finished':
+        status_resp = client.get(f'/generador/status/{job_id}', follow_redirects=False)
+        if status_resp.status_code in {301, 302, 303, 307, 308}:
             break
         time.sleep(0.1)
-    result_page = client.get('/resultados')
+    assert status_resp.status_code in {301, 302, 303, 307, 308}
+    assert status_resp.headers['Location'].endswith(f'/resultados/{job_id}')
+    result_page = client.get(status_resp.headers['Location'])
     assert result_page.status_code == 200
     assert b'Resultados' in result_page.data
