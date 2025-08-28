@@ -36,8 +36,6 @@ bp = core  # backward compatibility
 # Default temporary directory
 temp_dir = tempfile.gettempdir()
 
-_RESULTS = {}  # {job_id: {"resultado": ..., "excel": ..., "csv": ..., "timestamp": ...}}
-
 
 # ---------------------------------------------------------------------------
 # Cleanup helpers
@@ -52,7 +50,7 @@ def _cleanup_job_dir(job_id):
 
 
 def cleanup_results(max_age=None, max_entries=None):
-    """Remove old entries from ``_RESULTS``.
+    """Remove old entries from the scheduler results store.
 
     Entries older than ``max_age`` seconds or exceeding ``max_entries`` are
     discarded. Default values are taken from application configuration keys
@@ -68,20 +66,22 @@ def cleanup_results(max_age=None, max_entries=None):
         else app.config.get("RESULT_MAX_ENTRIES", 100)
     )
 
+    results = scheduler._store(app).setdefault("results", {})
+
     # Remove entries older than ``max_age``
-    for job_id, data in list(_RESULTS.items()):
+    for job_id, data in list(results.items()):
         ts = data.get("timestamp", 0)
         if now - ts > max_age:
-            _RESULTS.pop(job_id, None)
+            results.pop(job_id, None)
             _cleanup_job_dir(job_id)
 
     # Trim if exceeding ``max_entries`` keeping the newest results
-    if len(_RESULTS) > max_entries:
+    if len(results) > max_entries:
         sorted_items = sorted(
-            _RESULTS.items(), key=lambda item: item[1].get("timestamp", 0)
+            results.items(), key=lambda item: item[1].get("timestamp", 0)
         )
         for job_id, _ in sorted_items[:-max_entries]:
-            _RESULTS.pop(job_id, None)
+            results.pop(job_id, None)
             _cleanup_job_dir(job_id)
 
 
@@ -90,7 +90,7 @@ _cleanup_thread_started = False
 
 @bp.before_app_request
 def _start_cleanup_thread():  # pragma: no cover - background job
-    """Start a background thread to periodically clean ``_RESULTS``."""
+    """Start a background thread to periodically clean results."""
 
     global _cleanup_thread_started
     if _cleanup_thread_started:

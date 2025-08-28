@@ -86,6 +86,7 @@ def mark_finished(job_id, result, excel_path, csv_path, app=None):
         "result": result,
         "excel_path": excel_path,
         "csv_path": csv_path,
+        "timestamp": time.time(),
     }
 
 
