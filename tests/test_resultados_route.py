@@ -28,6 +28,7 @@ sys.modules['website.scheduler'] = types.SimpleNamespace(
     mark_cancelled=lambda job_id, app=None: STORE["jobs"].update({job_id: {"status": "cancelled"}}),
     get_status=lambda job_id, app=None: STORE["jobs"].get(job_id, {"status": "unknown"}),
     get_result=lambda job_id, app=None: STORE["results"].get(job_id),
+    get_payload=lambda job_id, app=None: STORE["results"].get(job_id),
     run_complete_optimization=lambda *a, **k: ({}, b"", b""),
     active_jobs={},
     _store=lambda app=None: STORE,
@@ -71,12 +72,12 @@ def login(client):
     )
 
 
-def test_resultados_without_result_shows_message():
+def test_resultados_without_result_returns_500():
     client = app.test_client()
     login(client)
-    response = client.get('/resultados')
-    assert response.status_code == 200
-    assert b'No hay resultados' in response.data
+    response = client.get('/resultados/unknown')
+    assert response.status_code == 500
+    assert b'Resultado no disponible' in response.data
 
 
 def test_generador_stores_and_renders_result():
@@ -101,6 +102,6 @@ def test_generador_stores_and_renders_result():
         if status == 'finished':
             break
         time.sleep(0.1)
-    result_page = client.get('/resultados')
+    result_page = client.get(f'/resultados/{job_id}')
     assert result_page.status_code == 200
     assert b'Resultados' in result_page.data
