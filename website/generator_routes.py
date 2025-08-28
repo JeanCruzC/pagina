@@ -180,6 +180,11 @@ def download(token):
 @csrf.exempt
 def cancel_job():
     data = request.get_json(silent=True) or {}
+    if not data:
+        try:
+            data = json.loads(request.get_data(as_text=True))
+        except Exception:
+            data = {}
     job_id = data.get("job_id")
     if job_id:
         active = getattr(scheduler, "active_jobs", {}) or {}
