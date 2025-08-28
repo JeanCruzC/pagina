@@ -16,6 +16,7 @@ from flask import (
     send_file,
     abort,
     current_app,
+    url_for,
 )
 
 from .extensions import csrf
@@ -129,6 +130,9 @@ def generador_form():
         daemon=True,
     ).start()
 
+    # keep track of last job for navigation purposes
+    session["last_job_id"] = job_id
+
     return jsonify({"job_id": job_id}), 202
 
 
@@ -138,21 +142,22 @@ def generador_status(job_id):
     st = scheduler.get_status(job_id)
     status = st.get("status")
     if status == "finished":
-        payload = scheduler.get_result(job_id)
-        if payload:
-            session["resultado"] = payload.get("result")
         print(f"\u2705 [GENERATOR] Job {job_id} finished")
-        return jsonify({"status": "finished"})
+        return jsonify({
+            "status": "finished",
+            "redirect": url_for("generator.resultados", job_id=job_id),
+        })
     if status == "error":
         print(f"\u274C [GENERATOR] Job {job_id} error: {st.get('error')}")
         return jsonify({"status": "error", "error": st.get("error")})
     return jsonify({"status": status or "unknown"})
 
 
-@bp.get("/resultados")
+@bp.get("/resultados/<job_id>")
 @login_required
-def resultados():
-    resultado = session.get("resultado")
+def resultados(job_id):
+    payload = scheduler.get_payload(job_id)
+    resultado = payload.get("result") if payload else None
     return render_template("resultados.html", resultado=resultado)
 
 
@@ -191,7 +196,7 @@ def cancel_job():
         if isinstance(active, dict):
             active.pop(job_id, None)
         scheduler.mark_cancelled(job_id)
-        payload = scheduler.get_result(job_id)
+        payload = scheduler.get_payload(job_id)
         if payload:
             for key in ("excel_path", "csv_path"):
                 path = payload.get(key)

@@ -12,6 +12,7 @@ sys.modules['website.scheduler'] = types.SimpleNamespace(
     mark_cancelled=lambda job_id, app=None: _store.update({job_id: {"status": "cancelled"}}),
     get_status=lambda job_id, app=None: _store.get(job_id, {"status": "unknown"}),
     get_result=lambda job_id, app=None: _store.get(job_id),
+    get_payload=lambda job_id, app=None: _store.get(job_id),
     active_jobs={},
 )
 

@@ -7,7 +7,7 @@ import pytest
 from flask import template_rendered
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-sys.modules.setdefault('website.scheduler', types.SimpleNamespace())
+sys.modules.setdefault('website.scheduler', types.SimpleNamespace(get_payload=lambda *a, **k: None))
 
 from website import create_app
 from website.utils import allowlist as allowlist_module
