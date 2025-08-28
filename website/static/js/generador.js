@@ -208,8 +208,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       
       if (data.status === 'finished') {
-        const url = data.redirect || `/resultados/${job_id}`;
-        window.location.href = url;
+        const next = data.redirect || `/resultados/${job_id}`;
+        window.location.assign(next);
         return;
       }
       if (data.status === 'error') {

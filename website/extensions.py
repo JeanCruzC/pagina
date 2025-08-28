@@ -22,12 +22,22 @@ class SchedulerStore:
     def mark_running(self, job_id, app=None):
         self._s(app)["jobs"][job_id] = {"status": "running", "progress": {}}
     
-    def update_progress(self, job_id, progress_info, app=None):
-        """Actualizar información de progreso para un job."""
+    def update_progress(self, job_id, info: dict, app=None):
+        """
+        Mezcla 'info' dentro de jobs[job_id]['progress'] sin romper el status actual.
+        Estructura esperada: info = {"fase": "...", "pct": 0..100, ...}
+        """
         s = self._s(app)
-        if job_id in s["jobs"]:
-            s["jobs"][job_id].setdefault("progress", {}).update(progress_info)
-            print(f"[PROGRESS] Updated {job_id}: {progress_info}")
+        jobs = s.setdefault("jobs", {})
+        job = jobs.setdefault(job_id, {"status": "running"})
+        progress = job.get("progress", {})
+        if not isinstance(progress, dict):
+            progress = {}
+        if not isinstance(info, dict):
+            info = {"msg": str(info)}
+        progress.update(info)
+        job["progress"] = progress
+        jobs[job_id] = job
 
     def mark_finished(self, job_id, result_dict, excel_path, csv_path, app=None):
         s = self._s(app)
