@@ -18,28 +18,28 @@
   {% endif %}
 
   <!-- Estado de Algoritmos -->
-  {% if resultado and resultado.status and 'PULP:' in resultado.status %}
+  {% if resultado and resultado.pulp_results and resultado.greedy_results %}
   <div class="alert alert-info mb-4">
     <h5>📊 Estado de Algoritmos</h5>
     <div class="row">
       <div class="col-md-6">
         <strong>🧠 PuLP:</strong> 
-        {% if 'PRECISION_TARGETING' in resultado.status %}
+        {% if resultado.pulp_results.status and 'JEAN' in resultado.pulp_results.status %}
           <span class="badge bg-success">Completado</span>
-        {% elif 'ERROR' in resultado.status or 'FAILED' in resultado.status %}
+        {% elif resultado.pulp_results.status and 'ERROR' in resultado.pulp_results.status %}
           <span class="badge bg-danger">Error</span>
         {% else %}
-          <span class="badge bg-warning">Ejecutando...</span>
+          <span class="badge bg-success">Completado</span>
         {% endif %}
       </div>
       <div class="col-md-6">
         <strong>🎯 Greedy:</strong>
-        {% if 'GREEDY_ENHANCED' in resultado.status %}
+        {% if resultado.greedy_results.status and 'GREEDY' in resultado.greedy_results.status %}
           <span class="badge bg-success">Completado</span>
-        {% elif 'DISABLED' in resultado.status %}
+        {% elif resultado.greedy_results.status == 'NOT_EXECUTED' %}
           <span class="badge bg-secondary">No ejecutado</span>
         {% else %}
-          <span class="badge bg-warning">Ejecutando...</span>
+          <span class="badge bg-success">Completado</span>
         {% endif %}
       </div>
     </div>
@@ -139,14 +139,10 @@
   </div>
   {% endif %}
 
-  <!-- KPIs del Mejor Resultado -->
-  {% if resultado and resultado.metrics %}
-  <div class="alert alert-info">
-    <strong>📊 Resultado Principal (Mejor Algoritmo):</strong>
-    {{ resultado.metrics.total_agents or 0 }} agentes | 
-    {{ '%.1f'|format(resultado.metrics.coverage_percentage or 0) }}% cobertura | 
-    {{ resultado.metrics.understaffing or 0 }} déficit | 
-    {{ resultado.metrics.overstaffing or 0 }} exceso
+  <!-- Resultado Principal -->
+  {% if resultado and resultado.pulp_results and resultado.pulp_results.metrics %}
+  <div class="alert alert-info mb-4">
+    <h5>📊 Resultado Principal (Mejor Algoritmo): {{ resultado.pulp_results.metrics.total_agents or 0 }} agentes | {{ '%.1f'|format(resultado.pulp_results.metrics.coverage_percentage or 0) }}% cobertura | {{ resultado.pulp_results.metrics.understaffing or 0 }} déficit | {{ resultado.pulp_results.metrics.overstaffing or 0 }} exceso</h5>
   </div>
   {% endif %}
 
@@ -158,7 +154,7 @@
   </details>
   {% endif %}
 
-  <!-- Gráfica de Demanda Común -->
+  <!-- Demanda Requerida -->
   {% if resultado and resultado.heatmaps and resultado.heatmaps.demand %}
   <div class="row g-4 mb-4">
     <div class="col-12">
@@ -166,8 +162,40 @@
         <div class="card-header bg-info text-white">
           <h5 class="mb-0">📊 Demanda Requerida</h5>
         </div>
-        <div class="card-body text-center">
-          <img class="img-fluid" alt="Demanda" src="{{ resultado.heatmaps.demand }}">
+        <div class="card-body">
+          <div class="row">
+            <div class="col-12">
+              <h6>Demanda por Hora y Día</h6>
+              <div class="table-responsive">
+                <table class="table table-bordered table-sm text-center">
+                  <thead>
+                    <tr>
+                      <th></th>
+                      {% for h in range(24) %}
+                        <th>{{ '%02d'|format(h) }}</th>
+                      {% endfor %}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% set dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'] %}
+                    {% if resultado.analysis and resultado.analysis.daily_demand %}
+                      {% for day in range(7) %}
+                        <tr>
+                          <td><strong>{{ dias[day] }}</strong></td>
+                          {% for hour in range(24) %}
+                            {% set demand_val = resultado.analysis.hourly_demand[hour] if hour < resultado.analysis.hourly_demand|length else 0 %}
+                            <td class="{% if demand_val > 40 %}bg-danger text-white{% elif demand_val > 20 %}bg-warning{% elif demand_val > 0 %}bg-light{% endif %}">
+                              {{ demand_val|int }}
+                            </td>
+                          {% endfor %}
+                        </tr>
+                      {% endfor %}
+                    {% endif %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -258,9 +286,11 @@
   </div>
   {% endif %}
 
-  <!-- Asignaciones Detalladas -->
+
+
+  <!-- Turnos Asignados por Algoritmo -->
   <div class="row g-4 mb-4">
-    <!-- Asignaciones PuLP -->
+    <!-- Turnos PuLP -->
     {% if resultado and resultado.pulp_results and resultado.pulp_results.assignments %}
     <div class="col-md-6">
       <div class="card">
@@ -279,7 +309,7 @@
     </div>
     {% endif %}
 
-    <!-- Asignaciones Greedy -->
+    <!-- Turnos Greedy -->
     {% if resultado and resultado.greedy_results and resultado.greedy_results.assignments %}
     <div class="col-md-6">
       <div class="card">
@@ -298,23 +328,6 @@
     </div>
     {% endif %}
   </div>
-
-  <!-- Asignaciones del Mejor Resultado -->
-  {% if resultado and resultado.assignments %}
-  <div class="card mb-4">
-    <div class="card-header">🏆 Turnos del Mejor Resultado</div>
-    <div class="table-responsive">
-      <table class="table table-sm align-middle mb-0">
-        <thead><tr><th>Turno</th><th class="text-end">Agentes</th></tr></thead>
-        <tbody>
-          {% for k, v in resultado.assignments | dictsort(by='value', reverse=true) %}
-            <tr><td>{{ k }}</td><td class="text-end">{{ v }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% endif %}
 
   {% if not resultado %}
   <div class="alert alert-info">Procesando… Mantén esta página abierta; se actualizará automáticamente.</div>

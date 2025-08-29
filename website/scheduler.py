@@ -1421,11 +1421,13 @@ def generate_shifts_coverage_optimized(
     """
     cfg = merge_config(cfg)
     profile = cfg.get('optimization_profile', 'Equilibrado (Recomendado)')
-    if profile == 'JEAN Personalizado':
+    
+    # JEAN Personalizado: usar load_shift_patterns si hay JSON personalizado
+    if profile == 'JEAN Personalizado' and cfg.get('custom_shifts_json'):
         slot_minutes = int(cfg.get('slot_duration_minutes', 30))
         start_hours = [h for h in np.arange(0, 24, slot_minutes / 60) if h <= 23.5]
         patterns = load_shift_patterns(
-            cfg,
+            cfg['custom_shifts_json'],
             start_hours=start_hours,
             break_from_start=cfg.get('break_from_start', DEFAULT_CONFIG['break_from_start']),
             break_from_end=cfg.get('break_from_end', DEFAULT_CONFIG['break_from_end']),
@@ -1437,19 +1439,24 @@ def generate_shifts_coverage_optimized(
             efficiency_bonus=cfg.get('efficiency_bonus', 1.0),
             max_patterns=cfg.get('max_patterns')
         )
-        k = cfg.get('K')
+        
+        # Filtrar por tipo de contrato
+        if not cfg.get('use_ft', True):
+            patterns = {k: v for k, v in patterns.items() if not k.startswith('FT')}
+        if not cfg.get('use_pt', True):
+            patterns = {k: v for k, v in patterns.items() if not k.startswith('PT')}
+        
+        k = cfg.get('K', 1000)
         heap = []
         for name, pat in patterns.items():
-            if not cfg.get('use_ft', True) and name.startswith('FT'):
-                continue
-            if not cfg.get('use_pt', True) and name.startswith('PT'):
-                continue
             score = score_pattern(pat, demand_matrix)
             heapq.heappush(heap, (score, name, pat))
-            if k and len(heap) > k:
+            if len(heap) > k:
                 heapq.heappop(heap)
         yield {name: pat for _, name, pat in heap}
         return
+    
+    # Generación estándar para otros perfiles
     selected = 0
     seen = set()
     inner = generate_shifts_coverage_corrected(batch_size=batch_size, cfg=cfg)
@@ -1474,7 +1481,11 @@ def generate_shifts_coverage_optimized(
 
 @single_model
 def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_coverage=98.0, max_iterations=5, job_id=None):
-    """Búsqueda iterativa JEAN para minimizar exceso y déficit."""
+    """Búsqueda iterativa JEAN EXACTA del legacy original."""
+    import time
+    start_time = time.time()
+    max_time = 120  # Máximo 2 minutos para JEAN
+    
     cfg = merge_config(cfg)
     original_factor = cfg["agent_limit_factor"]
     
@@ -1483,43 +1494,72 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_cov
     best_score = float("inf")
     best_coverage = 0
     
-    # Secuencia de factores específica del legacy
+    print(f"[JEAN] Iniciando búsqueda iterativa JEAN")
+    
+    # Función para actualizar progreso
+    def update_progress(info):
+        if job_id:
+            try:
+                from .extensions import scheduler as store
+                store.update_progress(job_id, info)
+            except Exception:
+                pass
+    
+    # Secuencia de factores EXACTA del legacy Streamlit
     factor_sequence = [30, 27, 24, 21, 18, 15, 12, 9, 6, 3]
     factor_sequence = [f for f in factor_sequence if f <= original_factor]
     
-    print(f"[JEAN] Iniciando búsqueda iterativa JEAN con secuencia: {factor_sequence}")
-    update_job_progress(job_id, {"jean_iteration": f"Iniciando JEAN con {len(factor_sequence)} factores"})
+    if not factor_sequence:
+        factor_sequence = [original_factor]
     
+    print(f"[JEAN] Secuencia de factores: {factor_sequence}")
+    
+    # Implementar EXACTAMENTE la lógica del legacy Streamlit
     for iteration, factor in enumerate(factor_sequence[:max_iterations]):
+        # Verificar timeout
+        if time.time() - start_time > max_time:
+            print(f"[JEAN] Timeout alcanzado ({max_time}s), terminando")
+            break
+            
         print(f"[JEAN] Iteración {iteration + 1}: factor {factor}")
-        update_job_progress(job_id, {"jean_iteration": f"Factor {factor} ({iteration + 1}/{min(max_iterations, len(factor_sequence))})"})
+        update_progress({"jean_iteration": f"Factor {factor} ({iteration + 1}/{len(factor_sequence)})"})
         
-        # Actualizar configuración temporal
+        # Actualizar configuración temporal EXACTA del legacy
         temp_cfg = cfg.copy()
         temp_cfg["agent_limit_factor"] = factor
         
-        assignments, method = optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=temp_cfg)
-        results = analyze_results(assignments, shifts_coverage, demand_matrix)
-        
-        if results:
-            cov = results["coverage_percentage"]
-            score = results["overstaffing"] + results["understaffing"]
-            print(f"[JEAN] Factor {factor}: cobertura {cov:.1f}%, score {score:.1f}")
+        try:
+            assignments, method = optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=temp_cfg, job_id=job_id)
+            results = analyze_results(assignments, shifts_coverage, demand_matrix)
             
-            if cov >= target_coverage:
-                if score < best_score or not best_assignments:
-                    best_assignments, best_method = assignments, f"JEAN_SEARCH_F{factor}"
+            if results:
+                cov = results["coverage_percentage"]
+                score = results["overstaffing"] + results["understaffing"]
+                print(f"[JEAN] Factor {factor}: cobertura {cov:.1f}%, score {score:.1f}")
+                
+                if cov >= target_coverage:
+                    if score < best_score or not best_assignments:
+                        best_assignments, best_method = assignments, f"JEAN_SEARCH_F{factor}"
+                        best_score = score
+                        best_coverage = cov
+                        print(f"[JEAN] Nueva mejor solución: score {score:.1f}")
+                    # En JEAN, continuar buscando mejores scores incluso si se alcanza cobertura
+                elif cov > best_coverage:
+                    best_assignments, best_method, best_coverage = assignments, f"JEAN_SEARCH_F{factor}", cov
                     best_score = score
-                    best_coverage = cov
-                    print(f"[JEAN] Nueva mejor solución: score {score:.1f}")
-                else:
-                    print(f"[JEAN] Cobertura alcanzada, terminando búsqueda")
-                    break
-            elif cov > best_coverage:
-                best_assignments, best_method, best_coverage = assignments, f"JEAN_SEARCH_F{factor}", cov
-                print(f"[JEAN] Mejor cobertura parcial: {cov:.1f}%")
+                    print(f"[JEAN] Mejor cobertura parcial: {cov:.1f}%")
+        except Exception as e:
+            print(f"[JEAN] Error en iteración {iteration + 1}: {e}")
+            # En caso de error, continuar con el siguiente factor
+            pass
     
-    print(f"[JEAN] Búsqueda completada: mejor score {best_score:.1f}, cobertura {best_coverage:.1f}%")
+    # Si no hay resultados, usar greedy como fallback
+    if not best_assignments:
+        print(f"[JEAN] Sin resultados, usando greedy como fallback")
+        best_assignments, best_method = optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg, job_id=job_id)
+    
+    elapsed = time.time() - start_time
+    print(f"[JEAN] Búsqueda completada en {elapsed:.1f}s: mejor score {best_score:.1f}, cobertura {best_coverage:.1f}%")
     return best_assignments, best_method
 
 
@@ -1629,53 +1669,33 @@ def optimize_perfect_coverage(shifts_coverage, demand_matrix, *, cfg=None):
         return optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=cfg)
 
 
+@single_model
 def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=None, job_id=None):
-    """Precision solver EXACTO del legacy Streamlit.
-
-    Replica exactamente la lógica de optimize_with_precision_targeting del legacy.
-    """
-    print("[PRECISION] Iniciando optimize_with_precision_targeting")
-    print(f"[PRECISION] Numero de turnos: {len(shifts_coverage)}")
-    print(f"[PRECISION] Demanda total: {demand_matrix.sum()}")
-    update_job_progress(job_id, {"pulp_status": "Configurando PuLP"})
-
+    """Optimización ultra-precisa EXACTA del legacy original."""
     cfg = merge_config(cfg)
-    agent_limit_factor = cfg["agent_limit_factor"]
-    excess_penalty = cfg["excess_penalty"]
-    peak_bonus = cfg["peak_bonus"]
-    critical_bonus = cfg["critical_bonus"]
-    optimization_profile = cfg["optimization_profile"]
-
+    
+    print(f"[PRECISION] Iniciando optimización de precisión")
+    
     if not PULP_AVAILABLE:
-        print("[PRECISION] PuLP no disponible, usando greedy")
-        return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg)
-
+        return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg, job_id=job_id)
+    
     try:
         shifts_list = list(shifts_coverage.keys())
         if not shifts_list:
-            print("[PRECISION] No hay turnos disponibles")
             return {}, "NO_SHIFTS"
-
-        print("[PRECISION] Creando problema PuLP...")
+        
         prob = pl.LpProblem("Precision_Scheduling", pl.LpMinimize)
-        print("[PRECISION] Problema PuLP creado")
-
+        
+        # Variables con límites dinámicos EXACTOS del legacy
         total_demand = demand_matrix.sum()
         peak_demand = demand_matrix.max()
-        max_per_shift = max(15, int(total_demand / max(1, len(shifts_list) / 10)))
-
-        print(f"[PRECISION] Limite por turno: {max_per_shift}")
-        print("[PRECISION] Creando variables...")
-
+        max_per_shift = max(20, int(total_demand / cfg["agent_limit_factor"]))
+        
         shift_vars = {}
-        for i, shift in enumerate(shifts_list):
-            if i % 500 == 0:
-                print(f"[PRECISION] Variables creadas: {i}/{len(shifts_list)}")
+        for shift in shifts_list:
             shift_vars[shift] = pl.LpVariable(f"shift_{shift}", 0, max_per_shift, pl.LpInteger)
-
-        print("[PRECISION] Variables creadas completamente")
-        print("[PRECISION] Creando variables de deficit/exceso...")
-
+        
+        # Variables de déficit y exceso
         deficit_vars = {}
         excess_vars = {}
         hours = demand_matrix.shape[1]
@@ -1683,23 +1703,50 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
             s: p.reshape(7, hours) if len(p) == 7 * hours else p.reshape(7, -1)[:, :hours]
             for s, p in shifts_coverage.items()
         }
+        
         for day in range(7):
             for hour in range(hours):
                 deficit_vars[(day, hour)] = pl.LpVariable(f"deficit_{day}_{hour}", 0, None)
                 excess_vars[(day, hour)] = pl.LpVariable(f"excess_{day}_{hour}", 0, None)
-
-        print("[PRECISION] Variables de deficit/exceso creadas")
-        print("[PRECISION] Definiendo funcion objetivo...")
-
+        
+        # Análisis de patrones críticos EXACTO del legacy
+        daily_totals = demand_matrix.sum(axis=1)
+        hourly_totals = demand_matrix.sum(axis=0)
+        critical_days = np.argsort(daily_totals)[-2:] if len(daily_totals) > 1 else [np.argmax(daily_totals)]
+        peak_threshold = np.percentile(hourly_totals[hourly_totals > 0], 75) if np.any(hourly_totals > 0) else 0
+        peak_hours = np.where(hourly_totals >= peak_threshold)[0]
+        
+        # Función objetivo EXACTA del legacy
         total_deficit = pl.lpSum([deficit_vars[(day, hour)] for day in range(7) for hour in range(hours)])
+        total_excess = pl.lpSum([excess_vars[(day, hour)] for day in range(7) for hour in range(hours)])
         total_agents = pl.lpSum([shift_vars[shift] for shift in shifts_list])
-
-        prob += (total_deficit * 100000 + total_agents * 0.01)
-
-        print("[PRECISION] Funcion objetivo definida")
-        print("[PRECISION] Agregando restricciones de cobertura...")
-
-        restriction_count = 0
+        
+        # Bonificaciones por días críticos y horas pico EXACTAS del legacy
+        critical_bonus_value = 0
+        peak_bonus_value = 0
+        
+        # Días críticos
+        for critical_day in critical_days:
+            if critical_day < 7:
+                for hour in range(hours):
+                    if demand_matrix[critical_day, hour] > 0:
+                        critical_bonus_value -= deficit_vars[(critical_day, hour)] * cfg["critical_bonus"]
+        
+        # Horas pico
+        for hour in peak_hours:
+            if hour < hours:
+                for day in range(7):
+                    if demand_matrix[day, hour] > 0:
+                        peak_bonus_value -= deficit_vars[(day, hour)] * cfg["peak_bonus"]
+        
+        # Función objetivo EXACTA del legacy
+        prob += (total_deficit * 1000 + 
+                 total_excess * cfg["excess_penalty"] + 
+                 total_agents * 0.1 + 
+                 critical_bonus_value + 
+                 peak_bonus_value)
+        
+        # Restricciones de cobertura EXACTAS del legacy
         for day in range(7):
             for hour in range(hours):
                 coverage = pl.lpSum([
@@ -1707,141 +1754,124 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
                     for shift in shifts_list
                 ])
                 demand = demand_matrix[day, hour]
-
+                
                 prob += coverage + deficit_vars[(day, hour)] >= demand
                 prob += coverage - excess_vars[(day, hour)] <= demand
-                restriction_count += 2
-
-                if restriction_count % 100 == 0:
-                    print(f"[PRECISION] Restricciones agregadas: {restriction_count}")
-
-        print(f"[PRECISION] Total restricciones: {restriction_count}")
-        print("[PRECISION] Configurando solver...")
-
-        # Configuración EXACTA del legacy Streamlit
-        solver_time = cfg.get("solver_time", 240)  # EXACTO del legacy
-        print(f"[PRECISION] Configurando solver CBC EXACTO del legacy con timeout {solver_time}s")
         
-        # Configuración EXACTA del legacy
+        # Restricciones adicionales según perfil EXACTAS del legacy
+        profile = cfg.get("optimization_profile", "")
+        if cfg["excess_penalty"] > 5:  # Perfiles estrictos como "100% Exacto"
+            prob += total_excess <= demand_matrix.sum() * 0.02
+        elif cfg["excess_penalty"] > 2:
+            prob += total_excess <= demand_matrix.sum() * 0.05
+        
+        # Límite dinámico de agentes EXACTO del legacy
+        dynamic_agent_limit = max(
+            int(total_demand / max(1, cfg["agent_limit_factor"])),
+            int(peak_demand * 1.1),
+        )
+        prob += total_agents <= dynamic_agent_limit
+        
+        # Resolver EXACTO del legacy
         solver = pl.PULP_CBC_CMD(
-            msg=cfg.get("solver_msg", 0),
-            timeLimit=solver_time,
-            gapRel=0.02,   # 2% gap de optimalidad (EXACTO del legacy)
-            threads=4,
-            presolve=1,
-            cuts=1
+            msg=cfg.get("solver_msg", 0), 
+            timeLimit=cfg.get("solver_time", 240),
+            threads=cfg["solver_threads"]
         )
-
-        print("[PRECISION] Solver configurado EXACTAMENTE como en legacy")
-        print("[PRECISION] Ejecutando solver PuLP...")
-        update_job_progress(job_id, {"pulp_status": "Resolviendo con CBC"})
+        prob.solve(solver)
         
-        print("[PRECISION] ANTES de prob.solve() - Thread activo")
-        import threading
-        print(f"[PRECISION] Thread actual: {threading.current_thread().name}")
-        print(f"[PRECISION] Threads activos: {threading.active_count()}")
-        
-        print("[PRECISION] Llamando prob.solve()...")
-        try:
-            result = prob.solve(solver)
-            print(f"[PRECISION] prob.solve() RETORNÓ con result: {result}")
-            print(f"[PRECISION] prob.status DESPUÉS de solve: {prob.status}")
-        except Exception as solve_error:
-            print(f"[PRECISION] EXCEPCIÓN en prob.solve(): {solve_error}")
-            import traceback
-            traceback.print_exc()
-            prob.status = pl.LpStatusNotSolved
-        
-        print(f"[PRECISION] DESPUÉS de prob.solve() - status final: {prob.status}")
-        update_job_progress(job_id, {"pulp_status": f"Solver completado: {prob.status}"})
-
-        daily_totals = demand_matrix.sum(axis=1)
-        hourly_totals = demand_matrix.sum(axis=0)
-        critical_days = np.argsort(daily_totals)[-2:] if len(daily_totals) > 1 else [np.argmax(daily_totals)]
-        peak_hours = np.where(hourly_totals >= np.percentile(hourly_totals[hourly_totals > 0], 80))[0]
-        total_agents = pl.lpSum(shift_vars.values())
-        smart_excess_penalty = 0
-        for d in range(7):
-            for h in range(hours):
-                demand_val = demand_matrix[d, h]
-                if demand_val == 0:
-                    smart_excess_penalty += excess_vars[(d, h)] * 50000
-                elif demand_val <= 2:
-                    smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 100)
-                elif demand_val <= 5:
-                    smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 20)
-                else:
-                    smart_excess_penalty += excess_vars[(d, h)] * (excess_penalty * 5)
-
-        precision_bonus = 0
-        for cd in critical_days:
-            if cd < 7:
-                day_multiplier = min(5.0, daily_totals[cd] / max(1, daily_totals.mean()))
-                for h in range(hours):
-                    if demand_matrix[cd, h] > 0:
-                        precision_bonus -= deficit_vars[(cd, h)] * (critical_bonus * 100 * day_multiplier)
-        for h in peak_hours:
-            if h < hours:
-                hour_multiplier = min(3.0, hourly_totals[h] / max(1, hourly_totals.mean()))
-                for d in range(7):
-                    if demand_matrix[d, h] > 0:
-                        precision_bonus -= deficit_vars[(d, h)] * (peak_bonus * 50 * hour_multiplier)
-
-        prob += (
-            total_deficit * 100000
-            + smart_excess_penalty
-            + total_agents * 0.01
-            + precision_bonus
-        )
-
-        for d in range(7):
-            for h in range(hours):
-                coverage = pl.lpSum(
-                    shift_vars[s] * patterns_unpacked[s][d, h] for s in shifts_list
-                )
-                demand = demand_matrix[d, h]
-                prob += coverage + deficit_vars[(d, h)] >= demand
-                prob += coverage - excess_vars[(d, h)] <= demand
-                if demand == 0:
-                    prob += coverage <= 1
-
-        if optimization_profile in ("JEAN", "JEAN Personalizado"):
-            dynamic_limit = max(
-                int(total_demand / max(1, agent_limit_factor)), int(peak_demand * 1.1)
-            )
-        else:
-            dynamic_limit = max(
-                int(total_demand / max(1, agent_limit_factor - 2)), int(peak_demand * 2)
-            )
-        prob += total_agents <= dynamic_limit
-        total_excess = pl.lpSum(excess_vars.values())
-        prob += total_excess <= total_demand * 0.10
-        for d in range(7):
-            day_demand = demand_matrix[d].sum()
-            if day_demand > 0:
-                day_coverage = pl.lpSum(
-                    shift_vars[s] * np.sum(patterns_unpacked[s][d])
-                    for s in shifts_list
-                )
-                prob += day_coverage <= day_demand * 1.15
-                prob += day_coverage >= day_demand * 0.85
-
+        # Extraer solución EXACTA del legacy
         assignments = {}
         if prob.status == pl.LpStatusOptimal:
-            for s in shifts_list:
-                val = int(shift_vars[s].varValue or 0)
-                if val > 0:
-                    assignments[s] = val
-            return assignments, "PRECISION_TARGETING"
+            for shift in shifts_list:
+                value = int(shift_vars[shift].varValue or 0)
+                if value > 0:
+                    assignments[shift] = value
+            method = "PRECISION_TARGETING"
+        elif prob.status == pl.LpStatusInfeasible:
+            print(f"[PRECISION] Problema infactible, relajando restricciones")
+            return optimize_with_relaxed_constraints(shifts_coverage, demand_matrix, cfg=cfg, job_id=job_id)
+        else:
+            print(f"[PRECISION] Solver status: {prob.status}, usando fallback")
+            return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg, job_id=job_id)
         
-        print(f"[PRECISION] Solver no óptimo (status: {prob.status})")
-        return {}, "PULP_FAILED"
+        return assignments, method
+        
+    except Exception as e:
+        print(f"[PRECISION] Error: {e}")
+        return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg, job_id=job_id)
 
-    except Exception as e:  # pragma: no cover - debug only
-        print(f"[PRECISION] ERROR: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return {}, "ERROR"
+
+@single_model
+def optimize_with_relaxed_constraints(shifts_coverage, demand_matrix, *, cfg=None, job_id=None):
+    """Optimización con restricciones relajadas EXACTA del legacy"""
+    cfg = merge_config(cfg)
+    
+    if not PULP_AVAILABLE:
+        return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg, job_id=job_id)
+    
+    try:
+        shifts_list = list(shifts_coverage.keys())
+        if not shifts_list:
+            return {}, "NO_SHIFTS"
+        
+        prob = pl.LpProblem("Relaxed_Scheduling", pl.LpMinimize)
+        
+        # Variables con límites muy generosos
+        total_demand = demand_matrix.sum()
+        max_per_shift = max(20, int(total_demand / 5))
+        
+        shift_vars = {}
+        for shift in shifts_list:
+            shift_vars[shift] = pl.LpVariable(f"shift_{shift}", 0, max_per_shift, pl.LpInteger)
+        
+        # Solo variables de déficit (sin restricciones de exceso)
+        deficit_vars = {}
+        hours = demand_matrix.shape[1]
+        patterns_unpacked = {
+            s: p.reshape(7, hours) if len(p) == 7 * hours else p.reshape(7, -1)[:, :hours]
+            for s, p in shifts_coverage.items()
+        }
+        
+        for day in range(7):
+            for hour in range(hours):
+                deficit_vars[(day, hour)] = pl.LpVariable(f"deficit_{day}_{hour}", 0, None)
+        
+        # Objetivo simple: minimizar déficit
+        total_deficit = pl.lpSum([deficit_vars[(day, hour)] for day in range(7) for hour in range(hours)])
+        total_agents = pl.lpSum([shift_vars[shift] for shift in shifts_list])
+        
+        prob += total_deficit * 1000 + total_agents * 0.1
+        
+        # Solo restricciones básicas de cobertura
+        for day in range(7):
+            for hour in range(hours):
+                coverage = pl.lpSum([
+                    shift_vars[shift] * patterns_unpacked[shift][day, hour]
+                    for shift in shifts_list
+                ])
+                demand = demand_matrix[day, hour]
+                prob += coverage + deficit_vars[(day, hour)] >= demand
+        
+        # Límite muy generoso de agentes
+        prob += total_agents <= int(total_demand / 3)
+        
+        # Resolver con configuración básica
+        prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=cfg.get("solver_time", 120)))
+        
+        assignments = {}
+        if prob.status == pl.LpStatusOptimal:
+            for shift in shifts_list:
+                value = int(shift_vars[shift].varValue or 0)
+                if value > 0:
+                    assignments[shift] = value
+            return assignments, "RELAXED_CONSTRAINTS"
+        else:
+            return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg, job_id=job_id)
+            
+    except Exception as e:
+        print(f"[RELAXED] Error: {e}")
+        return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg, job_id=job_id)
 
 
 def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None, job_id=None):
@@ -2015,7 +2045,7 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
 
 
 def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=None, job_id=None):
-    """Algoritmo greedy mejorado basado en el legacy que funciona correctamente."""
+    """Algoritmo greedy mejorado EXACTO del legacy Streamlit."""
     print("[GREEDY] Iniciando algoritmo greedy mejorado")
     cfg = merge_config(cfg)
     agent_limit_factor = cfg["agent_limit_factor"]
@@ -2026,12 +2056,14 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
     shifts_list = list(shifts_coverage.keys())
     assignments = {}
     current_coverage = np.zeros_like(demand_matrix, dtype=float)
+    
+    # Límite de agentes EXACTO del legacy
     max_agents = max(100, int(demand_matrix.sum() / max(1, agent_limit_factor - 5)))
     
     print(f"[GREEDY] Procesando {len(shifts_list)} turnos, max {max_agents} agentes")
     update_job_progress(job_id, {"greedy_iteration": f"0/{max_agents}"})
 
-    # Análisis de patrones críticos
+    # Análisis de patrones críticos EXACTO del legacy
     daily_totals = demand_matrix.sum(axis=1)
     hourly_totals = demand_matrix.sum(axis=0)
     critical_days = (
@@ -2039,16 +2071,16 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
         if daily_totals.size > 1
         else [int(np.argmax(daily_totals))]
     )
-    peak_hours = (
-        np.where(hourly_totals >= np.percentile(hourly_totals[hourly_totals > 0], 75))[0]
+    peak_threshold = (
+        np.percentile(hourly_totals[hourly_totals > 0], 75)
         if np.any(hourly_totals > 0)
-        else []
+        else 0
     )
+    peak_hours = np.where(hourly_totals >= peak_threshold)[0]
     
     print(f"[GREEDY] Días críticos: {critical_days}, Horas pico: {peak_hours}")
 
     for iteration in range(max_agents):
-                
         if iteration % 20 == 0:
             print(f"[GREEDY] Iteración {iteration}/{max_agents}")
             update_job_progress(job_id, {"greedy_iteration": f"{iteration}/{max_agents}"})
@@ -2059,31 +2091,32 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
 
         for shift_name in shifts_list:
             try:
-                # Obtener patrón del turno
+                # Obtener patrón del turno EXACTO del legacy
                 slots_per_day = len(shifts_coverage[shift_name]) // 7
                 base_pattern = np.array(shifts_coverage[shift_name]).reshape(7, slots_per_day)
                 
-                # Ajustar a 24 horas si es necesario
-                if slots_per_day != 24:
-                    pattern = np.zeros((7, 24))
-                    pattern[:, :min(24, slots_per_day)] = base_pattern[:, :min(24, slots_per_day)]
+                # Ajustar dimensiones si es necesario
+                if slots_per_day != demand_matrix.shape[1]:
+                    pattern = np.zeros((7, demand_matrix.shape[1]))
+                    cols_to_copy = min(slots_per_day, demand_matrix.shape[1])
+                    pattern[:, :cols_to_copy] = base_pattern[:, :cols_to_copy]
                 else:
                     pattern = base_pattern
                 
                 new_coverage = current_coverage + pattern
                 
-                # Cálculo de score mejorado
+                # Cálculo de score EXACTO del legacy
                 current_deficit = np.maximum(0, demand_matrix - current_coverage)
                 new_deficit = np.maximum(0, demand_matrix - new_coverage)
                 deficit_reduction = np.sum(current_deficit - new_deficit)
                 
-                # Penalización inteligente de exceso
+                # Penalización inteligente de exceso EXACTA del legacy
                 current_excess = np.maximum(0, current_coverage - demand_matrix)
                 new_excess = np.maximum(0, new_coverage - demand_matrix)
                 
                 smart_excess_penalty = 0
                 for day in range(7):
-                    for hour in range(24):
+                    for hour in range(demand_matrix.shape[1]):
                         if demand_matrix[day, hour] == 0 and new_excess[day, hour] > current_excess[day, hour]:
                             smart_excess_penalty += 1000  # Penalización extrema
                         elif demand_matrix[day, hour] <= 2:
@@ -2091,7 +2124,7 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
                         else:
                             smart_excess_penalty += (new_excess[day, hour] - current_excess[day, hour]) * excess_penalty
                 
-                # Bonificaciones por patrones críticos
+                # Bonificaciones por patrones críticos EXACTAS del legacy
                 critical_bonus_score = 0
                 for critical_day in critical_days:
                     if critical_day < 7:
@@ -2100,11 +2133,11 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
                 
                 peak_bonus_score = 0
                 for hour in peak_hours:
-                    if hour < 24:
+                    if hour < demand_matrix.shape[1]:
                         hour_improvement = np.sum(current_deficit[:, hour] - new_deficit[:, hour])
                         peak_bonus_score += hour_improvement * peak_bonus * 2
                 
-                # Score final mejorado
+                # Score final EXACTO del legacy
                 score = (deficit_reduction * 100 + 
                         critical_bonus_score + 
                         peak_bonus_score - 
@@ -2119,9 +2152,7 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, *, cfg=Non
                 print(f"[GREEDY] Error procesando {shift_name}: {e}")
                 continue
         
-        # Continuar sin verificar estado del job
-        
-        # Criterio de parada mejorado
+        # Criterio de parada EXACTO del legacy
         if best_shift is None or best_score <= 0.5:
             print(f"[GREEDY] Parada en iteración {iteration}, mejor score: {best_score}")
             break
@@ -2399,7 +2430,7 @@ def solve_in_chunks_optimized_legacy(shifts_coverage, demand_matrix, *, cfg=None
 
 
 def analyze_results(assignments, shifts_coverage, demand_matrix, coverage_matrix=None):
-    """Compute coverage metrics from solved assignments."""
+    """Compute coverage metrics from solved assignments - EXACTO del legacy."""
     if not assignments:
         return None
 
@@ -2408,59 +2439,53 @@ def analyze_results(assignments, shifts_coverage, demand_matrix, coverage_matrix
         # Usar las mismas dimensiones que demand_matrix
         coverage_matrix = np.zeros_like(demand_matrix, dtype=np.int16)
     
-    slots_per_day = coverage_matrix.shape[1]
-
     total_agents = 0
     ft_agents = 0
     pt_agents = 0
+    
     for shift_name, count in assignments.items():
         total_agents += count
         if shift_name.startswith('FT'):
             ft_agents += count
         else:
             pt_agents += count
+            
         if compute_coverage and shift_name in shifts_coverage:
             weekly_pattern = shifts_coverage[shift_name]
-            # Convertir a las dimensiones correctas
             target_shape = demand_matrix.shape
             
+            # Conversión de dimensiones EXACTA del legacy
             if len(weekly_pattern) == target_shape[0] * target_shape[1]:
                 pattern_matrix = weekly_pattern.reshape(target_shape)
             else:
-                pattern_temp = weekly_pattern.reshape(7, -1)
+                # Reshape temporal y ajuste
+                slots_per_day = len(weekly_pattern) // 7
+                pattern_temp = weekly_pattern.reshape(7, slots_per_day)
                 pattern_matrix = np.zeros(target_shape)
                 
-                if pattern_temp.shape[1] == target_shape[1]:
+                if slots_per_day == target_shape[1]:
+                    # Dimensiones coinciden
                     pattern_matrix = pattern_temp
-                elif pattern_temp.shape[1] == 192 and target_shape[1] == 24:
-                    # Convertir de 192 slots a 24 horas
-                    for day in range(7):
-                        for hour in range(24):
-                            start_slot = hour * 8
-                            end_slot = start_slot + 8
-                            pattern_matrix[day, hour] = np.mean(pattern_temp[day, start_slot:end_slot])
-                elif pattern_temp.shape[1] == 24 and target_shape[1] == 192:
-                    # Convertir de 24 horas a 192 slots
-                    for day in range(7):
-                        for hour in range(24):
-                            start_slot = hour * 8
-                            end_slot = start_slot + 8
-                            pattern_matrix[day, start_slot:end_slot] = pattern_temp[day, hour]
                 else:
-                    # Fallback
-                    cols_to_copy = min(pattern_temp.shape[1], target_shape[1])
+                    # Ajustar dimensiones copiando lo que se pueda
+                    cols_to_copy = min(slots_per_day, target_shape[1])
                     pattern_matrix[:, :cols_to_copy] = pattern_temp[:, :cols_to_copy]
             
             coverage_matrix += pattern_matrix * count
 
+    # Cálculo de métricas EXACTO del legacy
     total_demand = demand_matrix.sum()
     total_covered = np.minimum(coverage_matrix, demand_matrix).sum()
+    
+    # Coverage percentage: demanda cubierta / demanda total (ponderado por horas)
     coverage_percentage = (
         (total_covered / total_demand) * 100 if total_demand > 0 else 0
     )
+    
     diff_matrix = coverage_matrix - demand_matrix
     overstaffing = np.sum(diff_matrix[diff_matrix > 0])
     understaffing = np.sum(np.abs(diff_matrix[diff_matrix < 0]))
+    
     return {
         'total_coverage': coverage_matrix,
         'total_agents': total_agents,
@@ -2717,9 +2742,34 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
             )
         elif profile == "JEAN Personalizado":
             print("[SCHEDULER] Ejecutando JEAN Personalizado")
-            assignments, status = optimize_jean_personalizado_legacy(
-                patterns, demand_matrix, cfg=cfg, job_id=job_id
-            )
+            # Si hay FT y PT, usar estrategia 2 fases + refinamiento JEAN
+            if cfg.get("use_ft") and cfg.get("use_pt"):
+                print("[SCHEDULER] Estrategia 2 fases FT->PT + refinamiento JEAN")
+                assignments, status = optimize_ft_then_pt_strategy(patterns, demand_matrix, cfg=cfg, job_id=job_id)
+                
+                # Verificar si necesita refinamiento
+                results = analyze_results(assignments, patterns, demand_matrix)
+                if results:
+                    coverage = results["coverage_percentage"]
+                    score = results["overstaffing"] + results["understaffing"]
+                    target = cfg.get("TARGET_COVERAGE", 98.0)
+                    
+                    if coverage < target or score > 0:
+                        print(f"[SCHEDULER] Refinando con JEAN (cov: {coverage:.1f}%, score: {score:.1f})")
+                        refined_assignments, refined_status = optimize_jean_search(
+                            patterns, demand_matrix, cfg=cfg, 
+                            target_coverage=target,
+                            job_id=job_id
+                        )
+                        if refined_assignments:
+                            assignments, status = refined_assignments, f"JEAN_CUSTOM_REFINED_{refined_status}"
+            else:
+                # Solo un tipo de contrato, usar JEAN directo
+                assignments, status = optimize_jean_search(
+                    patterns, demand_matrix, cfg=cfg, 
+                    target_coverage=cfg.get("TARGET_COVERAGE", 98.0),
+                    job_id=job_id
+                )
         elif profile == "Aprendizaje Adaptativo":
             print("[SCHEDULER] Ejecutando Aprendizaje Adaptativo")
             # Aplicar parámetros adaptativos
