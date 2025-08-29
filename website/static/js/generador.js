@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let slowTimer;
   let controller;
   let job_id;
+  let navigatingToResults = false;
 
   if (!form || !spinner || !slowMsg || !btnExcel || !btnCharts) return;
 
@@ -146,6 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   form.addEventListener('submit', async (e) => {
     generateCharts = e.submitter === btnCharts;
+    const exportFiles = e.submitter === btnExcel; // solo generar archivos cuando se pide Excel
     if (!form.checkValidity()) {
       e.preventDefault();
       e.stopPropagation();
@@ -164,6 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const data = new FormData(form);
     data.append('generate_charts', generateCharts ? 'true' : 'false');
+    data.append('export_files', exportFiles ? 'true' : 'false');
     data.append('job_id', job_id);
     controller = new AbortController();
 
@@ -179,7 +182,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (info.status === 'error' || !job_id) {
         throw new Error(info.error || 'sin id');
       }
-      pollStatus(job_id);
+      // UX alineada al legacy/Streamlit: navegar a la página de resultados
+      // inmediatamente y dejar que ésta haga auto-refresh hasta que haya datos.
+      navigatingToResults = true;
+      window.location.assign(`/resultados/${job_id}`);
+      // No seguimos con el polling aquí: la página de resultados se encargará
+      // del auto-refresh. Esto evita 'Failed to fetch' durante la navegación.
     } catch (err) {
       alert(err.message || 'La generación falló. Por favor inténtalo nuevamente.');
       resetUI();
@@ -187,7 +195,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   window.addEventListener('pagehide', () => {
-    if (controller) {
+    // No cancelar si estamos navegando deliberadamente a Resultados
+    if (controller && !navigatingToResults) {
       controller.abort();
       navigator.sendBeacon(
         '/cancel',

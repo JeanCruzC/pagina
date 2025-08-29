@@ -317,7 +317,7 @@
   {% endif %}
 
   {% if not resultado %}
-  <div class="alert alert-warning">No hay resultados para mostrar. Vuelve al generador.</div>
+  <div class="alert alert-info">Procesando… Mantén esta página abierta; se actualizará automáticamente.</div>
   {% elif not (resultado.metrics or resultado.heatmaps or resultado.assignments) %}
   <div class="alert alert-warning">No hay resultados para mostrar.</div>
   {% endif %}

@@ -189,9 +189,25 @@ def generador_status(job_id):
 @bp.get("/resultados/<job_id>")
 @login_required
 def resultados(job_id):
+    """Render results page and load from disk fallback if needed."""
     payload = store.get_payload(job_id)
     if not payload:
-        return render_template("500.html", message="Resultado no disponible"), 500
+        # Fallback: try disk snapshot if store not populated yet
+        try:
+            import json, os, tempfile
+            path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as fh:
+                    result = json.load(fh)
+                try:
+                    store.mark_finished(job_id, result, None, None)
+                except Exception:
+                    pass
+                return render_template("resultados.html", resultado=result)
+        except Exception:
+            pass
+        # No data yet: render placeholder; page auto-refreshes
+        return render_template("resultados.html", resultado=None)
     return render_template("resultados.html", resultado=payload["result"])
 
 
@@ -238,20 +254,34 @@ def serve_heatmap(filename):
 @bp.get("/resultados/<job_id>/refresh")
 @login_required
 def refresh_results(job_id):
-    """Force refresh of results to get latest Greedy data."""
+    """Force refresh of results; return flags to drive auto-reload."""
     payload = store.get_payload(job_id)
     if not payload:
-        return jsonify({"error": "No results found"}), 404
-    
+        # If a disk snapshot exists, ask the client to reload now
+        import os, tempfile
+        path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
+        if os.path.exists(path):
+            return jsonify({
+                "has_greedy_results": True,
+                "has_greedy_charts": False,
+                "greedy_status": "READY",
+                "should_refresh": True,
+            })
+        # Otherwise keep refreshing
+        return jsonify({
+            "has_greedy_results": False,
+            "has_greedy_charts": False,
+            "greedy_status": "PENDING",
+            "should_refresh": True,
+        })
     result = payload["result"]
     has_greedy = bool(result.get("greedy_results", {}).get("assignments"))
     has_greedy_charts = bool(result.get("greedy_results", {}).get("heatmaps"))
-    
     return jsonify({
         "has_greedy_results": has_greedy,
         "has_greedy_charts": has_greedy_charts,
         "greedy_status": result.get("greedy_results", {}).get("status", "NO_EJECUTADO"),
-        "should_refresh": not (has_greedy and has_greedy_charts)
+        "should_refresh": not (has_greedy and has_greedy_charts),
     })
 
 

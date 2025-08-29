@@ -1844,16 +1844,36 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         return {}, "ERROR"
 
 
-def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None):
+def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None, job_id=None):
     """Estrategia 2 fases: FT sin exceso, luego PT para completar."""
     print("[FT_PT] Iniciando estrategia 2 fases")
     cfg = merge_config(cfg)
     
     ft_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('FT')}
     pt_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('PT')}
+
+    # Reducir el problema: quedarnos con los mejores patrones según demanda
+    def _top_by_score(shifts_dict, max_n):
+        if max_n is None or len(shifts_dict) <= max_n:
+            return shifts_dict
+        scored = [(name, pat, score_pattern(pat, demand_matrix)) for name, pat in shifts_dict.items()]
+        scored.sort(key=lambda x: x[2], reverse=True)
+        keep = dict((name, pat) for name, pat, _ in scored[:max_n])
+        return keep
+
+    ft_limit = cfg.get("ft_max_patterns")
+    pt_limit = cfg.get("pt_max_patterns")
+    if ft_limit:
+        update_job_progress(job_id, {"stage": f"Filtrando FT (top {ft_limit})"})
+        ft_shifts = _top_by_score(ft_shifts, int(ft_limit))
+    if pt_limit:
+        update_job_progress(job_id, {"stage": f"Filtrando PT (top {pt_limit})"})
+        pt_shifts = _top_by_score(pt_shifts, int(pt_limit))
     
     print(f"[FT_PT] Fase 1: {len(ft_shifts)} turnos FT")
+    update_job_progress(job_id, {"stage": "Resolviendo FT"})
     ft_assignments = optimize_ft_no_excess(ft_shifts, demand_matrix, cfg=cfg)
+    update_job_progress(job_id, {"stage": "FT resuelto", "ft_turnos": len(ft_assignments)})
     
     # Calcular cobertura FT
     ft_coverage = np.zeros_like(demand_matrix)
@@ -1863,10 +1883,43 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, *, cfg=None):
     
     print(f"[FT_PT] Fase 2: {len(pt_shifts)} turnos PT")
     remaining_demand = np.maximum(0, demand_matrix - ft_coverage)
+    update_job_progress(job_id, {"stage": "Resolviendo PT"})
+
+    # Publicar resultado parcial (solo FT) para que la UI tenga algo visible
+    try:
+        if job_id is not None and ft_assignments:
+            from .extensions import scheduler as store
+            partial_metrics = analyze_results(ft_assignments, ft_shifts, demand_matrix, ft_coverage)
+            partial_result = {
+                "assignments": ft_assignments,
+                "metrics": partial_metrics,
+                "status": "PARTIAL_FT",
+                "pulp_results": {
+                    "assignments": ft_assignments,
+                    "metrics": partial_metrics,
+                    "status": "FT_ONLY",
+                    "heatmaps": {},
+                },
+                "greedy_results": {"assignments": {}, "metrics": None, "status": "NOT_EXECUTED", "heatmaps": {}},
+                "effective_config": merge_config(cfg),
+            }
+            store.mark_finished(job_id, partial_result, None, None)
+            # Guardar snapshot parcial en disco
+            try:
+                path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
+                with open(path, "w", encoding="utf-8") as fh:
+                    json.dump(partial_result, fh, ensure_ascii=False)
+            except Exception:
+                pass
+            update_job_progress(job_id, {"stage": "Publicado resultado parcial (FT)"})
+    except Exception:
+        pass
     pt_assignments = optimize_pt_complete(pt_shifts, remaining_demand, cfg=cfg)
+    update_job_progress(job_id, {"stage": "PT resuelto", "pt_turnos": len(pt_assignments)})
     
     final_assignments = {**ft_assignments, **pt_assignments}
     print(f"[FT_PT] Completado: {len(final_assignments)} turnos asignados")
+    update_job_progress(job_id, {"stage": "FT+PT completado", "turnos": len(final_assignments)})
     return final_assignments, "FT_NO_EXCESS_THEN_PT"
 
 
@@ -2190,7 +2243,7 @@ def solve_with_pulp(demand_matrix, patterns, config):
     }
 
 
-def optimize_schedule_iterative_legacy(shifts_coverage, demand_matrix, *, cfg=None):
+def optimize_schedule_iterative_legacy(shifts_coverage, demand_matrix, *, cfg=None, job_id=None):
     """Función principal EXACTA del legacy Streamlit con estrategia FT primero + PT después."""
     cfg = merge_config(cfg)
     
@@ -2204,7 +2257,7 @@ def optimize_schedule_iterative_legacy(shifts_coverage, demand_matrix, *, cfg=No
         if profile == "JEAN Personalizado":
             if cfg.get("use_ft") and cfg.get("use_pt"):
                 print("[LEGACY] Estrategia 2 Fases: FT sin exceso -> PT para completar")
-                assignments, method = optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=cfg)
+                assignments, method = optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=cfg, job_id=job_id)
 
                 results = analyze_results(assignments, shifts_coverage, demand_matrix)
                 if results:
@@ -2222,7 +2275,7 @@ def optimize_schedule_iterative_legacy(shifts_coverage, demand_matrix, *, cfg=No
 
         if cfg.get("use_ft") and cfg.get("use_pt"):
             print("[LEGACY] Estrategia 2 Fases: FT sin exceso -> PT para completar")
-            return optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=cfg)
+            return optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=cfg, job_id=job_id)
         else:
             print("[LEGACY] Modo Precisión: Optimización directa")
             return optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=cfg)
@@ -2676,7 +2729,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
             assignments, status = optimize_schedule_iterative_legacy(patterns, demand_matrix, cfg=temp_cfg)
         else:
             print(f"[SCHEDULER] Ejecutando perfil estándar: {profile}")
-            assignments, status = optimize_schedule_iterative_legacy(patterns, demand_matrix, cfg=cfg)
+            assignments, status = optimize_schedule_iterative_legacy(patterns, demand_matrix, cfg=cfg, job_id=job_id)
         
         total_agents = sum(assignments.values()) if assignments else 0
         
@@ -2685,6 +2738,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         greedy_assignments, greedy_status = {}, "NOT_EXECUTED"
         
         print(f"[SCHEDULER] Optimización legacy completada: {len(assignments)} turnos, {total_agents} agentes")
+        update_job_progress(job_id, {"stage": "Cálculo de métricas"})
         
         warning_msg = None
         
@@ -2743,8 +2797,14 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         greedy_metrics = analyze_results(greedy_assignments, patterns, demand_matrix) if greedy_assignments else None
 
         print(f"[MEM] Antes de exportar resultados: {monitor_memory_usage():.1f}%")
+        update_job_progress(job_id, {"stage": "Exportación (opcional)"})
         metrics = analyze_results(assignments, patterns, demand_matrix, coverage_matrix)
-        excel_bytes, csv_bytes = export_detailed_schedule(assignments, patterns)
+        # Exportacin de archivos opcional para evitar bloquear la entrega de resultados
+        export_files = bool(cfg.get("export_files", False))
+        if export_files:
+            excel_bytes, csv_bytes = export_detailed_schedule(assignments, patterns)
+        else:
+            excel_bytes, csv_bytes = None, None
 
         # Save learning data if adaptive mode
         if cfg.get("optimization_profile") == "Aprendizaje Adaptativo" and metrics:
@@ -2842,9 +2902,28 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
             result["message"] = warning_msg
         result["effective_config"] = _convert(cfg)
         print("[SCHEDULER] Resultados preparados - RETORNANDO")
-        
+        update_job_progress(job_id, {"stage": "Resultados listos"})
+
+        # Publicar resultados en el store inmediatamente para que la UI los vea
+        # incluso si hay pasos posteriores opcionales. El worker lo volverá a
+        # marcar como finished al retornar, lo cual es idempotente.
+        try:
+            if job_id is not None:
+                from .extensions import scheduler as store
+                store.mark_finished(job_id, result, excel_bytes, csv_bytes)
+                # Persistir respaldo en disco para que la vista pueda leerlo
+                # incluso si hubiera algún problema con el store en memoria.
+                try:
+                    path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
+                    with open(path, "w", encoding="utf-8") as fh:
+                        json.dump(result, fh, ensure_ascii=False)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         # Callback removido - no hay variables use_greedy ni results_queue definidas
-        
+
         return result, excel_bytes, csv_bytes
 
     except Exception as e:
