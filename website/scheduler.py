@@ -139,7 +139,7 @@ def single_model(func):
 # Default configuration values used when no override is supplied
 DEFAULT_CONFIG = {
     # Streamlit legacy defaults from ``legacy/app1.py``
-    "solver_time": 300,
+    "solver_time": 240,  # EXACTO del legacy
     "solver_msg": 1,
     "TARGET_COVERAGE": 98.0,
     "agent_limit_factor": 12,

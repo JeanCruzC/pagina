@@ -135,8 +135,8 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
         )
         prob += total_agents <= dynamic_agent_limit
         
-        # Resolver con configuración simplificada
-        solver_time = min(cfg.get("solver_time", 300), 30)  # Máximo 30 segundos
+        # Resolver con configuración EXACTA del legacy
+        solver_time = cfg.get("solver_time", 240)  # EXACTO del legacy - sin límite artificial
         
         print(f"[PULP] Resolviendo con timeout {solver_time}s")
         start_time = time.time()
@@ -190,9 +190,9 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
             # Solver con límites muy agresivos para terminar rápido
             solver = pl.PULP_CBC_CMD(
                 msg=1,  # Mostrar progreso
-                timeLimit=30,  # Máximo 30 segundos
-                gapRel=0.15,  # Parar con 15% de gap (más permisivo)
-                threads=2
+                timeLimit=solver_time,  # EXACTO del legacy
+                gapRel=0.05,  # Gap del legacy
+                threads=4  # Threads del legacy
             )
             status = prob.solve(solver)
             print(f"[PULP] Solver status: {status}")
@@ -204,7 +204,7 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
             # Fallback a solver simple con timeout muy corto
             try:
                 print(f"[PULP] Intentando solver simple")
-                simple_solver = pl.PULP_CBC_CMD(timeLimit=120, msg=0)
+                simple_solver = pl.PULP_CBC_CMD(timeLimit=solver_time, msg=0)
                 status = prob.solve(simple_solver)
                 print(f"[PULP] Solver simple status: {status}")
             except Exception as e2:
@@ -299,8 +299,8 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_cov
     best_score = float("inf")
     best_coverage = 0
     
-    # Secuencia de factores EXACTA del original
-    factor_sequence = [30, 25, 20, 15, 12, 10, 8]
+    # Secuencia de factores EXACTA del legacy Streamlit
+    factor_sequence = [30, 25, 20, 15, 12, 10, 8]  # EXACTA del legacy
     factor_sequence = [f for f in factor_sequence if f <= original_factor]
     
     if not factor_sequence:

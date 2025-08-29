@@ -384,12 +384,10 @@ if (window.location.pathname.includes('/resultados/')) {
         console.log(`Auto-refresh ${refreshCount}/${maxRefresh} - PuLP: ${data.has_pulp_results ? 'Done' : 'Running'}, Greedy: ${data.has_greedy_results ? 'Done' : 'Running'}`);
         setTimeout(() => {
           window.location.reload();
-        }, 5000); // Refresh más rápido
+        }, 5000);
       } else if (!data.should_refresh) {
-        console.log('Ambos algoritmos completados - recargando página final');
-        setTimeout(() => {
-          window.location.reload();
-        }, 2000);
+        console.log('Ambos algoritmos completados - deteniendo auto-refresh');
+        // No recargar más - los resultados ya están listos
       }
     } catch (error) {
       console.log('Error updating progress:', error);

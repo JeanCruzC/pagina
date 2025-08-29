@@ -304,7 +304,7 @@ def refresh_results(job_id):
                 "has_greedy_charts": False,  # No se generan gráficos por defecto
                 "pulp_status": disk_result.get("pulp_results", {}).get("status", "PENDING"),
                 "greedy_status": disk_result.get("greedy_results", {}).get("status", "PENDING"),
-                "should_refresh": not (has_pulp and has_greedy),  # Parar cuando ambos terminen
+                "should_refresh": False,  # Parar refresh inmediatamente si hay resultados en disco
             })
         except Exception as e:
             print(f"[REFRESH] Error leyendo disco: {e}")
@@ -347,7 +347,7 @@ def refresh_results(job_id):
         "has_greedy_charts": False,
         "pulp_status": result.get("pulp_results", {}).get("status", "PENDING"),
         "greedy_status": result.get("greedy_results", {}).get("status", "PENDING"),
-        "should_refresh": not (has_pulp and has_greedy),  # Parar cuando ambos terminen
+        "should_refresh": False,  # Parar refresh cuando hay resultados
     })
 
 
