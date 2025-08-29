@@ -208,6 +208,12 @@ def resultados(job_id):
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as fh:
                 result = json.load(fh)
+            
+            # Debug: verificar que tenemos resultados de PuLP
+            has_pulp = bool(result.get("pulp_results", {}).get("assignments"))
+            has_greedy = bool(result.get("greedy_results", {}).get("assignments"))
+            print(f"[RESULTADOS] Cargando desde disco - PuLP: {has_pulp}, Greedy: {has_greedy}")
+            
             # Update store for future requests
             try:
                 store.mark_finished(job_id, result, None, None)
@@ -216,13 +222,20 @@ def resultados(job_id):
             return render_template("resultados.html", resultado=result)
     except Exception as e:
         print(f"[RESULTADOS] Error loading from disk for {job_id}: {e}")
+        import traceback
+        print(f"[RESULTADOS] Traceback: {traceback.format_exc()}")
     
     # Fallback to store
     payload = store.get_payload(job_id)
     if payload:
-        return render_template("resultados.html", resultado=payload["result"])
+        result = payload["result"]
+        has_pulp = bool(result.get("pulp_results", {}).get("assignments"))
+        has_greedy = bool(result.get("greedy_results", {}).get("assignments"))
+        print(f"[RESULTADOS] Cargando desde store - PuLP: {has_pulp}, Greedy: {has_greedy}")
+        return render_template("resultados.html", resultado=result)
     
     # No data yet: render placeholder; page auto-refreshes
+    print(f"[RESULTADOS] No hay datos para {job_id} - mostrando placeholder")
     return render_template("resultados.html", resultado=None)
 
 
@@ -270,37 +283,71 @@ def serve_heatmap(filename):
 @login_required
 def refresh_results(job_id):
     """Force refresh of results; return flags to drive auto-reload."""
+    # Primero verificar archivo en disco
+    import os, tempfile, json
+    path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                disk_result = json.load(f)
+            
+            has_pulp = bool(disk_result.get("pulp_results", {}).get("assignments"))
+            has_greedy = bool(disk_result.get("greedy_results", {}).get("assignments"))
+            
+            print(f"[REFRESH] Disco - PuLP: {has_pulp}, Greedy: {has_greedy}")
+            print(f"[REFRESH] PuLP assignments: {len(disk_result.get('pulp_results', {}).get('assignments', {}))}")
+            print(f"[REFRESH] Greedy assignments: {len(disk_result.get('greedy_results', {}).get('assignments', {}))}")
+            
+            return jsonify({
+                "has_pulp_results": has_pulp,
+                "has_greedy_results": has_greedy,
+                "has_greedy_charts": False,  # No se generan gráficos por defecto
+                "pulp_status": disk_result.get("pulp_results", {}).get("status", "PENDING"),
+                "greedy_status": disk_result.get("greedy_results", {}).get("status", "PENDING"),
+                "should_refresh": not (has_pulp and has_greedy),  # Parar cuando ambos terminen
+            })
+        except Exception as e:
+            print(f"[REFRESH] Error leyendo disco: {e}")
+            import traceback
+            print(f"[REFRESH] Traceback: {traceback.format_exc()}")
+    
+    # Fallback al store
     payload = store.get_payload(job_id)
     if not payload:
-        # If a disk snapshot exists, ask the client to reload now
-        import os, tempfile
-        path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
+        print(f"[REFRESH] No payload para {job_id} - verificando disco nuevamente")
+        # Verificar disco una vez más antes de dar up
         if os.path.exists(path):
+            print(f"[REFRESH] Archivo existe pero no se pudo leer - forzando reload")
             return jsonify({
+                "has_pulp_results": True,  # Forzar reload
                 "has_greedy_results": True,
                 "has_greedy_charts": False,
-                "greedy_status": "READY",
-                "should_refresh": True,
+                "pulp_status": "READY",
+                "greedy_status": "READY", 
+                "should_refresh": False,  # Forzar parada de refresh
             })
-        # Otherwise keep refreshing
         return jsonify({
+            "has_pulp_results": False,
             "has_greedy_results": False,
             "has_greedy_charts": False,
+            "pulp_status": "PENDING",
             "greedy_status": "PENDING",
             "should_refresh": True,
         })
+    
     result = payload["result"]
+    has_pulp = bool(result.get("pulp_results", {}).get("assignments"))
     has_greedy = bool(result.get("greedy_results", {}).get("assignments"))
-    has_greedy_charts = bool(result.get("greedy_results", {}).get("heatmaps"))
+    
+    print(f"[REFRESH] Store - PuLP: {has_pulp}, Greedy: {has_greedy}")
+    
     return jsonify({
+        "has_pulp_results": has_pulp,
         "has_greedy_results": has_greedy,
-        "has_greedy_charts": has_greedy_charts,
-        "greedy_status": result.get("greedy_results", {}).get("status", "NO_EJECUTADO"),
-        "pulp_progress": "50%",
-        "pulp_status": "Resolviendo...",
-        "pulp_time": "60s/120s",
-        "has_pulp_results": bool(result.get("pulp_results", {}).get("assignments")),
-        "should_refresh": not (has_greedy and has_greedy_charts and result.get("pulp_results", {}).get("assignments")),
+        "has_greedy_charts": False,
+        "pulp_status": result.get("pulp_results", {}).get("status", "PENDING"),
+        "greedy_status": result.get("greedy_results", {}).get("status", "PENDING"),
+        "should_refresh": not (has_pulp and has_greedy),  # Parar cuando ambos terminen
     })
 
 

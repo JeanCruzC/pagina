@@ -136,7 +136,7 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
         prob += total_agents <= dynamic_agent_limit
         
         # Resolver con configuración simplificada
-        solver_time = min(cfg.get("solver_time", 300), 180)  # Máximo 3 minutos
+        solver_time = min(cfg.get("solver_time", 300), 30)  # Máximo 30 segundos
         
         print(f"[PULP] Resolviendo con timeout {solver_time}s")
         start_time = time.time()
@@ -190,10 +190,9 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
             # Solver con límites muy agresivos para terminar rápido
             solver = pl.PULP_CBC_CMD(
                 msg=1,  # Mostrar progreso
-                timeLimit=60,  # Máximo 1 minuto
-                gapRel=0.10,  # Parar con 10% de gap (más permisivo)
-                threads=2,
-                fracGap=0.10  # Gap fraccional también
+                timeLimit=30,  # Máximo 30 segundos
+                gapRel=0.15,  # Parar con 15% de gap (más permisivo)
+                threads=2
             )
             status = prob.solve(solver)
             print(f"[PULP] Solver status: {status}")
@@ -205,13 +204,34 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
             # Fallback a solver simple con timeout muy corto
             try:
                 print(f"[PULP] Intentando solver simple")
-                simple_solver = pl.PULP_CBC_CMD(timeLimit=30, msg=0)
+                simple_solver = pl.PULP_CBC_CMD(timeLimit=120, msg=0)
                 status = prob.solve(simple_solver)
+                print(f"[PULP] Solver simple status: {status}")
             except Exception as e2:
                 print(f"[PULP] Error final: {str(e2)[:100]}")
                 return {}, "SOLVER_ERROR"
         
         solve_time = time.time() - start_time
+        
+        # Verificar si excedió el tiempo máximo
+        if solve_time > 180:  # Más de 3 minutos
+            print(f"[PULP] Timeout manual después de {solve_time:.1f}s")
+            # Intentar extraer solución parcial si existe
+            try:
+                for shift in shifts_list:
+                    try:
+                        value = int(shift_vars[shift].varValue or 0)
+                        if value > 0:
+                            assignments[shift] = value
+                    except (TypeError, AttributeError):
+                        pass
+                if assignments:
+                    total_agents = sum(assignments.values())
+                    print(f"[PULP] Solución parcial extraída: {total_agents} agentes")
+                    return assignments, "PULP_TIMEOUT_PARTIAL"
+            except:
+                pass
+            return {}, "PULP_TIMEOUT"
         
         # Progreso final
         try:

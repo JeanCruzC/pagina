@@ -26,7 +26,7 @@
     <div class="row">
       <div class="col-md-6">
         <strong>🧠 PuLP:</strong> 
-        {% if resultado.pulp_results and resultado.pulp_results.get('assignments') %}
+        {% if resultado.pulp_results and resultado.pulp_results.assignments %}
           <span class="badge bg-success">Completado</span>
           <small class="text-muted d-block">Tiempo: {{ resultado.pulp_results.execution_time | round(1) if resultado.pulp_results.execution_time else 'N/A' }}s</small>
         {% elif resultado.pulp_results and resultado.pulp_results.status and 'ERROR' in resultado.pulp_results.status %}
@@ -41,7 +41,7 @@
       </div>
       <div class="col-md-6">
         <strong>🎯 Greedy:</strong>
-        {% if resultado.greedy_results and resultado.greedy_results.get('assignments') %}
+        {% if resultado.greedy_results and resultado.greedy_results.assignments %}
           <span class="badge bg-success">Completado</span>
           <small class="text-muted d-block">Tiempo: {{ resultado.greedy_results.execution_time | round(1) if resultado.greedy_results.execution_time else 'N/A' }}s</small>
         {% elif resultado.greedy_results and resultado.greedy_results.status == 'NOT_EXECUTED' %}
@@ -62,7 +62,7 @@
   {% if resultado and (resultado.pulp_results or resultado.greedy_results) %}
   <div class="row g-4 mb-4">
     <!-- Resultados PuLP -->
-    {% if resultado.pulp_results and resultado.pulp_results.get('assignments') %}
+    {% if resultado.pulp_results and resultado.pulp_results.assignments %}
     <div class="col-md-6">
       <div class="card">
         <div class="card-header bg-primary text-white">
@@ -106,7 +106,7 @@
     {% endif %}
 
     <!-- Resultados Greedy -->
-    {% if resultado.greedy_results and resultado.greedy_results.get('assignments') %}
+    {% if resultado.greedy_results and resultado.greedy_results.assignments %}
     <div class="col-md-6" data-greedy-results="true">
       <div class="card">
         <div class="card-header bg-success text-white">
@@ -303,7 +303,7 @@
   <!-- Turnos Asignados por Algoritmo -->
   <div class="row g-4 mb-4">
     <!-- Turnos PuLP -->
-    {% if resultado and resultado.pulp_results and resultado.pulp_results.get('assignments') %}
+    {% if resultado and resultado.pulp_results and resultado.pulp_results.assignments %}
     <div class="col-md-6">
       <div class="card">
         <div class="card-header bg-primary text-white">Turnos PuLP</div>
@@ -322,7 +322,7 @@
     {% endif %}
 
     <!-- Turnos Greedy -->
-    {% if resultado and resultado.greedy_results and resultado.greedy_results.get('assignments') %}
+    {% if resultado and resultado.greedy_results and resultado.greedy_results.assignments %}
     <div class="col-md-6">
       <div class="card">
         <div class="card-header bg-success text-white">Turnos Greedy</div>
