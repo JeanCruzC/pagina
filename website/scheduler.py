@@ -77,7 +77,7 @@ def _store(app=None):
 
 def mark_running(job_id, app=None):
     s = _store(app)
-    s.setdefault("jobs", {})[job_id] = {"status": "running"}
+    s.setdefault("jobs", {})[job_id] = {"status": "running", "progress": {}}
 
 
 def mark_finished(job_id, result, excel_path, csv_path, app=None):
@@ -102,7 +102,13 @@ def mark_cancelled(job_id, app=None):
 
 
 def get_status(job_id, app=None):
-    return _store(app).get("jobs", {}).get(job_id, {"status": "unknown"})
+    return _store(app).get("jobs", {}).get(job_id, {"status": "unknown", "progress": {}})
+
+def update_progress(job_id, progress_info, app=None):
+    """Actualizar información de progreso de un job."""
+    s = _store(app)
+    job_data = s.setdefault("jobs", {}).setdefault(job_id, {"status": "running", "progress": {}})
+    job_data["progress"].update(progress_info)
 
 
 def get_result(job_id, app=None):
@@ -1505,8 +1511,8 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_cov
             except Exception:
                 pass
     
-    # Secuencia de factores EXACTA del legacy Streamlit
-    factor_sequence = [30, 27, 24, 21, 18, 15, 12, 9, 6, 3]
+    # Secuencia de factores EXACTA del legacy Streamlit - REDUCIDA para evitar timeout
+    factor_sequence = [30, 20, 15, 10]  # Secuencia más corta
     factor_sequence = [f for f in factor_sequence if f <= original_factor]
     
     if not factor_sequence:
@@ -1527,6 +1533,7 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_cov
         # Actualizar configuración temporal EXACTA del legacy
         temp_cfg = cfg.copy()
         temp_cfg["agent_limit_factor"] = factor
+        temp_cfg["solver_time"] = 30  # Timeout agresivo por iteración
         
         try:
             assignments, method = optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=temp_cfg, job_id=job_id)
@@ -1772,11 +1779,13 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, *, cfg=Non
         )
         prob += total_agents <= dynamic_agent_limit
         
-        # Resolver EXACTO del legacy
+        # Resolver EXACTO del legacy con timeout más agresivo
+        solver_time = min(cfg.get("solver_time", 240), 60)  # Máximo 60 segundos
         solver = pl.PULP_CBC_CMD(
             msg=cfg.get("solver_msg", 0), 
-            timeLimit=cfg.get("solver_time", 240),
-            threads=cfg["solver_threads"]
+            timeLimit=solver_time,
+            threads=min(cfg["solver_threads"], 4),  # Limitar threads
+            gapRel=0.05  # Permitir 5% de gap para terminar más rápido
         )
         prob.solve(solver)
         
@@ -1856,8 +1865,13 @@ def optimize_with_relaxed_constraints(shifts_coverage, demand_matrix, *, cfg=Non
         # Límite muy generoso de agentes
         prob += total_agents <= int(total_demand / 3)
         
-        # Resolver con configuración básica
-        prob.solve(pl.PULP_CBC_CMD(msg=0, timeLimit=cfg.get("solver_time", 120)))
+        # Resolver con configuración básica y timeout agresivo
+        prob.solve(pl.PULP_CBC_CMD(
+            msg=0, 
+            timeLimit=min(cfg.get("solver_time", 120), 30),
+            threads=2,
+            gapRel=0.2
+        ))
         
         assignments = {}
         if prob.status == pl.LpStatusOptimal:
@@ -1982,9 +1996,15 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, *, cfg=None):
             demand = demand_matrix[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage <= demand
-    solver_kwargs = {"msg": cfg.get("solver_msg", 1), "threads": cfg["solver_threads"]}
+    solver_kwargs = {
+        "msg": cfg.get("solver_msg", 1), 
+        "threads": min(cfg["solver_threads"], 2),
+        "gapRel": 0.1
+    }
     if solver_time is not None:
-        solver_kwargs["timeLimit"] = solver_time // 2
+        solver_kwargs["timeLimit"] = min(solver_time // 2, 30)
+    else:
+        solver_kwargs["timeLimit"] = 30
     prob.solve(pl.PULP_CBC_CMD(**solver_kwargs))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:
@@ -2031,9 +2051,15 @@ def optimize_pt_complete(pt_shifts, remaining_demand, *, cfg=None):
             demand = remaining_demand[d, h]
             prob += coverage + deficit_vars[(d, h)] >= demand
             prob += coverage - excess_vars[(d, h)] <= demand
-    solver_kwargs = {"msg": cfg.get("solver_msg", 1), "threads": cfg["solver_threads"]}
+    solver_kwargs = {
+        "msg": cfg.get("solver_msg", 1), 
+        "threads": min(cfg["solver_threads"], 2),
+        "gapRel": 0.1
+    }
     if solver_time is not None:
-        solver_kwargs["timeLimit"] = solver_time // 2
+        solver_kwargs["timeLimit"] = min(solver_time // 2, 30)
+    else:
+        solver_kwargs["timeLimit"] = 30
     prob.solve(pl.PULP_CBC_CMD(**solver_kwargs))
     assignments = {}
     if prob.status == pl.LpStatusOptimal:

@@ -2,7 +2,7 @@
 {% block content %}
 
   <div class="d-flex align-items-center justify-content-between mb-3">
-    <h2 class="mb-0 fw-bold">Resultados</h2>
+    <h2 class="mb-0 fw-bold">Resultados <small class="text-muted">{{ moment().format('HH:mm:ss') if moment else '' }}</small></h2>
     <div class="d-flex gap-2">
       {% if resultado and resultado.csv_url %}
         <a class="btn btn-secondary" href="{{ resultado.csv_url }}">Descargar CSV</a>
@@ -17,29 +17,41 @@
   <div class="alert alert-warning">{{ resultado.message }}</div>
   {% endif %}
 
-  <!-- Estado de Algoritmos -->
-  {% if resultado and resultado.pulp_results and resultado.greedy_results %}
+
+
+  <!-- Estado de Algoritmos con Progreso -->
+  {% if resultado and (resultado.pulp_results or resultado.greedy_results) %}
   <div class="alert alert-info mb-4">
     <h5>📊 Estado de Algoritmos</h5>
     <div class="row">
       <div class="col-md-6">
         <strong>🧠 PuLP:</strong> 
-        {% if resultado.pulp_results.status and 'JEAN' in resultado.pulp_results.status %}
+        {% if resultado.pulp_results and resultado.pulp_results.get('assignments') %}
           <span class="badge bg-success">Completado</span>
-        {% elif resultado.pulp_results.status and 'ERROR' in resultado.pulp_results.status %}
+          <small class="text-muted d-block">Tiempo: {{ resultado.pulp_results.execution_time | round(1) if resultado.pulp_results.execution_time else 'N/A' }}s</small>
+        {% elif resultado.pulp_results and resultado.pulp_results.status and 'ERROR' in resultado.pulp_results.status %}
           <span class="badge bg-danger">Error</span>
         {% else %}
-          <span class="badge bg-success">Completado</span>
+          <span class="badge bg-warning">Ejecutando...</span>
+          <div class="progress mt-1" style="height: 4px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 50%"></div>
+          </div>
+          <small class="text-muted">Tiempo estimado: 1-2 minutos</small>
         {% endif %}
       </div>
       <div class="col-md-6">
         <strong>🎯 Greedy:</strong>
-        {% if resultado.greedy_results.status and 'GREEDY' in resultado.greedy_results.status %}
+        {% if resultado.greedy_results and resultado.greedy_results.get('assignments') %}
           <span class="badge bg-success">Completado</span>
-        {% elif resultado.greedy_results.status == 'NOT_EXECUTED' %}
+          <small class="text-muted d-block">Tiempo: {{ resultado.greedy_results.execution_time | round(1) if resultado.greedy_results.execution_time else 'N/A' }}s</small>
+        {% elif resultado.greedy_results and resultado.greedy_results.status == 'NOT_EXECUTED' %}
           <span class="badge bg-secondary">No ejecutado</span>
         {% else %}
-          <span class="badge bg-success">Completado</span>
+          <span class="badge bg-warning">Ejecutando...</span>
+          <div class="progress mt-1" style="height: 4px;">
+            <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" role="progressbar" style="width: 75%"></div>
+          </div>
+          <small class="text-muted">Tiempo estimado: 1-2 minutos</small>
         {% endif %}
       </div>
     </div>
@@ -50,11 +62,11 @@
   {% if resultado and (resultado.pulp_results or resultado.greedy_results) %}
   <div class="row g-4 mb-4">
     <!-- Resultados PuLP -->
-    {% if resultado.pulp_results and resultado.pulp_results.assignments %}
+    {% if resultado.pulp_results and resultado.pulp_results.get('assignments') %}
     <div class="col-md-6">
       <div class="card">
         <div class="card-header bg-primary text-white">
-          <h5 class="mb-0">🧠 Algoritmo PuLP (Programación Lineal)</h5>
+          <h5 class="mb-0">🧠 Algoritmo PuLP (JEAN)</h5>
           <small>Status: {{ resultado.pulp_results.status }}</small>
         </div>
         <div class="card-body">
@@ -94,7 +106,7 @@
     {% endif %}
 
     <!-- Resultados Greedy -->
-    {% if resultado.greedy_results and resultado.greedy_results.assignments %}
+    {% if resultado.greedy_results and resultado.greedy_results.get('assignments') %}
     <div class="col-md-6" data-greedy-results="true">
       <div class="card">
         <div class="card-header bg-success text-white">
@@ -291,7 +303,7 @@
   <!-- Turnos Asignados por Algoritmo -->
   <div class="row g-4 mb-4">
     <!-- Turnos PuLP -->
-    {% if resultado and resultado.pulp_results and resultado.pulp_results.assignments %}
+    {% if resultado and resultado.pulp_results and resultado.pulp_results.get('assignments') %}
     <div class="col-md-6">
       <div class="card">
         <div class="card-header bg-primary text-white">Turnos PuLP</div>
@@ -310,7 +322,7 @@
     {% endif %}
 
     <!-- Turnos Greedy -->
-    {% if resultado and resultado.greedy_results and resultado.greedy_results.assignments %}
+    {% if resultado and resultado.greedy_results and resultado.greedy_results.get('assignments') %}
     <div class="col-md-6">
       <div class="card">
         <div class="card-header bg-success text-white">Turnos Greedy</div>
@@ -336,45 +348,81 @@
   {% endif %}
 
 <script>
-// Auto-refresh para capturar resultados de Greedy
+// Progreso en tiempo real y auto-refresh
 if (window.location.pathname.includes('/resultados/')) {
   let refreshCount = 0;
   const maxRefresh = 30;
   const jobId = window.location.pathname.split('/').pop();
   
-  const checkForGreedy = async () => {
+  const updateProgress = async () => {
     try {
       const response = await fetch(`/resultados/${jobId}/refresh`);
       const data = await response.json();
       
+      // Actualizar progreso PuLP
+      if (data.pulp_progress) {
+        const pulpBar = document.getElementById('pulp-progress');
+        const pulpStatus = document.getElementById('pulp-status');
+        const pulpTime = document.getElementById('pulp-time');
+        
+        if (pulpBar) {
+          const progress = parseInt(data.pulp_progress);
+          pulpBar.style.width = progress + '%';
+          pulpBar.textContent = progress + '%';
+        }
+        if (pulpStatus && data.pulp_status) {
+          pulpStatus.textContent = data.pulp_status;
+        }
+        if (pulpTime && data.pulp_time) {
+          pulpTime.textContent = data.pulp_time;
+        }
+      }
+      
+      // Auto-refresh cuando termine
       if (data.should_refresh && refreshCount < maxRefresh) {
         refreshCount++;
-        console.log(`Auto-refresh ${refreshCount}/${maxRefresh} - Greedy: ${data.greedy_status}, Charts: ${data.has_greedy_charts}`);
+        console.log(`Auto-refresh ${refreshCount}/${maxRefresh} - PuLP: ${data.has_pulp_results ? 'Done' : 'Running'}, Greedy: ${data.has_greedy_results ? 'Done' : 'Running'}`);
         setTimeout(() => {
           window.location.reload();
-        }, 8000); // Refresh cada 8 segundos
+        }, 5000); // Refresh más rápido
       } else if (!data.should_refresh) {
-        console.log('Resultados Greedy completos encontrados');
+        console.log('Ambos algoritmos completados - recargando página final');
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
       }
     } catch (error) {
-      console.log('Error checking Greedy status:', error);
-      // Fallback al método anterior
-      const hasGreedyResults = document.querySelector('[data-greedy-results]');
-      const hasGreedyCharts = document.querySelector('.col-md-6 .card .card-header.bg-success');
-      
-      if ((!hasGreedyResults || !hasGreedyCharts) && refreshCount < maxRefresh) {
-        refreshCount++;
-        setTimeout(() => {
-          window.location.reload();
-        }, 10000);
-      }
+      console.log('Error updating progress:', error);
     }
   };
   
-  // Verificar inmediatamente y luego cada 5 segundos
-  checkForGreedy();
-  setInterval(checkForGreedy, 5000);
+  // Actualizar progreso cada 5 segundos
+  updateProgress();
+  setInterval(updateProgress, 5000);
 }
 </script>
+
+  <!-- Progreso en tiempo real cuando no hay resultados -->
+  {% if not resultado %}
+  <div class="alert alert-primary mb-4" id="progress-info">
+    <h5>⏱️ Progreso de Optimización</h5>
+    <div class="row">
+      <div class="col-md-6">
+        <strong>🧠 PuLP:</strong> <span id="pulp-status">Iniciando...</span>
+        <div class="progress mt-2">
+          <div class="progress-bar" id="pulp-progress" style="width: 0%">0%</div>
+        </div>
+        <small class="text-muted">Tiempo estimado: 2-4 minutos</small>
+      </div>
+      <div class="col-md-6">
+        <strong>🎯 Greedy:</strong> <span id="greedy-status">Iniciando...</span>
+        <div class="progress mt-2">
+          <div class="progress-bar bg-success" id="greedy-progress" style="width: 0%">0%</div>
+        </div>
+        <small class="text-muted">Tiempo estimado: 1-2 minutos</small>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
 {% endblock %}
