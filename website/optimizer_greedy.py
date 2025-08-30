@@ -21,18 +21,22 @@ def optimize_with_greedy(shifts_coverage, demand_matrix, *, cfg=None, job_id=Non
     current_coverage = np.zeros_like(demand_matrix, dtype=float)
     
     # Límite de agentes EXACTO del original
-    max_agents = max(100, int(demand_matrix.sum() / max(1, agent_limit_factor - 5)))
+    total_demand = demand_matrix.sum()
+    max_agents = max(100, int(total_demand / max(1, agent_limit_factor - 5)))
     
     print(f"[GREEDY] Procesando {len(shifts_list)} turnos, max {max_agents} agentes")
     
     # Análisis de patrones críticos EXACTO del original
     daily_totals = demand_matrix.sum(axis=1)
     hourly_totals = demand_matrix.sum(axis=0)
-    critical_days = (
-        np.argsort(daily_totals)[-2:]
-        if daily_totals.size > 1
-        else [int(np.argmax(daily_totals))]
-    )
+    if daily_totals.size == 0 or daily_totals.max() == 0:
+        critical_days = []
+    else:
+        critical_days = (
+            np.argpartition(daily_totals, -2)[-2:]
+            if daily_totals.size > 1
+            else [int(np.argmax(daily_totals))]
+        )
     peak_threshold = (
         np.percentile(hourly_totals[hourly_totals > 0], 75)
         if np.any(hourly_totals > 0)

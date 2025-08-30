@@ -24,9 +24,9 @@ from website.extensions import scheduler as store
 # Motor de optimización (módulo)
 from website import scheduler
 # Utility to stop running threads
-try:  # pragma: no cover - allow tests to stub scheduler
+try:
     from website.scheduler import _stop_thread
-except Exception:  # pragma: no cover - fallback when scheduler is a stub
+except ImportError:
     def _stop_thread(thread):
         return None
 
@@ -87,6 +87,11 @@ def _worker(app, job_id, file_bytes, config, generate_charts):
             store.active_jobs.pop(job_id, None)
             print(f"[WORKER] mark_finished called for job {job_id}")
             
+        except KeyboardInterrupt:
+            print(f"[WORKER] Job {job_id} interrupted")
+            store.mark_error(job_id, "Interrupted by user", app=app)
+            store.active_jobs.pop(job_id, None)
+            return
         except KeyboardInterrupt:
             print(f"[WORKER] Job {job_id} interrupted")
             store.mark_error(job_id, "Interrupted by user", app=app)

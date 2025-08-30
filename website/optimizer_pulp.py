@@ -50,7 +50,7 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
         # Variables con límites dinámicos EXACTOS del original
         total_demand = demand_matrix.sum()
         peak_demand = demand_matrix.max()
-        max_per_shift = max(20, int(total_demand / cfg["agent_limit_factor"]))
+        max_per_shift = max(20, int(total_demand / max(1, cfg["agent_limit_factor"]))
         
         shift_vars = {}
         for shift in shifts_list:
@@ -65,10 +65,10 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
         patterns_unpacked = {}
         for s, p in shifts_coverage.items():
             if len(p) == 7 * hours:
-                patterns_unpacked[s] = p.reshape(7, hours)
+                patterns_unpacked[s] = np.array(p).reshape(7, hours)
             else:
                 slots_per_day = len(p) // 7
-                pattern_temp = p.reshape(7, slots_per_day)
+                pattern_temp = np.array(p).reshape(7, slots_per_day)
                 pattern_matrix = np.zeros((7, hours))
                 cols_to_copy = min(slots_per_day, hours)
                 pattern_matrix[:, :cols_to_copy] = pattern_temp[:, :cols_to_copy]
