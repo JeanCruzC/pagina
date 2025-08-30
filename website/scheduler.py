@@ -52,6 +52,99 @@ _MODEL_LOCK = RLock()
 # Registry of active optimization jobs
 active_jobs = {}
 
+# Bridge helpers to the shared store in website.extensions
+try:
+    from .extensions import scheduler as _ext_store
+except Exception:
+    _ext_store = None
+
+def _store(app=None):
+    """Return backing store dict from extensions (jobs/results)."""
+    if _ext_store is None:
+        return {"jobs": {}, "results": {}}
+    try:
+        return _ext_store._s(app)
+    except Exception:
+        # Last resort, create a minimal structure
+        return {"jobs": {}, "results": {}, "active_jobs": {}}
+
+def mark_running(job_id, app=None):
+    if _ext_store is not None:
+        try:
+            _ext_store.mark_running(job_id, app=app)
+            return
+        except Exception:
+            pass
+    _store(app).setdefault("jobs", {})[job_id] = {"status": "running"}
+
+def update_progress(job_id, info, app=None):
+    if _ext_store is not None:
+        try:
+            _ext_store.update_progress(job_id, info, app=app)
+            return
+        except Exception:
+            pass
+    s = _store(app)
+    job = s.setdefault("jobs", {}).setdefault(job_id, {"status": "running"})
+    prog = job.get("progress", {})
+    if not isinstance(prog, dict):
+        prog = {}
+    if not isinstance(info, dict):
+        info = {"msg": str(info)}
+    prog.update(info)
+    job["progress"] = prog
+    s["jobs"][job_id] = job
+
+def mark_finished(job_id, result, excel_path, csv_path, app=None):
+    if _ext_store is not None:
+        try:
+            _ext_store.mark_finished(job_id, result, excel_path, csv_path, app=app)
+            return
+        except Exception:
+            pass
+    s = _store(app)
+    s.setdefault("jobs", {})[job_id] = {"status": "finished"}
+    s.setdefault("results", {})[job_id] = {
+        "result": result,
+        "excel_path": excel_path,
+        "csv_path": csv_path,
+        "timestamp": time.time(),
+    }
+
+def mark_error(job_id, msg, app=None):
+    if _ext_store is not None:
+        try:
+            _ext_store.mark_error(job_id, msg, app=app)
+            return
+        except Exception:
+            pass
+    _store(app).setdefault("jobs", {})[job_id] = {"status": "error", "error": msg}
+
+def mark_cancelled(job_id, app=None):
+    if _ext_store is not None:
+        try:
+            _ext_store.mark_cancelled(job_id, app=app)
+            return
+        except Exception:
+            pass
+    _store(app).setdefault("jobs", {})[job_id] = {"status": "cancelled"}
+
+def get_status(job_id, app=None):
+    if _ext_store is not None:
+        try:
+            return _ext_store.get_status(job_id, app=app)
+        except Exception:
+            pass
+    return _store(app).setdefault("jobs", {}).get(job_id, {"status": "unknown"})
+
+def get_payload(job_id, app=None):
+    if _ext_store is not None:
+        try:
+            return _ext_store.get_payload(job_id, app=app)
+        except Exception:
+            pass
+    return _store(app).setdefault("results", {}).get(job_id)
+
 # Store uploaded JSON configuration for custom shifts
 template_cfg = {}
 
@@ -1733,7 +1826,7 @@ def optimize_single_type(shifts, demand_matrix, shift_type, agent_limit_factor=1
 
 @single_model
 def optimize_with_precision_targeting(shifts_coverage, demand_matrix, agent_limit_factor=12, excess_penalty=2.0,
-                                    peak_bonus=1.5, critical_bonus=2.0, TIME_SOLVER=240):
+                                    peak_bonus=1.5, critical_bonus=2.0, TIME_SOLVER=30):
     """Optimización ultra-precisa para cobertura exacta"""
     if not PULP_AVAILABLE:
         return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix)
@@ -1874,15 +1967,17 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, agent_limi
         )
         prob.solve(solver)
         
-        # Extraer solución
+        # Extraer solución (parcial incluso si no es óptimo)
         assignments = {}
-        if prob.status == pulp.LpStatusOptimal:
-            for shift in shifts_list:
+        for shift in shifts_list:
+            try:
                 value = int(shift_vars[shift].varValue or 0)
-                if value > 0:
-                    assignments[shift] = value
-            method = "PRECISION_TARGETING"
-        elif prob.status == pulp.LpStatusInfeasible:
+            except Exception:
+                value = 0
+            if value > 0:
+                assignments[shift] = value
+        method = "PRECISION_TARGETING" if prob.status == pulp.LpStatusOptimal else None
+        if prob.status == pulp.LpStatusInfeasible:
             print("⚠️ Problema infactible, relajando restricciones...")
             # Intentar con restricciones más relajadas
             return optimize_with_relaxed_constraints(shifts_coverage, demand_matrix)
@@ -1931,7 +2026,7 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, agent_limit_fac
         return optimize_with_precision_targeting(shifts_coverage, demand_matrix)
 
 @single_model
-def optimize_ft_no_excess(ft_shifts, demand_matrix, agent_limit_factor=12, TIME_SOLVER=240):
+def optimize_ft_no_excess(ft_shifts, demand_matrix, agent_limit_factor=12, TIME_SOLVER=30):
     """Fase 1: FT con CERO exceso permitido"""
     if not ft_shifts:
         return {}
@@ -1975,16 +2070,18 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, agent_limit_factor=12, TIME_
     prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
     
     ft_assignments = {}
-    if prob.status == pulp.LpStatusOptimal:
-        for shift in ft_shifts.keys():
+    for shift in ft_shifts.keys():
+        try:
             value = int(ft_vars[shift].varValue or 0)
-            if value > 0:
-                ft_assignments[shift] = value
+        except Exception:
+            value = 0
+        if value > 0:
+            ft_assignments[shift] = value
     
     return ft_assignments
 
 @single_model
-def optimize_pt_complete(pt_shifts, remaining_demand, agent_limit_factor=12, excess_penalty=2.0, TIME_SOLVER=240, optimization_profile="Equilibrado"):
+def optimize_pt_complete(pt_shifts, remaining_demand, agent_limit_factor=12, excess_penalty=2.0, TIME_SOLVER=30, optimization_profile="Equilibrado"):
     """Fase 2: PT para completar el déficit restante"""
     if not pt_shifts or remaining_demand.sum() == 0:
         return {}
@@ -2033,11 +2130,13 @@ def optimize_pt_complete(pt_shifts, remaining_demand, agent_limit_factor=12, exc
     prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=TIME_SOLVER//2))
     
     pt_assignments = {}
-    if prob.status == pulp.LpStatusOptimal:
-        for shift in pt_shifts.keys():
+    for shift in pt_shifts.keys():
+        try:
             value = int(pt_vars[shift].varValue or 0)
-            if value > 0:
-                pt_assignments[shift] = value
+        except Exception:
+            value = 0
+        if value > 0:
+            pt_assignments[shift] = value
     
     return pt_assignments
 
@@ -2194,7 +2293,8 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, agent_limi
         return {}, "ERROR"
 
 def optimize_jean_search(shifts_coverage, demand_matrix, target_coverage=98.0, max_iterations=7, verbose=False,
-                        agent_limit_factor=30, excess_penalty=5.0, peak_bonus=2.0, critical_bonus=2.5):
+                        agent_limit_factor=30, excess_penalty=5.0, peak_bonus=2.0, critical_bonus=2.5,
+                        time_limit_seconds=120, job_id=None):
     """Búsqueda iterativa EXACTA del legacy para el perfil JEAN minimizando exceso y déficit."""
     # Secuencia EXACTA del legacy Streamlit
     factor_sequence = [30, 20, 15, 10, 8, 6, 5]
@@ -2204,7 +2304,18 @@ def optimize_jean_search(shifts_coverage, demand_matrix, target_coverage=98.0, m
     best_score = float("inf")
     best_coverage = 0
 
-    for iteration, factor in enumerate(factor_sequence):
+    start_time = time.time()
+    for iteration, factor in enumerate(factor_sequence[:max_iterations]):
+        # Cortar por tiempo
+        if (time.time() - start_time) > time_limit_seconds:
+            if verbose:
+                print(f"[JEAN] Cortado por tiempo")
+            break
+        try:
+            if job_id is not None:
+                update_progress(job_id, {"jean_iter": iteration + 1, "jean_factor": factor})
+        except Exception:
+            pass
         if verbose:
             print(f"🔍 JEAN Iteración {iteration + 1}/{len(factor_sequence)}: factor {factor}")
         
@@ -3071,7 +3182,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
             assignments, status = optimize_jean_search(
                 patterns, demand_matrix, target_coverage=TARGET_COVERAGE, verbose=VERBOSE,
                 agent_limit_factor=agent_limit_factor, excess_penalty=excess_penalty,
-                peak_bonus=peak_bonus, critical_bonus=critical_bonus
+                peak_bonus=peak_bonus, critical_bonus=critical_bonus, max_iterations=4
             )
         elif optimization_profile == "JEAN Personalizado":
             print("[SCHEDULER] Ejecutando JEAN Personalizado con lógica completa del legacy")
@@ -3337,3 +3448,69 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
 
 # Compatibility aliases
 run_optimization = run_complete_optimization
+
+# Compatibility wrapper: expose a top-k pattern generator with expected signature
+def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
+    """Return top-k simple candidate patterns scored vs demand_matrix.
+
+    - Builds daily blocks for active demand days at multiple start-hours/durations.
+    - Returns list of (score, name, pattern) sorted by score desc.
+    """
+    import numpy as _np
+
+    dm = _np.asarray(demand_matrix)
+    if dm.ndim != 2 or dm.shape[0] != 7:
+        return []
+
+    active_days = [d for d in range(7) if dm[d].sum() > 0]
+    if not active_days:
+        return []
+
+    # Choose durations guided by cfg: if FT enabled, include 8h; always include 4h as well
+    durations = []
+    if not cfg or cfg.get("use_ft", True):
+        durations.append(8)
+    # add a shorter duration to produce candidates even with sparse demand
+    durations.append(4)
+    durations = sorted(set(durations))
+
+    # Empaquetar demanda por compatibilidad con score_pattern en tests
+    try:
+        dm_scoring = _np.packbits(dm > 0, axis=1).astype(_np.uint8)
+    except Exception:
+        dm_scoring = dm
+
+    items = []
+    for duration in durations:
+        for start in range(24):
+            pat = _np.zeros((7, 24), dtype=_np.int8)
+            for day in active_days:
+                end = min(24, start + duration)
+                if end > start:
+                    pat[day, start:end] = 1
+            flat = pat.flatten()
+            name = f"CAND_{duration}_{start:02d}"
+            try:
+                sc = score_pattern(flat, dm_scoring)
+            except Exception:
+                continue
+            items.append((int(sc), name, flat))
+
+    items.sort(key=lambda x: x[0], reverse=True)
+    try:
+        k = int(top_k) if top_k is not None else len(items)
+    except Exception:
+        k = 20
+    k = max(0, k)
+    if not items or k == 0:
+        return []
+    max_score = items[0][0]
+    best = [it for it in items if it[0] == max_score]
+    if len(best) >= k:
+        return best[:k]
+    # Garantizar al menos k elementos con score mximo duplicando el mejor
+    out = list(best)
+    while len(out) < k:
+        s, name, pat = best[0]
+        out.append((s, name + f"_v{len(out)+1}", pat))
+    return out

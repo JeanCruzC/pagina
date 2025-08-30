@@ -52,20 +52,23 @@ def _to_jsonable(obj):
 
 def _worker(app, job_id, file_bytes, config, generate_charts):
     """Background worker que ejecuta optimización paralela."""
-    print(f"[WORKER] Starting parallel job {job_id}")
+    print(f"[WORKER] Starting job {job_id}")
     with app.app_context():
         try:
-            print(f"[WORKER] Running parallel optimization for job {job_id}")
-            
-            # Usar el nuevo sistema paralelo
-            from .parallel_optimizer import run_parallel_optimization
-            
-            result, excel_bytes, csv_bytes = run_parallel_optimization(
-                BytesIO(file_bytes), 
-                config=config, 
-                generate_charts=generate_charts, 
-                job_id=job_id
-            )
+            print(f"[WORKER] Running optimization for job {job_id}")
+
+            result = None
+            excel_bytes = None
+            csv_bytes = None
+            if hasattr(scheduler, "run_complete_optimization"):
+                result, excel_bytes, csv_bytes = scheduler.run_complete_optimization(
+                    BytesIO(file_bytes), config=config, generate_charts=generate_charts, job_id=job_id
+                )
+            else:
+                from .parallel_optimizer import run_parallel_optimization
+                result, excel_bytes, csv_bytes = run_parallel_optimization(
+                    BytesIO(file_bytes), config=config, generate_charts=generate_charts, job_id=job_id
+                )
             
             print(f"[WORKER] Optimization completed for job {job_id}")
             excel_path = csv_path = None
@@ -83,25 +86,29 @@ def _worker(app, job_id, file_bytes, config, generate_charts):
                 token = os.path.basename(csv_path)
                 result["csv_url"] = f"/download/{token}?csv=1"
             print(f"[WORKER] job={job_id} FINISHED -> calling mark_finished")
-            store.mark_finished(job_id, result, excel_path, csv_path, app=app)
-            store.active_jobs.pop(job_id, None)
+            scheduler.mark_finished(job_id, result, excel_path, csv_path, app=app)
+            try:
+                scheduler.active_jobs.pop(job_id, None)
+            except Exception:
+                pass
             print(f"[WORKER] mark_finished called for job {job_id}")
             
         except KeyboardInterrupt:
             print(f"[WORKER] Job {job_id} interrupted")
-            store.mark_error(job_id, "Interrupted by user", app=app)
-            store.active_jobs.pop(job_id, None)
-            return
-        except KeyboardInterrupt:
-            print(f"[WORKER] Job {job_id} interrupted")
-            store.mark_error(job_id, "Interrupted by user", app=app)
-            store.active_jobs.pop(job_id, None)
+            scheduler.mark_error(job_id, "Interrupted by user", app=app)
+            try:
+                scheduler.active_jobs.pop(job_id, None)
+            except Exception:
+                pass
             return
         except Exception as e:
             print(f"[WORKER] ERROR in job {job_id}: {str(e)}")
             current_app.logger.exception(e)
-            store.mark_error(job_id, str(e), app=app)
-            store.active_jobs.pop(job_id, None)
+            scheduler.mark_error(job_id, str(e), app=app)
+            try:
+                scheduler.active_jobs.pop(job_id, None)
+            except Exception:
+                pass
 
 
 @bp.get("/generador")
@@ -163,7 +170,7 @@ def generador_form():
     cfg.setdefault("use_greedy", True)
     cfg.setdefault("optimization_profile", "Equilibrado (Recomendado)")
 
-    store.mark_running(job_id)
+    scheduler.mark_running(job_id)
 
     app_obj = current_app._get_current_object()
     thread = threading.Thread(
@@ -171,7 +178,10 @@ def generador_form():
         args=(app_obj, job_id, excel_bytes, cfg, generate_charts),
         daemon=True,
     )
-    store.active_jobs[job_id] = thread
+    try:
+        scheduler.active_jobs[job_id] = thread
+    except Exception:
+        pass
     thread.start()
 
     return jsonify({"job_id": job_id}), 202
@@ -180,7 +190,7 @@ def generador_form():
 @bp.get("/generador/status/<job_id>")
 @login_required
 def generador_status(job_id):
-    st = store.get_status(job_id)
+    st = scheduler.get_status(job_id)
     status = st.get("status")
     current_app.logger.info(f"[STATUS] job={job_id} -> {status}")
     print(f"[STATUS] job={job_id} -> {status}")
@@ -219,9 +229,9 @@ def resultados(job_id):
             has_greedy = bool(result.get("greedy_results", {}).get("assignments"))
             print(f"[RESULTADOS] Cargando desde disco - PuLP: {has_pulp}, Greedy: {has_greedy}")
             
-            # Update store for future requests
+            # Update scheduler store for future requests
             try:
-                store.mark_finished(job_id, result, None, None)
+                scheduler.mark_finished(job_id, result, None, None)
             except Exception:
                 pass
             return render_template("resultados.html", resultado=result)
@@ -230,18 +240,32 @@ def resultados(job_id):
         import traceback
         print(f"[RESULTADOS] Traceback: {traceback.format_exc()}")
     
-    # Fallback to store
-    payload = store.get_payload(job_id)
+    # Fallback to scheduler store
+    payload = scheduler.get_payload(job_id)
     if payload:
         result = payload["result"]
         has_pulp = bool(result.get("pulp_results", {}).get("assignments"))
         has_greedy = bool(result.get("greedy_results", {}).get("assignments"))
         print(f"[RESULTADOS] Cargando desde store - PuLP: {has_pulp}, Greedy: {has_greedy}")
         return render_template("resultados.html", resultado=result)
-    
-    # No data yet: render placeholder; page auto-refreshes
-    print(f"[RESULTADOS] No hay datos para {job_id} - mostrando placeholder")
-    return render_template("resultados.html", resultado=None)
+
+    # If job exists and is running, show placeholder (200).
+    # Only return 500 if status is unknown/error without payload.
+    try:
+        st = scheduler.get_status(job_id)
+        status = st.get("status")
+        if status in {"running", "pending", "queued"}:
+            print(f"[RESULTADOS] Job {job_id} running - placeholder")
+            return render_template("resultados.html", resultado=None)
+        if status in {"error", "cancelled", "unknown"}:
+            print(f"[RESULTADOS] No hay datos para {job_id} - 500")
+            return render_template("500.html", message="Resultado no disponible"), 500
+    except Exception:
+        pass
+
+    # Unknown without state/payload -> 500
+    print(f"[RESULTADOS] No hay datos para {job_id} - 500")
+    return render_template("500.html", message="Resultado no disponible"), 500
 
 
 @bp.get("/download/<token>")
@@ -316,8 +340,8 @@ def refresh_results(job_id):
             import traceback
             print(f"[REFRESH] Traceback: {traceback.format_exc()}")
     
-    # Fallback al store
-    payload = store.get_payload(job_id)
+    # Fallback al scheduler store
+    payload = scheduler.get_payload(job_id)
     if not payload:
         print(f"[REFRESH] No payload para {job_id} - verificando disco nuevamente")
         # Verificar disco una vez más antes de dar up
@@ -368,12 +392,24 @@ def cancel_job():
             data = {}
     job_id = data.get("job_id")
     if job_id:
-        thread = store.active_jobs.get(job_id)
+        thread = None
+        try:
+            thread = scheduler.active_jobs.get(job_id)
+        except Exception:
+            pass
         if thread:
             _stop_thread(thread)
-            store.active_jobs.pop(job_id, None)
-        store.mark_cancelled(job_id)
-        payload = store.get_payload(job_id)
+            try:
+                scheduler.active_jobs.pop(job_id, None)
+            except Exception:
+                pass
+        scheduler.mark_cancelled(job_id)
+        # Obtener payload con compatibilidad de nombres
+        payload = None
+        if hasattr(scheduler, "get_payload"):
+            payload = scheduler.get_payload(job_id)
+        elif hasattr(scheduler, "get_result"):
+            payload = scheduler.get_result(job_id)
         if payload:
             for key in ("excel_path", "csv_path"):
                 path = payload.get(key)
@@ -390,11 +426,14 @@ def cancel_job():
 @bp.get("/__debug/scheduler")
 def _dbg_scheduler():
     from flask import jsonify
+    # Preferir el almacn del m3dulo scheduler si expone _store()
     try:
-        s = store._s()
+        if hasattr(scheduler, "_store"):
+            s = scheduler._store()
+            return jsonify({
+                "jobs": s.get("jobs", {}),
+                "results_keys": list(s.get("results", {}).keys()),
+            })
     except Exception:
-        s = {"jobs": {}, "results": {}}
-    return jsonify({
-        "jobs": s.get("jobs", {}),
-        "results_keys": list(s.get("results", {}).keys()),
-    })
+        pass
+    return jsonify({"jobs": {}, "results_keys": []})

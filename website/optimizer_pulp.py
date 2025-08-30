@@ -50,7 +50,7 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
         # Variables con límites dinámicos EXACTOS del original
         total_demand = demand_matrix.sum()
         peak_demand = demand_matrix.max()
-        max_per_shift = max(20, int(total_demand / max(1, cfg["agent_limit_factor"]))
+        max_per_shift = max(20, int(total_demand / max(1, cfg["agent_limit_factor"])))
         
         shift_vars = {}
         for shift in shifts_list:
