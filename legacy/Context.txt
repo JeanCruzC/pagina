@@ -1,0 +1,308 @@
+
+REVIEW EXTENSO • Generador de Turnos v6.2 (app1.py)
+Autor del review: “asesor”
+Fecha: 29/08/2025
+
+0) PROPÓSITO Y RESUMEN
+El archivo app1.py implementa una aplicación en Streamlit para generar horarios de trabajo (shifts) que cubran una demanda semanal (7×H intervalos). El sistema:
+• Genera patrones de turno (FT/PT) con lógica de breaks y granularidad (60/30 min), incluyendo un modo “JEAN Personalizado” que lee un JSON de plantilla para construir patrones a medida.
+• Optimiza cantidades por turno con Programación Lineal Entera (PuLP/CBC) en varios sabores (precisión, 2-fases FT→PT, relajado) o, si no hay PuLP, con un Greedy mejorado.
+• Aplica “perfiles de optimización” (Equilibrado, Conservador, Máxima Cobertura, JEAN, etc.) que cambian hiperparámetros claves (p. ej., penalización del exceso, límite de agentes) y un módulo de “Aprendizaje Adaptativo” que guarda historial para ajustar parámetros de forma data-driven.
+• Incluye defensas de rendimiento/memoria (chunking, deduplicado, puntaje/filtrado previo de patrones) y herramientas de análisis/visualización/exportación.
+
+El flujo general es: (1) subir demanda (Excel) → (2) configurar granularidad+perfiles → (3) generar y filtrar patrones → (4) resolver (ILP o Greedy) → (5) analizar/exportar.
+
+────────────────────────────────────────────────────────────────────────────────
+
+1) ARQUITECTURA Y CICLO DE LA APP
+La app es monolítica (Streamlit) con secciones bien separadas:
+1.1 Carga de demanda: lee un Excel de “Requerido.xlsx” y lo transforma en matriz 7×H (H=24 para 60min u H=48 para 30min).
+1.2 Configuración (sidebar): sliders/checkboxes para granularidad, breaks, activar FT/PT, permitir combos PT (4h/5h/6h), escoger perfil de optimización, cobertura objetivo, hilos del solver, modo verbose y modo de aprendizaje.
+1.3 Generación de patrones: dos caminos
+    a) “JEAN Personalizado”: carga un JSON y construye patrones a partir de la plantilla (work_days, segments, breaks, slot_duration).
+    b) Patrones “clásicos”: FT8, FT10h8, PT4/5/6 generados por combinaciones de días/horas de inicio/breaks.
+   Ambos caminos pueden filtrar patrones por un scoring que favorece eficiencia y cobertura de picos/días críticos.
+1.4 Optimización: si PuLP está disponible se intenta un ILP (preciso, en dos fases FT→PT, o relajado). Si no, ejecuta un Greedy mejorado con puntuación inteligente.
+1.5 Análisis y exportación: calcula cobertura real, déficit, exceso, agentes; muestra heatmap y permite descargar un Excel con detalle por agente/turno/día/intervalo.
+1.6 Aprendizaje Adaptativo: persiste resultados y parámetros usados, firma de demanda y métricas para proponer en el futuro parámetros “ganadores”.
+
+────────────────────────────────────────────────────────────────────────────────
+
+2) DEPENDENCIAS Y CONTEXTO
+• Streamlit (UI), Pandas/Numpy (datos), Matplotlib (visualizaciones), psutil/gc (memoria), hashlib/json/os/re (utilitarios).
+• PuLP (opcional pero recomendado). Si está instalado, PULP_AVAILABLE=True y se habilitan los modelos CBC.
+• (Importa “pyworkforce.scheduling.MinAbsDifference”, pero en esta versión no se utiliza explícitamente; es heredado/placeholder de trabajos previos).
+
+Recomendación: mantener PuLP instalado (pip install pulp) y permitir hilos de solver (slider “Threads solver”).
+
+────────────────────────────────────────────────────────────────────────────────
+
+3) ESTADO GLOBAL Y SEGURIDAD DE MODELOS
+• Decorador single_model (RLock) garantiza exclusión mutua al construir/solver modelos PuLP; previene condiciones de carrera si el usuario dispara varias optimizaciones casi simultáneas en Streamlit.
+• Variables de configuración se cargan desde la sidebar y se usan en funciones globales (p. ej., use_ft/use_pt, break_from_start/break_from_end, slot granularity, perfiles).
+
+────────────────────────────────────────────────────────────────────────────────
+
+4) ENTRADA: DEMANDA Y NORMALIZACIÓN
+Entrada principal: Excel con demanda por intervalos. El código asume estructura suficiente para formar una matriz semanal 7×H. Si no se sube archivo, la app se detiene (st.stop()).
+Granularidad: 60 min o 30 min. Si el JSON de plantilla pide 30 min, el pipeline adapta H=48. Existe utilitario _resize_matrix para alinear columnas cuando sea necesario.
+
+Buenas prácticas:
+• Validar que no existan NaN y que los 7 días estén presentes. 
+• Si hay días incompletos, rellenar con 0 o copiar estructura del día más cercano.
+
+────────────────────────────────────────────────────────────────────────────────
+
+5) UTILITARIOS CLAVE
+5.1 single_model(func): usa RLock para serializar la creación/solución de modelos ILP.
+5.2 memory_limit_patterns(slots_per_day, max_gb): estima cuántos patrones caben en memoria. Se usa para truncar generación si el usuario configura un límite de RAM.
+5.3 monitor_memory_usage / emergency_cleanup: consulta psutil y, si la memoria roza el umbral, fuerza gc y limpieza.
+5.4 adaptive_chunk_size(base): ajusta tamaños de chunk (p. ej., 10k) según la memoria/estado, permitiendo resolver en lotes.
+5.5 get_smart_start_hours(demand, max_hours): extrae horas de inicio “inteligentes” priorizando intervalos con alta demanda (reduce combinaciones inútiles).
+5.6 score_pattern(pattern, demand_matrix): puntaje rápido (heurística) basado en el “overlap mínimo” patrón vs demanda.
+5.7 score_and_filter_patterns(patterns, demand, keep_percentage, peak_bonus, critical_bonus, efficiency_bonus): calcula un score más rico:
+    • Eficiencia del patrón (cobertura útil / horas trabajadas)
+    • Cobertura en días críticos (2 días con mayor demanda total)
+    • Cobertura en horas pico (≥ P75 de la demanda horaria > 0)
+   Mantiene el top-k% (keep_percentage) para continuar.
+5.8 _resize_matrix: reamuestra columnas (repeat/pooling max) cuando cambia H.
+5.9 show_generation_progress: metadatos de progreso/velocidad/memoria en pantalla. 
+
+────────────────────────────────────────────────────────────────────────────────
+
+6) CARGA DE PATRONES • JEAN PERSONALIZADO
+Función: load_shift_patterns(cfg, start_hours, break_from_start, break_from_end, slot_duration_minutes, max_patterns, demand_matrix, keep_percentage, peak_bonus, critical_bonus, efficiency_bonus, max_patterns_per_shift, smart_start_hours). 
+• cfg: dict o ruta a JSON con una lista “shifts”. Cada “shift” tiene:
+  – name: etiqueta (“FT8”, “PT4”, etc.). 
+  – pattern: { work_days: [índices 0–6 o cantidad], segments: [[duración_horas] o [tramos]] }.
+  – break: objeto {enabled, length_minutes, earliest_after_start, latest_before_end} o un número (minutos/horas).
+  – slot_duration_minutes: granularidad (30 o 60).
+• start_hours: iterable de horas inicio (float con .5 si 30 min).
+• El generador recorre combinaciones (días × segmentos × inicios) y construye una matriz (7×H) por patrón, aplicando lógica de break en ventanas válidas.
+• Deduplicación: hash de cobertura flattened (md5) para evitar duplicados.
+• Filtrado por score: si demand_matrix está disponible, aplica score_and_filter_patterns con keep_percentage.
+• smart_start_hours=True: prioriza inicios en horas con alta demanda (reduce N).
+• max_patterns/max_patterns_per_shift: cota superior para truncar cantidad generada por memoria.
+
+Consejo: Agregar validación con esquema (pydantic) para mensajes de error más claros si la plantilla está mal formada. 
+
+────────────────────────────────────────────────────────────────────────────────
+
+7) GENERACIÓN DE PATRONES “CLÁSICOS”
+Función: generate_shifts_coverage_corrected(...)
+• Calcula número total “teórico” de patrones a generar según banderas:
+  – FT: 8h (6 días) y 10h+8h (5 días con un día especial), con breaks. 
+  – PT: 4h/5h/6h con combinaciones múltiples de días (p. ej., PT4 en 4–6 días).
+• start_hours: típicamente cada 0.5h o 1h según tipo de turno.
+• Nombres de patrones codifican info: “FT8_08.0_DAYS012345_BRK04.0…” para facilitar trazabilidad; el helper _extract_start_hour lee el primer token con decimal para recuperar la hora inicio.
+• generate_weekly_pattern_simple(start_hour, duration, working_days, break_len=…): crea patrón 7×H con 1s en los tramos y break insertado si procede.
+• generate_weekly_pattern_pt5(start_hour, working_days): específico 5h×5d.
+• generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break_len): 4 días de 10h y 1 día de 8h.
+• generate_weekly_pattern_advanced(start_hour, duration, working_days, break_position): posiciona break de forma más flexible según ventana desde el inicio/antes del fin.
+
+Puntos fuertes:
+• Naming consistente y granularidad flexible (30/60).
+• Inserción de break con ventanas seguras (evita edges).
+
+Mejoras sugeridas:
+• Campo “type: FT|PT” en JSON para no depender de prefijos “FT/ PT” en el name.
+• Validar que la suma de tramos de “segments” no supere las 24h y que las ventanas de break siempre quepan entre earliest_after_start y latest_before_end.
+
+────────────────────────────────────────────────────────────────────────────────
+
+8) PERFILES DE OPTIMIZACIÓN
+Diccionario profiles establece, por perfil:
+• agent_limit_factor: factor que limita agentes por patrón (menor → permite más agentes).
+• excess_penalty: peso del exceso en la función objetivo.
+• peak_bonus / critical_bonus: favorecen cubrir picos y días críticos.
+
+Ejemplos incluidos:
+• Equilibrado (Recomendado): 12 / 2.0 / 1.5 / 2.0
+• Conservador: 30 / 0.5 / 1.0 / 1.2
+• Agresivo: 15 / 0.05 / 1.5 / 2.0
+• Máxima Cobertura: 7 / 0.005 / 3.0 / 4.0
+• Mínimo Costo: 35 / 0.8 / 0.8 / 1.0
+• 100% Cobertura Eficiente: 6 / 0.01 / 3.5 / 4.5
+• 100% Cobertura Total: 5 / 0.001 / 4.0 / 5.0
+• Cobertura Perfecta: 8 / 0.01 / 3.0 / 4.0
+• 100% Exacto: 6 / 0.005 / 4.0 / 5.0
+• JEAN: 30 / 5.0 / 2.0 / 2.5
+• Aprendizaje Adaptativo: 8 / 0.01 / 3.0 / 4.0
+
+“Personalizado” permite fijar sliders manualmente. “JEAN Personalizado” hereda la filosofía de JEAN (exceso estrictamente controlado) pero usando tus patrones del JSON.
+
+────────────────────────────────────────────────────────────────────────────────
+
+9) FORMULACIÓN ILP (PuLP/CBC)
+
+Variables
+• x_s ∈ Z+ para cada patrón s (número de agentes con patrón s).
+• def_t ≥ 0 y exc_t ≥ 0 por cada slot t (déficit/exceso).
+
+Cobertura por slot
+• coverage_t = Σ_s x_s · pattern_s[t]
+
+Restricciones de balance
+• coverage_t + def_t ≥ demand_t
+• coverage_t − exc_t ≤ demand_t
+• (Fase FT sin exceso): coverage_t ≤ demand_t estricta (no se crean exc_t).
+
+Cotas por patrón
+• 0 ≤ x_s ≤ max_per_shift, donde el máximo depende de agent_limit_factor y del total de demanda (límites dinámicos más realistas).
+
+Objetivo (genérico)
+• Minimizar: W_def Σ def_t + W_exc(excess_penalty) Σ exc_t + W_agents Σ x_s − (bonos picos/críticos si aplica).
+Con W_def ≫ W_exc ≥ W_agents para priorizar “no quedarse corto”.
+
+Solución
+• CBC con threads, límites de tiempo y fallback: si el modelo falla o tarda demasiado, el sistema cae a una variante más relajada o a Greedy mejorado.
+
+────────────────────────────────────────────────────────────────────────────────
+
+10) ESTRATEGIAS DE OPTIMIZACIÓN (DETALLE)
+
+10.1 optimize_with_phased_strategy
+Decide el camino: si hay FT y PT y PuLP → 2-fases (FT→PT). Si sólo FT/PT → modo “single type”. Si no hay PuLP → Greedy.
+
+10.2 Estrategia 2 Fases: optimize_ft_then_pt_strategy → optimize_ft_no_excess + optimize_pt_complete
+• Fase 1 (FT sin exceso): construye ILP con x_s (solo FT) y def_t, imponiendo coverage ≤ demand. Minimiza déficit (y agentes). Devuelve cobertura FT “limpia” (0 exceso).
+• Fase 2 (PT completa): calcula remaining = max(0, demand − coverage_FT) y resuelve ILP sólo con PT para minimizar el déficit (y controlar exceso según perfil JEAN/otros). Combina FT+PT y retorna.
+Ventajas: paquete FT asegura base “sin ruido”; PT rellena fino donde falta.
+
+10.3 Precisión: optimize_with_precision_targeting
+• Un único modelo ILP con todos los patrones (o subset), límites dinámicos y pesos ajustados para “cobertura exacta”. Tiene UI de progreso y fallback a Greedy si falla.
+
+10.4 Relajado: optimize_with_relaxed_constraints
+• Variante con cotas más holgadas y menor penalización, útil para instancias infactibles o con demasiada dispersión de patrones.
+
+10.5 Greedy Mejorado: optimize_schedule_greedy_enhanced
+• Bucle hasta max_agents ≈ demand.sum()/agent_limit_factor.
+• En cada iteración evalúa cada patrón candidato simulando añadir 1 agente y calcula:
+  – Reducción de déficit total (primero lo más importante).
+  – Penalización por exceso (ponderada por excess_penalty).
+  – Eficiencia (déficit reducido / horas añadidas).
+  – Bonos por picos/días críticos (detectados dinámicamente).
+• Toma el de mayor “comprehensive score” y actualiza cobertura. Buen rendimiento cuando ILP no está disponible.
+
+10.6 Otras rutas: optimize_direct_improved / optimize_single_type_improved / optimize_single_type
+• Variantes cuando sólo se permite FT o PT, o cuando se quiere evitar el 2-fases. Siguen la misma filosofía de pesos y cotas sin exceso según el modo.
+
+10.7 solve_in_chunks_optimized
+• Deduplica y puntúa todos los patrones (score_pattern).
+• Ordena de mayor a menor y va resolviendo por CHUNKS adaptativos (adaptive_chunk_size). Para cada chunk:
+  – Calcula remaining demand = max(0, demand − coverage acumulada).
+  – Llama a optimize_schedule_iterative sobre el subset para cubrir ese remaining.
+  – Acumula assignments por patrón y actualiza cobertura global.
+• Hace emergency_cleanup entre chunks si se acerca al umbral de RAM.
+• Integra con “Aprendizaje Adaptativo” para registrar resultados.
+
+Esta estrategia permite manejar miles de patrones sin reventar la RAM/tiempo.
+
+────────────────────────────────────────────────────────────────────────────────
+
+11) APRENDIZAJE ADAPTATIVO
+• Firma de demanda (hash md5 de demanda normalizada) para agrupar “casos parecidos” independientemente de escalas.
+• Guarda por firma: parámetros usados, cobertura alcanzada, understaff/overstaff, agentes totales, un “score” compuesto y timestamp.
+• Muestra estadísticas (total de ejecuciones, mejoras recientes) en la UI si está activo.
+• En ejecuciones futuras con misma firma, puede recomendar parámetros “ganadores”.
+
+Sugerencia: almacenar también el perfil/estrategia ganadora y la distribución de shifts para acelerar warm-starts.
+
+────────────────────────────────────────────────────────────────────────────────
+
+12) VISUALIZACIÓN Y EXPORTACIÓN
+12.1 Heatmap (matplotlib): muestra cobertura vs demanda por hora (0–23). No usa seaborn para reducir dependencias.
+12.2 Exportación detallada (Excel): genera archivo con varias hojas:
+• “Asignación Detallada”: por agente ficticio (1…N) para facilitar lectura del staffing resultante por día.
+• “Resumen_Agentes”: resumen de cuántos días trabaja cada agente por turno.
+• “Turnos_Asignados”: lista y conteos por turno.
+
+Buen nivel de detalle para auditorías y comunicación con stakeholders.
+
+────────────────────────────────────────────────────────────────────────────────
+
+13) ANÁLISIS DE RESULTADOS Y MÉTRICAS
+• Cobertura real ponderada por horas (“coverage_percentage”).
+• Understaffing / Overstaffing totales y matrices de diferencia (diff_matrix).
+• Desglose FT vs PT (conteos).
+• analyze_coverage_precision (cuando disponible) añade:
+  – Cobertura exacta, horas con déficit/exceso, eficiencia, “problem areas” donde conviene revisar.
+
+Consejo: exponer también percentiles (p50/p75/p95) de exceso y déficit, no sólo totales, para identificar colas.
+
+────────────────────────────────────────────────────────────────────────────────
+
+14) FLUJO PASO A PASO (DE INICIO A FIN)
+
+A) Entradas/Configuración (UI)
+1. Subir Excel de demanda (Requerido.xlsx).
+2. Elegir granularidad (slot_duration 60/30), breaks: earliest_after_start / latest_before_end.
+3. Activar FT y/o PT; permitir combos PT (4h/5h/6h) y FT8/FT10h8.
+4. Elegir Perfil (Equilibrado, JEAN, Máxima Cobertura, etc.), definir cobertura objetivo y threads del solver.
+5. (Opcional) Activar Aprendizaje Adaptativo y Verbose.
+
+B) Generación de Patrones
+6. Si “JEAN Personalizado”: subir JSON de plantilla → load_shift_patterns:
+   – Genera combinaciones y aplica breaks → construye patrones 7×H.
+   – Deduplica y filtra por score (keep_percentage).
+7. Si “clásico”: generate_shifts_coverage_corrected:
+   – Recorre start_hours y combinaciones de días válidos según checks.
+   – Inserta breaks válidos → construye patrones y nombres legibles.
+   – (Opcional) filtrado/scoring inmediato (generate_shifts_coverage_optimized).
+8. Limita por RAM (memory_limit_patterns) si se configuró.
+
+C) Optimización
+9. Si PuLP: preferir 2-fases FT→PT cuando hay FT+PT:
+   – Fase FT sin exceso: ILP minimize(def) con coverage ≤ demand únicamente con FT.
+   – Calcular remaining y resolver PT para cerrar déficit (control de exceso según perfil JEAN).
+   – Combinar assignments; si falta, caer a “precisión” o “relajado”.
+10. Si no PuLP: Greedy mejorado con comprehensive score (déficit reducido – exceso penalizado + bonos picos/críticos + eficiencia). 
+11. Alternativamente: solve_in_chunks_optimized (ordenado por score) que llama a optimize_schedule_iterative por partes para escalar a N grande.
+
+D) Salida/Análisis
+12. Calcular cobertura total, total_demand, over/under, agentes FT/PT, cobertura %.
+13. Mostrar heatmap y KPIs, alertas si hay déficit >0 o exceso relevante.
+14. Exportar Excel detallado.
+
+E) Aprendizaje
+15. Registrar ejecución (historial) con firma de demanda y parámetros. Mostrar stats si está habilitado.
+
+────────────────────────────────────────────────────────────────────────────────
+
+15) PUNTOS DÉBILES Y MEJORAS PROPUESTAS
+• Tipado de patrones FT/PT: añadir “type: FT|PT” en JSON y validar con esquema (pydantic). Ahora depende de prefijos en el nombre.
+• Validación de plantilla: errores actualmente se capturan, pero el usuario podría agradecer mensajes con contexto exacto (campo faltante, rango inválido, etc.).
+• Cota global de exceso: incluir restricción Σ exc_t ≤ α·Σ demand_t en los perfiles “Exactos/Perfectos” para robustecer el control de sobre-staff.
+• Máximos por patrón diferenciados: max_per_shift distintos para FT/PT; incluso por día de la semana si la demanda es muy desigual.
+• Fairness/roster (a futuro, si asignas personas reales): reglas de consecutividad de días, descansos mínimos, ventanas de comida, etc. (sería otro nivel del modelo).
+• Warm-start ILP: con parámetros del historial, establecer bounds iniciales informados para acelerar CBC.
+• Métricas avanzadas: percentiles y mapas de “costo marginal” (¿qué turno aporta más reducción de déficit por costo adicional?).
+
+────────────────────────────────────────────────────────────────────────────────
+
+16) GUÍA DE REPLICACIÓN RÁPIDA (para otra IA/script)
+1. Leer Excel y construir D (7×H). Elegir slot 60/30.
+2. Generar patrones: (a) desde JSON (JEAN Personalizado) o (b) clásicos (FT/PT). Deduplicar con md5 y filtrar por score (keep_percentage 0.2–0.4).
+3. Seleccionar perfil → fijar (agent_limit_factor, excess_penalty, peak_bonus, critical_bonus).
+4. Si hay PuLP: 2-fases FT→PT; si no, Greedy mejorado. Para N grande: solve_in_chunks_optimized.
+5. Calcular métricas, visualizar heatmap y exportar Excel.
+6. Guardar historial con firma de demanda y KPIs para aprendizaje.
+
+────────────────────────────────────────────────────────────────────────────────
+
+17) GLOSARIO RÁPIDO
+• FT: Full Time (normalmente 48h semanales en 6 días; variantes FT10h8 con 5 días).
+• PT: Part Time (24h semanales; variantes 4h/5h/6h con diferentes combinaciones de días).
+• Break window: ventana relativa al inicio/fin donde se permite ubicar el break (ej., earliest_after_start=3h y latest_before_end=2h).
+• keep_percentage: porcentaje superior de patrones (por score) que se mantiene para optimizar (reduce N de variables ILP).
+• agent_limit_factor: factor que controla la cota superior x_s ≤ (total_demand / factor) por patrón; menor factor → más agentes posibles.
+• excess_penalty: peso en el objetivo para exceso (overstaffing). Para JEAN es alto; para Máxima Cobertura es muy bajo.
+• picos (peak_hours): horas con demanda ≥ P75 (de horas con demanda > 0).
+• días críticos: top-2 días por demanda total semanal.
+
+────────────────────────────────────────────────────────────────────────────────
+
+18) CONCLUSIÓN
+El código está bien estructurado para escenarios reales de WFM: permite una construcción flexible de patrones (especialmente con JEAN Personalizado), tiene estrategias ILP sólidas (con 2-fases FT→PT como “gold standard”) y un Greedy mejorado aceptable cuando el ILP no procede. Las defensas de memoria (chunking, deduplicado, scoring) son cruciales y están bien incorporadas. Para elevarlo a nivel “industrial” recomendaría reforzar validaciones, añadir una cota global de exceso en perfiles exactos, tipificar patrón FT/PT en el JSON y explorar warm-starts guiados por el historial.
+
+Esta revisión cubre el pipeline completo, el rol de cada módulo/función, las fórmulas y el porqué de las decisiones de diseño, para que cualquier IA pueda replicar el sistema sin necesidad de abrir app1.py.
