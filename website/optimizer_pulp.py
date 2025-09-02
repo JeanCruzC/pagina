@@ -16,6 +16,12 @@ except Exception:
 
 from .scheduler_core import merge_config, analyze_results
 
+try:
+    from .scheduler import _write_partial_result
+except Exception:  # pragma: no cover - fallback if scheduler not available
+    def _write_partial_result(*args, **kwargs):
+        pass
+
 # Lock para evitar múltiples modelos simultáneos
 _MODEL_LOCK = RLock()
 
@@ -305,42 +311,69 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_cov
     
     if not factor_sequence:
         factor_sequence = [original_factor]
-    
+
     print(f"[JEAN] Secuencia de factores: {factor_sequence}")
-    
+
     for iteration, factor in enumerate(factor_sequence[:max_iterations]):
         # Verificar timeout
         if time.time() - start_time > max_time:
             print(f"[JEAN] Timeout alcanzado ({max_time}s)")
             break
-        
+
         print(f"[JEAN] Iteración {iteration + 1}: factor {factor}")
-        
+
+        # Snapshot inicial antes de resolver la iteración
+        try:
+            if job_id is not None:
+                _write_partial_result(
+                    job_id,
+                    {},
+                    shifts_coverage,
+                    demand_matrix,
+                    iteration=iteration + 1,
+                    factor=factor,
+                )
+        except Exception:
+            pass
+
         # Configuración temporal
         temp_cfg = cfg.copy()
         temp_cfg["agent_limit_factor"] = factor
         temp_cfg["solver_time"] = 45  # 45s por iteración
-        
+
         try:
             assignments, method = optimize_with_pulp(shifts_coverage, demand_matrix, cfg=temp_cfg, job_id=job_id)
-            
-            if assignments:
-                results = analyze_results(assignments, shifts_coverage, demand_matrix)
-                if results:
-                    cov = results["coverage_percentage"]
-                    score = results["overstaffing"] + results["understaffing"]
-                    print(f"[JEAN] Factor {factor}: cobertura {cov:.1f}%, score {score:.1f}")
-                    
-                    if cov >= target_coverage:
-                        if score < best_score or not best_assignments:
-                            best_assignments, best_method = assignments, f"JEAN_F{factor}"
-                            best_score = score
-                            best_coverage = cov
-                            print(f"[JEAN] Nueva mejor solución: score {score:.1f}")
-                    elif cov > best_coverage:
-                        best_assignments, best_method, best_coverage = assignments, f"JEAN_F{factor}", cov
+            results = analyze_results(assignments, shifts_coverage, demand_matrix) if assignments else None
+
+            # Guardar snapshot con resultados si existen
+            try:
+                if job_id is not None:
+                    _write_partial_result(
+                        job_id,
+                        assignments if results else {},
+                        shifts_coverage,
+                        demand_matrix,
+                        iteration=iteration + 1,
+                        factor=factor,
+                    )
+            except Exception:
+                pass
+
+            if results:
+                cov = results["coverage_percentage"]
+                score = results["overstaffing"] + results["understaffing"]
+                print(f"[JEAN] Factor {factor}: cobertura {cov:.1f}%, score {score:.1f}")
+
+                if cov >= target_coverage:
+                    if score < best_score or not best_assignments:
+                        best_assignments, best_method = assignments, f"JEAN_F{factor}"
                         best_score = score
-                        print(f"[JEAN] Mejor cobertura parcial: {cov:.1f}%")
+                        best_coverage = cov
+                        print(f"[JEAN] Nueva mejor solución: score {score:.1f}")
+                elif cov > best_coverage:
+                    best_assignments, best_method, best_coverage = assignments, f"JEAN_F{factor}", cov
+                    best_score = score
+                    print(f"[JEAN] Mejor cobertura parcial: {cov:.1f}%")
         except Exception as e:
             print(f"[JEAN] Error en iteración {iteration + 1}: {e}")
             continue

@@ -1947,6 +1947,19 @@ def optimize_jean_search(
                 update_progress(job_id, {"jean_iter": iteration + 1, "jean_factor": factor})
         except Exception:
             pass
+        # Escribir snapshot mínimo antes de resolver la iteración
+        try:
+            if job_id is not None:
+                _write_partial_result(
+                    job_id,
+                    {},
+                    shifts_coverage,
+                    demand_matrix,
+                    iteration=iteration + 1,
+                    factor=factor,
+                )
+        except Exception:
+            pass
         if verbose:
             print(f"🔍 JEAN Iteración {iteration + 1}/{max_iterations}: factor {factor}")
 
@@ -1962,8 +1975,15 @@ def optimize_jean_search(
         results = analyze_results(assignments, shifts_coverage, demand_matrix)
         # Publicar snapshot parcial de esta iteración para que la UI siempre muestre progreso
         try:
-            if job_id is not None and results:
-                _write_partial_result(job_id, assignments, shifts_coverage, demand_matrix)
+            if job_id is not None:
+                _write_partial_result(
+                    job_id,
+                    assignments if results else {},
+                    shifts_coverage,
+                    demand_matrix,
+                    iteration=iteration + 1,
+                    factor=factor,
+                )
         except Exception:
             pass
         if results:
@@ -2148,20 +2168,20 @@ def analyze_results(assignments, shifts_coverage, demand_matrix):
     }
 
 
-def _write_partial_result(job_id, assignments, shifts_coverage, demand_matrix):
-    """Persist a snapshot of ``assignments`` and metrics for ``job_id``.
+def _write_partial_result(job_id, assignments, shifts_coverage, demand_matrix, *, iteration=None, factor=None):
+    """Persist a snapshot of ``assignments`` and minimal progress info.
 
     The data is serialized to ``scheduler_result_<job_id>.json`` inside the
     temporary directory so the ``/refresh`` endpoint can pick it up and display
     progress while lengthy optimizations run.
     """
-    if not job_id or not assignments:
+    if not job_id:
         return
 
     try:
-        metrics = analyze_results(assignments, shifts_coverage, demand_matrix)
-        if not metrics:
-            return
+        metrics = None
+        if assignments:
+            metrics = analyze_results(assignments, shifts_coverage, demand_matrix)
 
         def _convert(obj):
             if isinstance(obj, np.ndarray):
@@ -2175,9 +2195,12 @@ def _write_partial_result(job_id, assignments, shifts_coverage, demand_matrix):
             return obj
 
         payload = {
-            "assignments": assignments,
-            "metrics": _convert(metrics),
+            "assignments": assignments or {},
+            "metrics": _convert(metrics) if metrics else None,
             "status": "RUNNING",
+            "iteration": iteration,
+            "factor": factor,
+            "timestamp": time.time(),
         }
 
         path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
