@@ -13,9 +13,76 @@
     </div>
   </div>
 
+  {# KPIs principales al estilo Streamlit #}
+  {% set m = (resultado.pulp_results.metrics if resultado and resultado.pulp_results and resultado.pulp_results.metrics else (resultado.metrics if resultado and resultado.metrics else (resultado.greedy_results.metrics if resultado and resultado.greedy_results and resultado.greedy_results.metrics else None))) %}
+  {% if m %}
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-2">
+      <div class="p-3 border rounded text-center">
+        <div class="small text-muted">Total Agentes</div>
+        <div class="fs-5 fw-semibold">{{ m.total_agents or 0 }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="p-3 border rounded text-center">
+        <div class="small text-muted">Cobertura Real</div>
+        <div class="fs-5 fw-semibold">{{ '%.1f'|format(m.coverage_percentage or 0) }}%</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="p-3 border rounded text-center">
+        <div class="small text-muted">Exceso</div>
+        <div class="fs-5 fw-semibold">{{ m.overstaffing or 0 }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="p-3 border rounded text-center">
+        <div class="small text-muted">Déficit</div>
+        <div class="fs-5 fw-semibold">{{ m.understaffing or 0 }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="p-3 border rounded text-center">
+        <div class="small text-muted">FT</div>
+        <div class="fs-5 fw-semibold">{{ m.ft_agents or 0 }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <div class="p-3 border rounded text-center">
+        <div class="small text-muted">PT</div>
+        <div class="fs-5 fw-semibold">{{ m.pt_agents or 0 }}</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {% if resultado and resultado.message %}
   <div class="alert alert-warning">{{ resultado.message }}</div>
   {% endif %}
+
+  {% if not resultado or not (resultado.pulp_results and resultado.greedy_results) %}
+    {% include 'progress_info.html' %}
+  {% endif %}
+
+  <!-- Tabs de Resultados al estilo Streamlit -->
+  <ul class="nav nav-tabs mt-3" id="resultTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="tab-resumen-tab" data-bs-toggle="tab" data-bs-target="#tab-resumen" type="button" role="tab" aria-controls="tab-resumen" aria-selected="true">Resumen</button>
+    </li>
+    {% if resultado and resultado.pulp_results %}
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-pulp-tab" data-bs-toggle="tab" data-bs-target="#tab-pulp" type="button" role="tab" aria-controls="tab-pulp" aria-selected="false">PuLP</button>
+    </li>
+    {% endif %}
+    {% if resultado and resultado.greedy_results %}
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-greedy-tab" data-bs-toggle="tab" data-bs-target="#tab-greedy" type="button" role="tab" aria-controls="tab-greedy" aria-selected="false">Greedy</button>
+    </li>
+    {% endif %}
+  </ul>
+
+  <div class="tab-content pt-3" id="resultTabsContent">
+    <div class="tab-pane fade show active" id="tab-resumen" role="tabpanel" aria-labelledby="tab-resumen-tab">
 
 
 
@@ -340,6 +407,164 @@
     </div>
     {% endif %}
   </div>
+
+    </div> <!-- /tab-resumen -->
+
+    {% if resultado and resultado.pulp_results %}
+    <div class="tab-pane fade" id="tab-pulp" role="tabpanel" aria-labelledby="tab-pulp-tab">
+      {% if resultado.pulp_results.metrics %}
+      {% set pm = resultado.pulp_results.metrics %}
+      <div class="row g-3 mb-4">
+        <div class="col-6 col-md-2">
+          <div class="p-3 border rounded text-center">
+            <div class="small text-muted">Agentes</div>
+            <div class="fs-5 fw-semibold">{{ pm.total_agents or 0 }}</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-2">
+          <div class="p-3 border rounded text-center">
+            <div class="small text-muted">Cobertura</div>
+            <div class="fs-5 fw-semibold">{{ '%.1f'|format(pm.coverage_percentage or 0) }}%</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-2">
+          <div class="p-3 border rounded text-center">
+            <div class="small text-muted">Exceso</div>
+            <div class="fs-5 fw-semibold">{{ pm.overstaffing or 0 }}</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-2">
+          <div class="p-3 border rounded text-center">
+            <div class="small text-muted">Déficit</div>
+            <div class="fs-5 fw-semibold">{{ pm.understaffing or 0 }}</div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if resultado.pulp_results.assignments %}
+      <div class="card mb-4">
+        <div class="card-header bg-primary text-white">Turnos PuLP</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Turno</th><th class="text-end">Agentes</th></tr></thead>
+            <tbody>
+              {% for k, v in resultado.pulp_results.assignments | dictsort(by='value', reverse=true) %}
+                <tr><td class="small">{{ k }}</td><td class="text-end">{{ v }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% else %}
+        <div class="alert alert-secondary">No hay resultados de PuLP.</div>
+      {% endif %}
+
+      {% if resultado.pulp_results.heatmaps %}
+      <div class="row g-4">
+        {% if resultado.pulp_results.heatmaps.coverage %}
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-primary text-white">Cobertura PuLP</div>
+            <div class="card-body text-center">
+              <img class="img-fluid" alt="Cobertura PuLP" src="{{ resultado.pulp_results.heatmaps.coverage }}">
+            </div>
+          </div>
+        </div>
+        {% endif %}
+        {% if resultado.pulp_results.heatmaps.difference %}
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-primary text-white">Diferencias PuLP</div>
+            <div class="card-body text-center">
+              <img class="img-fluid" alt="Diferencias PuLP" src="{{ resultado.pulp_results.heatmaps.difference }}">
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if resultado and resultado.greedy_results %}
+    <div class="tab-pane fade" id="tab-greedy" role="tabpanel" aria-labelledby="tab-greedy-tab">
+      {% if resultado.greedy_results.metrics %}
+      {% set gm = resultado.greedy_results.metrics %}
+      <div class="row g-3 mb-4">
+        <div class="col-6 col-md-2">
+          <div class="p-3 border rounded text-center">
+            <div class="small text-muted">Agentes</div>
+            <div class="fs-5 fw-semibold">{{ gm.total_agents or 0 }}</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-2">
+          <div class="p-3 border rounded text-center">
+            <div class="small text-muted">Cobertura</div>
+            <div class="fs-5 fw-semibold">{{ '%.1f'|format(gm.coverage_percentage or 0) }}%</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-2">
+          <div class="p-3 border rounded text-center">
+            <div class="small text-muted">Exceso</div>
+            <div class="fs-5 fw-semibold">{{ gm.overstaffing or 0 }}</div>
+          </div>
+        </div>
+        <div class="col-6 col-md-2">
+          <div class="p-3 border rounded text-center">
+            <div class="small text-muted">Déficit</div>
+            <div class="fs-5 fw-semibold">{{ gm.understaffing or 0 }}</div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if resultado.greedy_results.assignments %}
+      <div class="card mb-4">
+        <div class="card-header bg-success text-white">Turnos Greedy</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Turno</th><th class="text-end">Agentes</th></tr></thead>
+            <tbody>
+              {% for k, v in resultado.greedy_results.assignments | dictsort(by='value', reverse=true) %}
+                <tr><td class="small">{{ k }}</td><td class="text-end">{{ v }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% else %}
+        <div class="alert alert-secondary">No hay resultados de Greedy.</div>
+      {% endif %}
+
+      {% if resultado.greedy_results.heatmaps %}
+      <div class="row g-4">
+        {% if resultado.greedy_results.heatmaps.coverage %}
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-success text-white">Cobertura Greedy</div>
+            <div class="card-body text-center">
+              <img class="img-fluid" alt="Cobertura Greedy" src="{{ resultado.greedy_results.heatmaps.coverage }}">
+            </div>
+          </div>
+        </div>
+        {% endif %}
+        {% if resultado.greedy_results.heatmaps.difference %}
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header bg-success text-white">Diferencias Greedy</div>
+            <div class="card-body text-center">
+              <img class="img-fluid" alt="Diferencias Greedy" src="{{ resultado.greedy_results.heatmaps.difference }}">
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div> <!-- /tab-content -->
 
   {% if not resultado %}
   <div class="alert alert-info">Procesando… Mantén esta página abierta; se actualizará automáticamente.</div>

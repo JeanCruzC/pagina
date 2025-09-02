@@ -1826,7 +1826,7 @@ def optimize_single_type(shifts, demand_matrix, shift_type, agent_limit_factor=1
 
 @single_model
 def optimize_with_precision_targeting(shifts_coverage, demand_matrix, agent_limit_factor=12, excess_penalty=2.0,
-                                    peak_bonus=1.5, critical_bonus=2.0, TIME_SOLVER=30):
+                                    peak_bonus=1.5, critical_bonus=2.0, TIME_SOLVER=240):
     """Optimización ultra-precisa para cobertura exacta"""
     if not PULP_AVAILABLE:
         return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix)
@@ -2026,7 +2026,7 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, agent_limit_fac
         return optimize_with_precision_targeting(shifts_coverage, demand_matrix)
 
 @single_model
-def optimize_ft_no_excess(ft_shifts, demand_matrix, agent_limit_factor=12, TIME_SOLVER=30):
+def optimize_ft_no_excess(ft_shifts, demand_matrix, agent_limit_factor=12, TIME_SOLVER=240):
     """Fase 1: FT con CERO exceso permitido"""
     if not ft_shifts:
         return {}
@@ -2081,7 +2081,7 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, agent_limit_factor=12, TIME_
     return ft_assignments
 
 @single_model
-def optimize_pt_complete(pt_shifts, remaining_demand, agent_limit_factor=12, excess_penalty=2.0, TIME_SOLVER=30, optimization_profile="Equilibrado"):
+def optimize_pt_complete(pt_shifts, remaining_demand, agent_limit_factor=12, excess_penalty=2.0, TIME_SOLVER=240, optimization_profile="Equilibrado"):
     """Fase 2: PT para completar el déficit restante"""
     if not pt_shifts or remaining_demand.sum() == 0:
         return {}
@@ -2323,6 +2323,12 @@ def optimize_jean_search(shifts_coverage, demand_matrix, target_coverage=98.0, m
                                                               agent_limit_factor=factor, excess_penalty=excess_penalty,
                                                               peak_bonus=peak_bonus, critical_bonus=critical_bonus)
         results = analyze_results(assignments, shifts_coverage, demand_matrix)
+        # Publicar snapshot parcial de esta iteración para que la UI siempre muestre progreso
+        try:
+            if job_id is not None and results:
+                _write_partial_result(job_id, assignments, shifts_coverage, demand_matrix)
+        except Exception:
+            pass
         if results:
             cov = results["coverage_percentage"]
             score = results["overstaffing"] + results["understaffing"]
@@ -3182,7 +3188,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
             assignments, status = optimize_jean_search(
                 patterns, demand_matrix, target_coverage=TARGET_COVERAGE, verbose=VERBOSE,
                 agent_limit_factor=agent_limit_factor, excess_penalty=excess_penalty,
-                peak_bonus=peak_bonus, critical_bonus=critical_bonus, max_iterations=4
+                peak_bonus=peak_bonus, critical_bonus=critical_bonus, max_iterations=cfg.get("search_iterations", 7), job_id=job_id
             )
         elif optimization_profile == "JEAN Personalizado":
             print("[SCHEDULER] Ejecutando JEAN Personalizado con lógica completa del legacy")

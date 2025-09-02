@@ -367,17 +367,54 @@ def refresh_results(job_id):
     result = payload["result"]
     has_pulp = bool(result.get("pulp_results", {}).get("assignments"))
     has_greedy = bool(result.get("greedy_results", {}).get("assignments"))
-    
+
     print(f"[REFRESH] Store - PuLP: {has_pulp}, Greedy: {has_greedy}")
-    
-    return jsonify({
+    # Incluir progreso si el store lo tiene
+    progress = {}
+    try:
+        st = scheduler.get_status(job_id)
+        progress = st.get("progress", {}) if isinstance(st, dict) else {}
+    except Exception:
+        progress = {}
+
+    resp = {
         "has_pulp_results": has_pulp,
         "has_greedy_results": has_greedy,
         "has_greedy_charts": False,
         "pulp_status": result.get("pulp_results", {}).get("status", "PENDING"),
         "greedy_status": result.get("greedy_results", {}).get("status", "PENDING"),
         "should_refresh": False,  # Parar refresh cuando hay resultados
-    })
+    }
+    # Mapear campos de progreso esperados por el front
+    if isinstance(progress, dict):
+        if progress.get("pulp_progress"):
+            resp["pulp_progress"] = progress.get("pulp_progress")
+        if progress.get("pulp_time"):
+            resp["pulp_time"] = progress.get("pulp_time")
+        if progress.get("greedy_progress"):
+            resp["greedy_progress"] = progress.get("greedy_progress")
+        if progress.get("greedy_time"):
+            resp["greedy_time"] = progress.get("greedy_time")
+        if progress.get("jean_iter") is not None:
+            resp["jean_iter"] = progress.get("jean_iter")
+        if progress.get("jean_factor") is not None:
+            resp["jean_factor"] = progress.get("jean_factor")
+        # Campos adicionales para barra de progreso detallada
+        if progress.get("stage"):
+            resp["stage"] = progress.get("stage")
+        if progress.get("patterns_count") is not None:
+            resp["patterns_count"] = progress.get("patterns_count")
+        if progress.get("total_agents") is not None:
+            resp["total_agents"] = progress.get("total_agents")
+        if progress.get("pulp_agents") is not None:
+            resp["pulp_agents"] = progress.get("pulp_agents")
+        if progress.get("greedy_agents") is not None:
+            resp["greedy_agents"] = progress.get("greedy_agents")
+        if progress.get("algorithm"):
+            resp["algorithm"] = progress.get("algorithm")
+        if progress.get("final_coverage") is not None:
+            resp["final_coverage"] = progress.get("final_coverage")
+    return jsonify(resp)
 
 
 @bp.route("/cancel", methods=["POST"])

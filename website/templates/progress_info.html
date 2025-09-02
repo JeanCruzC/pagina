@@ -1,6 +1,6 @@
 <!-- Información de Progreso en Tiempo Real -->
 <div class="alert alert-primary mb-4" id="progress-info">
-  <h5>⏱️ Progreso de Optimización</h5>
+  <h5>⚙️ Progreso de Optimización</h5>
   <div class="row">
     <div class="col-md-6">
       <strong>🧠 PuLP (Programación Lineal):</strong>
@@ -10,75 +10,103 @@
       <small class="text-muted" id="pulp-time">Iniciando...</small>
     </div>
     <div class="col-md-6">
-      <strong>🎯 Greedy (Heurístico):</strong>
+      <strong>🌀 Greedy (Heurístico):</strong>
       <div class="progress mt-2 mb-2">
         <div class="progress-bar bg-success" id="greedy-progress" role="progressbar" style="width: 0%">0%</div>
       </div>
       <small class="text-muted" id="greedy-time">Iniciando...</small>
     </div>
   </div>
+  <div class="mt-2">
+    <small class="text-muted" id="jean-info" style="display:none;">
+      JEAN: iter <span id="jean-iter">-</span> • factor <span id="jean-factor">-</span>
+    </small>
+  </div>
   <div class="mt-3">
-    <strong>📊 Tiempos Estimados:</strong>
+    <strong>⏱️ Tiempos Estimados:</strong>
     <ul class="mb-0">
-      <li><strong>Greedy:</strong> 1-2 minutos (más rápido, heurístico)</li>
-      <li><strong>PuLP:</strong> 2-4 minutos (más lento, óptimo matemático)</li>
+      <li><strong>Greedy:</strong> 1-2 minutos (rápido, heurístico)</li>
+      <li><strong>PuLP:</strong> 2-6 minutos (óptimo matemático)</li>
     </ul>
   </div>
+  <div class="mt-2 small text-muted" id="stage-info"></div>
+  <div class="mt-1 small text-muted" id="agents-info"></div>
 </div>
 
 <script>
-// Actualizar progreso en tiempo real
 function updateProgress() {
   const jobId = window.location.pathname.split('/').pop();
-  
   fetch(`/resultados/${jobId}/refresh`)
-    .then(response => response.json())
+    .then(r => r.json())
     .then(data => {
-      // Actualizar PuLP
+      // PuLP
       if (data.pulp_progress) {
-        const pulpBar = document.getElementById('pulp-progress');
-        const pulpTime = document.getElementById('pulp-time');
-        if (pulpBar) {
-          const progress = parseInt(data.pulp_progress);
-          pulpBar.style.width = progress + '%';
-          pulpBar.textContent = progress + '%';
-          if (progress >= 100) {
-            pulpBar.classList.add('bg-success');
-          }
-        }
-        if (pulpTime && data.pulp_time) {
-          pulpTime.textContent = data.pulp_time;
+        const bar = document.getElementById('pulp-progress');
+        if (bar) {
+          const p = parseInt(data.pulp_progress);
+          bar.style.width = (isNaN(p) ? 0 : p) + '%';
+          bar.textContent = (isNaN(p) ? 0 : p) + '%';
+          if (!isNaN(p) && p >= 100) bar.classList.add('bg-success');
         }
       }
-      
-      // Actualizar Greedy
+      if (data.pulp_time) {
+        const t = document.getElementById('pulp-time');
+        if (t) t.textContent = data.pulp_time;
+      }
+      // Greedy
       if (data.greedy_progress) {
-        const greedyBar = document.getElementById('greedy-progress');
-        const greedyTime = document.getElementById('greedy-time');
-        if (greedyBar) {
-          const progress = parseInt(data.greedy_progress);
-          greedyBar.style.width = progress + '%';
-          greedyBar.textContent = progress + '%';
-        }
-        if (greedyTime && data.greedy_time) {
-          greedyTime.textContent = data.greedy_time;
+        const gbar = document.getElementById('greedy-progress');
+        if (gbar) {
+          const gp = parseInt(data.greedy_progress);
+          gbar.style.width = (isNaN(gp) ? 0 : gp) + '%';
+          gbar.textContent = (isNaN(gp) ? 0 : gp) + '%';
         }
       }
-      
-      // Ocultar progreso si ambos están completos
-      if (data.has_greedy_results && data.has_pulp_results) {
-        const progressInfo = document.getElementById('progress-info');
-        if (progressInfo) {
-          progressInfo.style.display = 'none';
+      if (data.greedy_time) {
+        const gt = document.getElementById('greedy-time');
+        if (gt) gt.textContent = data.greedy_time;
+      }
+      // JEAN info
+      if (typeof data.jean_iter !== 'undefined' || typeof data.jean_factor !== 'undefined') {
+        const box = document.getElementById('jean-info');
+        if (box) box.style.display = '';
+        if (typeof data.jean_iter !== 'undefined') {
+          const el = document.getElementById('jean-iter');
+          if (el) el.textContent = data.jean_iter;
         }
+        if (typeof data.jean_factor !== 'undefined') {
+          const el2 = document.getElementById('jean-factor');
+          if (el2) el2.textContent = data.jean_factor;
+        }
+      }
+      // Stage and counts
+      const stageEl = document.getElementById('stage-info');
+      if (stageEl) {
+        const parts = [];
+        if (data.stage) parts.push(`Etapa: ${data.stage}`);
+        if (typeof data.patterns_count !== 'undefined') parts.push(`Patrones: ${data.patterns_count}`);
+        if (typeof data.total_agents !== 'undefined') parts.push(`Agentes totales: ${data.total_agents}`);
+        if (parts.length) stageEl.textContent = parts.join(' · ');
+      }
+      const agentsEl = document.getElementById('agents-info');
+      if (agentsEl) {
+        const items = [];
+        if (typeof data.pulp_agents !== 'undefined') items.push(`PuLP: ${data.pulp_agents}`);
+        if (typeof data.greedy_agents !== 'undefined') items.push(`Greedy: ${data.greedy_agents}`);
+        if (typeof data.final_coverage !== 'undefined') items.push(`Cobertura final: ${Math.round(data.final_coverage)}%`);
+        if (items.length) agentsEl.textContent = items.join(' · ');
+      }
+      // Hide panel if endpoints say finished
+      if (data.has_greedy_results && data.has_pulp_results) {
+        const panel = document.getElementById('progress-info');
+        if (panel) panel.style.display = 'none';
       }
     })
-    .catch(error => console.log('Progress update error:', error));
+    .catch(() => {});
 }
 
-// Actualizar cada 5 segundos
 if (window.location.pathname.includes('/resultados/')) {
   setInterval(updateProgress, 5000);
-  updateProgress(); // Llamada inicial
+  updateProgress();
 }
 </script>

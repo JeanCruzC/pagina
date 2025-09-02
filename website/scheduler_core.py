@@ -194,6 +194,37 @@ def generate_weekly_pattern_simple(start_hour, duration, working_days):
             pattern[(day + d_off) % 7, idx] = 1
     return pattern.flatten()
 
+def generate_weekly_pattern_mixed(start_hour, ten_days=None, eight_days=None, *, cfg=None):
+    """Patron con dias de 10h y 8h (para FT10h8)."""
+    ten_days = ten_days or []
+    eight_days = eight_days or []
+    cfg = merge_config(cfg)
+    break_from_start = cfg["break_from_start"]
+    break_from_end = cfg["break_from_end"]
+    pattern = np.zeros((7, 24), dtype=np.int8)
+
+    def _apply_day(day, duration):
+        for h in range(duration):
+            t = start_hour + h
+            d_off, idx = divmod(int(t), 24)
+            pattern[(day + d_off) % 7, idx] = 1
+        # Break central
+        break_start_idx = start_hour + break_from_start
+        break_end_idx = start_hour + duration - break_from_end
+        if int(break_start_idx) < int(break_end_idx):
+            break_hour = int(break_start_idx) + (int(break_end_idx) - int(break_start_idx)) // 2
+        else:
+            break_hour = int(break_start_idx)
+        d_off, idx = divmod(int(break_hour), 24)
+        pattern[(day + d_off) % 7, idx] = 0
+
+    for d in ten_days:
+        _apply_day(d, 10)
+    for d in eight_days:
+        _apply_day(d, 8)
+
+    return pattern.flatten()
+
 def generate_shifts_coverage(*, cfg=None):
     """Generar todos los patrones de turnos - EXACTO del original."""
     cfg = merge_config(cfg)
@@ -249,6 +280,31 @@ def generate_shifts_coverage(*, cfg=None):
                                 seen_patterns.add(key)
                                 name = f"PT6_{start_hour:04.1f}_DAYS{''.join(map(str, combo))}"
                                 shifts_coverage[name] = pattern
+
+            # 5 horas - 4 días (20h/semana)
+            if allow_pt_5h:
+                for num_days in [4]:
+                    if num_days <= len(active_days) and 5 * num_days <= 24:
+                        for combo in combinations(active_days, num_days):
+                            pattern = generate_weekly_pattern_simple(start_hour, 5, list(combo))
+                            key = pattern.tobytes()
+                            if key not in seen_patterns:
+                                seen_patterns.add(key)
+                                name = f"PT5_{start_hour:04.1f}_DAYS{''.join(map(str, combo))}"
+                                shifts_coverage[name] = pattern
+
+        # Full Time 10h+8h en 5 días (48h/semana)
+        if use_ft and allow_10h8 and len(active_days) >= 5:
+            for combo in combinations(active_days, 5):
+                combo = list(combo)
+                for eight_day in combo:
+                    ten_days = [d for d in combo if d != eight_day]
+                    pattern = generate_weekly_pattern_mixed(start_hour, ten_days=ten_days, eight_days=[eight_day], cfg=cfg)
+                    key = pattern.tobytes()
+                    if key not in seen_patterns:
+                        seen_patterns.add(key)
+                        name = f"FT10h8_{start_hour:04.1f}_DAYS{''.join(map(str, combo))}_8D{eight_day}"
+                        shifts_coverage[name] = pattern
     
     return shifts_coverage
 
