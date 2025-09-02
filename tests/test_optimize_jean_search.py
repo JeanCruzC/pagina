@@ -31,6 +31,34 @@ def test_jean_search_equivalence_results():
     assert sched_res == profile_res
 
 
+def test_jean_search_cfg_forwarding():
+    shifts, demand = _sample_data()
+    cfg = {
+        "TARGET_COVERAGE": 97.0,
+        "max_iterations": 1,
+        "iteration_time_limit": 1,
+        "agent_limit_factor": 4,
+        "excess_penalty": 3.0,
+    }
+
+    sched_res = scheduler.optimize_jean_search(
+        shifts,
+        demand,
+        target_coverage=cfg["TARGET_COVERAGE"],
+        max_iterations=cfg["max_iterations"],
+        iteration_time_limit=cfg["iteration_time_limit"],
+        agent_limit_factor=cfg["agent_limit_factor"],
+        excess_penalty=cfg["excess_penalty"],
+    )
+    profile_res = profile_optimizers.optimize_jean_search(
+        shifts,
+        demand,
+        cfg=cfg,
+    )
+
+    assert profile_res == sched_res
+
+
 def test_jean_search_default_params_match():
     import inspect
 
