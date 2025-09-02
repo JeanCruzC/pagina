@@ -1923,6 +1923,10 @@ def optimize_jean_search(
     """Búsqueda iterativa EXACTA del legacy para el perfil JEAN minimizando exceso y déficit."""
     if iteration_time_limit is None:
         iteration_time_limit = current_app.config.get("TIME_SOLVER", 45)
+    # Limitar el tiempo de cada iteración para evitar que la interfaz quede congelada
+    iteration_time_limit = min(
+        iteration_time_limit, current_app.config.get("JEAN_ITER_TIME_LIMIT", 25)
+    )
 
     best_assignments = {}
     best_method = ""
@@ -1935,7 +1939,10 @@ def optimize_jean_search(
 
         try:
             if job_id is not None:
-                update_progress(job_id, {"jean_iter": iteration + 1, "jean_factor": factor})
+                update_progress(
+                    job_id,
+                    {"jean_iter": iteration + 1, "jean_factor": factor, "jean_status": "solving"},
+                )
         except Exception:
             pass
         # Escribir snapshot mínimo antes de resolver la iteración
@@ -1954,6 +1961,7 @@ def optimize_jean_search(
         if verbose:
             print(f"🔍 JEAN Iteración {iteration + 1}/{max_iterations}: factor {factor}")
 
+        iter_start = time.time()
         assignments, method = optimize_with_precision_targeting(
             shifts_coverage,
             demand_matrix,
@@ -1964,6 +1972,7 @@ def optimize_jean_search(
             TIME_SOLVER=iteration_time_limit,
         )
         results = analyze_results(assignments, shifts_coverage, demand_matrix)
+        iter_elapsed = time.time() - iter_start
         # Publicar snapshot parcial de esta iteración para que la UI siempre muestre progreso
         try:
             if job_id is not None:
@@ -1974,6 +1983,15 @@ def optimize_jean_search(
                     demand_matrix,
                     iteration=iteration + 1,
                     factor=factor,
+                )
+                update_progress(
+                    job_id,
+                    {
+                        "jean_iter": iteration + 1,
+                        "jean_factor": factor,
+                        "jean_status": "done",
+                        "jean_time": round(iter_elapsed, 2),
+                    },
                 )
         except Exception:
             pass
