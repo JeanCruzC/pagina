@@ -212,6 +212,14 @@ def generador_status(job_id):
     return jsonify(response)
 
 
+@bp.get("/resultados")
+@login_required
+def resultados_missing():
+    return render_template(
+        "400.html", description="Faltó el ID del resultado"
+    ), 400
+
+
 @bp.get("/resultados/<job_id>")
 @login_required
 def resultados(job_id):
