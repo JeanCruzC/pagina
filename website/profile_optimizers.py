@@ -2,24 +2,36 @@
 """
 Optimizadores específicos para cada perfil de optimización.
 Implementa todas las lógicas y características específicas de cada perfil.
+
+Nota:
+    La implementación canónica de ``optimize_jean_search`` vive en
+    ``website.scheduler``.  Este módulo mantiene un *wrapper* deprecado
+    solo para compatibilidad con configuraciones legadas.
 """
 
 import numpy as np
 import time
 import json
 import os
+import warnings
+import inspect
 try:
     import pulp as pl
     PULP_AVAILABLE = True
 except ImportError:
     PULP_AVAILABLE = False
 
+from . import scheduler
 from .scheduler import (
     merge_config, single_model, analyze_results,
     optimize_schedule_greedy_enhanced, optimize_with_precision_targeting,
     get_adaptive_params, save_execution_result, load_shift_patterns,
     optimize_ft_then_pt_strategy, _write_partial_result
 )
+
+_sched_sig = inspect.signature(scheduler.optimize_jean_search)
+_TARGET_COVERAGE_DEFAULT = _sched_sig.parameters["target_coverage"].default
+_MAX_ITERATIONS_DEFAULT = _sched_sig.parameters["max_iterations"].default
 
 
 @single_model
@@ -510,123 +522,70 @@ def optimize_perfect_coverage(shifts_coverage, demand_matrix, *, cfg=None):
 
 
 @single_model
-def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_coverage=98.0, max_iterations=5, job_id=None):
-    """Búsqueda iterativa JEAN para minimizar exceso y déficit."""
-    import time
-    start_time = time.time()
-    max_time = 120  # Máximo 2 minutos para JEAN
-    
+def optimize_jean_search(
+    shifts_coverage,
+    demand_matrix,
+    *,
+    cfg=None,
+    target_coverage=_TARGET_COVERAGE_DEFAULT,
+    max_iterations=_MAX_ITERATIONS_DEFAULT,
+    job_id=None,
+):
+    """Deprecated wrapper for ``website.scheduler.optimize_jean_search``.
+
+    Parameters
+    ----------
+    shifts_coverage, demand_matrix:
+        Datos de entrada para la búsqueda JEAN.
+    cfg: dict | None
+        Configuración legada; los parámetros relevantes se mapean a la
+        implementación canónica.
+    target_coverage, max_iterations, job_id:
+        Parámetros compatibles con la función canónica.
+
+    Returns
+    -------
+    tuple
+        Resultado de :func:`website.scheduler.optimize_jean_search`.
+
+    """
+
+    warnings.warn(
+        "profile_optimizers.optimize_jean_search está deprecado; "
+        "usa website.scheduler.optimize_jean_search",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     cfg = merge_config(cfg)
-    original_factor = cfg["agent_limit_factor"]
-    
-    best_assignments = {}
-    best_method = ""
-    best_score = float("inf")
-    best_coverage = 0
-    
-    # Secuencia de factores específica del legacy
-    factor_sequence = [30, 27, 24, 21, 18, 15, 12, 9, 6, 3]
-    factor_sequence = [f for f in factor_sequence if f <= original_factor]
-    
-    print(f"[JEAN] Iniciando búsqueda iterativa JEAN con secuencia: {factor_sequence}")
-    
-    # Función para actualizar progreso
-    def update_progress(info):
-        if job_id:
-            try:
-                from .extensions import scheduler as store
-                store.update_progress(job_id, info)
-            except Exception:
-                pass
-    
-    # Implementar EXACTAMENTE la lógica del legacy Streamlit
-    factor = original_factor
-    iteration = 0
-    while iteration < max_iterations and factor >= 3:
-        # Verificar timeout
-        if time.time() - start_time > max_time:
-            print(f"[JEAN] Timeout alcanzado ({max_time}s), terminando")
-            break
+    kwargs = {
+        "agent_limit_factor": cfg.get("agent_limit_factor"),
+        "excess_penalty": cfg.get("excess_penalty"),
+        "peak_bonus": cfg.get("peak_bonus"),
+        "critical_bonus": cfg.get("critical_bonus"),
+        "iteration_time_limit": cfg.get(
+            "iteration_time_limit", cfg.get("time_limit_seconds")
+        ),
+    }
 
-        print(f"[JEAN] Iteración {iteration + 1}: factor {factor}")
-        update_progress({"jean_iteration": f"Factor {factor} ({iteration + 1}/{max_iterations})"})
+    if (
+        target_coverage == _TARGET_COVERAGE_DEFAULT
+        and "TARGET_COVERAGE" in cfg
+    ):
+        target_coverage = cfg["TARGET_COVERAGE"]
+    if max_iterations == _MAX_ITERATIONS_DEFAULT and "max_iterations" in cfg:
+        max_iterations = cfg["max_iterations"]
 
-        # Snapshot mínimo antes de resolver la iteración
-        try:
-            if job_id:
-                _write_partial_result(
-                    job_id,
-                    {},
-                    shifts_coverage,
-                    demand_matrix,
-                    iteration=iteration + 1,
-                    factor=factor,
-                )
-        except Exception:
-            pass
+    kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
-        # Actualizar configuración temporal EXACTA del legacy
-        temp_cfg = cfg.copy()
-        temp_cfg["agent_limit_factor"] = factor
-        
-        try:
-            assignments, method = optimize_with_precision_targeting(
-                shifts_coverage, demand_matrix, cfg=temp_cfg, job_id=job_id
-            )
-            results = analyze_results(assignments, shifts_coverage, demand_matrix)
-
-            # Guardar snapshot parcial con resultados si existen
-            try:
-                if job_id:
-                    _write_partial_result(
-                        job_id,
-                        assignments if results else {},
-                        shifts_coverage,
-                        demand_matrix,
-                        iteration=iteration + 1,
-                        factor=factor,
-                    )
-            except Exception:
-                pass
-
-            if results:
-                cov = results["coverage_percentage"]
-                score = results["overstaffing"] + results["understaffing"]
-                print(f"[JEAN] Factor {factor}: cobertura {cov:.1f}%, score {score:.1f}")
-
-                if cov >= target_coverage:
-                    if score < best_score or not best_assignments:
-                        best_assignments, best_method = assignments, f"JEAN_SEARCH_F{factor}"
-                        best_score = score
-                        best_coverage = cov
-                        print(f"[JEAN] Nueva mejor solución: score {score:.1f}")
-                    else:
-                        print(f"[JEAN] Cobertura alcanzada, terminando búsqueda")
-                        break
-                elif cov > best_coverage:
-                    best_assignments, best_method, best_coverage = (
-                        assignments,
-                        f"JEAN_SEARCH_F{factor}",
-                        cov,
-                    )
-                    print(f"[JEAN] Mejor cobertura parcial: {cov:.1f}%")
-        except Exception as e:
-            print(f"[JEAN] Error en iteración {iteration + 1}: {e}")
-            # En caso de error, continuar con el siguiente factor
-            pass
-        
-        # Reducir factor EXACTAMENTE como en legacy
-        factor = max(3, int(factor * 0.9))
-        iteration += 1
-    
-    # Si no hay resultados, usar greedy como fallback
-    if not best_assignments:
-        print(f"[JEAN] Sin resultados, usando greedy como fallback")
-        best_assignments, best_method = optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, cfg=cfg, job_id=job_id)
-    
-    elapsed = time.time() - start_time
-    print(f"[JEAN] Búsqueda completada en {elapsed:.1f}s: mejor score {best_score:.1f}, cobertura {best_coverage:.1f}%")
-    return best_assignments, best_method
+    return scheduler.optimize_jean_search(
+        shifts_coverage,
+        demand_matrix,
+        target_coverage=target_coverage,
+        max_iterations=max_iterations,
+        job_id=job_id,
+        **kwargs,
+    )
 
 
 @single_model
