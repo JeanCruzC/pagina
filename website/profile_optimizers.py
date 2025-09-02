@@ -15,10 +15,10 @@ except ImportError:
     PULP_AVAILABLE = False
 
 from .scheduler import (
-    merge_config, single_model, analyze_results, 
+    merge_config, single_model, analyze_results,
     optimize_schedule_greedy_enhanced, optimize_with_precision_targeting,
     get_adaptive_params, save_execution_result, load_shift_patterns,
-    optimize_ft_then_pt_strategy
+    optimize_ft_then_pt_strategy, _write_partial_result
 )
 
 
@@ -547,23 +547,53 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_cov
         if time.time() - start_time > max_time:
             print(f"[JEAN] Timeout alcanzado ({max_time}s), terminando")
             break
-            
+
         print(f"[JEAN] Iteración {iteration + 1}: factor {factor}")
         update_progress({"jean_iteration": f"Factor {factor} ({iteration + 1}/{max_iterations})"})
-        
+
+        # Snapshot mínimo antes de resolver la iteración
+        try:
+            if job_id:
+                _write_partial_result(
+                    job_id,
+                    {},
+                    shifts_coverage,
+                    demand_matrix,
+                    iteration=iteration + 1,
+                    factor=factor,
+                )
+        except Exception:
+            pass
+
         # Actualizar configuración temporal EXACTA del legacy
         temp_cfg = cfg.copy()
         temp_cfg["agent_limit_factor"] = factor
         
         try:
-            assignments, method = optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=temp_cfg, job_id=job_id)
+            assignments, method = optimize_with_precision_targeting(
+                shifts_coverage, demand_matrix, cfg=temp_cfg, job_id=job_id
+            )
             results = analyze_results(assignments, shifts_coverage, demand_matrix)
-            
+
+            # Guardar snapshot parcial con resultados si existen
+            try:
+                if job_id:
+                    _write_partial_result(
+                        job_id,
+                        assignments if results else {},
+                        shifts_coverage,
+                        demand_matrix,
+                        iteration=iteration + 1,
+                        factor=factor,
+                    )
+            except Exception:
+                pass
+
             if results:
                 cov = results["coverage_percentage"]
                 score = results["overstaffing"] + results["understaffing"]
                 print(f"[JEAN] Factor {factor}: cobertura {cov:.1f}%, score {score:.1f}")
-                
+
                 if cov >= target_coverage:
                     if score < best_score or not best_assignments:
                         best_assignments, best_method = assignments, f"JEAN_SEARCH_F{factor}"
@@ -574,7 +604,11 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_cov
                         print(f"[JEAN] Cobertura alcanzada, terminando búsqueda")
                         break
                 elif cov > best_coverage:
-                    best_assignments, best_method, best_coverage = assignments, f"JEAN_SEARCH_F{factor}", cov
+                    best_assignments, best_method, best_coverage = (
+                        assignments,
+                        f"JEAN_SEARCH_F{factor}",
+                        cov,
+                    )
                     print(f"[JEAN] Mejor cobertura parcial: {cov:.1f}%")
         except Exception as e:
             print(f"[JEAN] Error en iteración {iteration + 1}: {e}")

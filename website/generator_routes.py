@@ -319,22 +319,30 @@ def refresh_results(job_id):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 disk_result = json.load(f)
-            
-            has_pulp = bool(disk_result.get("pulp_results", {}).get("assignments"))
-            has_greedy = bool(disk_result.get("greedy_results", {}).get("assignments"))
-            
+
+            pulp_data = disk_result.get("pulp_results", {})
+            greedy_data = disk_result.get("greedy_results", {})
+            has_pulp = bool(pulp_data.get("assignments"))
+            has_greedy = bool(greedy_data.get("assignments"))
+
             print(f"[REFRESH] Disco - PuLP: {has_pulp}, Greedy: {has_greedy}")
-            print(f"[REFRESH] PuLP assignments: {len(disk_result.get('pulp_results', {}).get('assignments', {}))}")
-            print(f"[REFRESH] Greedy assignments: {len(disk_result.get('greedy_results', {}).get('assignments', {}))}")
-            
-            return jsonify({
+            print(f"[REFRESH] PuLP assignments: {len(pulp_data.get('assignments', {}))}")
+            print(f"[REFRESH] Greedy assignments: {len(greedy_data.get('assignments', {}))}")
+
+            resp = {
                 "has_pulp_results": has_pulp,
                 "has_greedy_results": has_greedy,
                 "has_greedy_charts": False,  # No se generan gráficos por defecto
-                "pulp_status": disk_result.get("pulp_results", {}).get("status", "PENDING"),
-                "greedy_status": disk_result.get("greedy_results", {}).get("status", "PENDING"),
-                "should_refresh": False,  # Parar refresh inmediatamente si hay resultados en disco
-            })
+                "pulp_status": pulp_data.get("status", "PENDING"),
+                "greedy_status": greedy_data.get("status", "PENDING"),
+                # Seguir refrescando mientras no haya resultados completos
+                "should_refresh": not has_pulp,
+            }
+            if pulp_data.get("iteration") is not None:
+                resp["jean_iter"] = pulp_data.get("iteration")
+            if pulp_data.get("factor") is not None:
+                resp["jean_factor"] = pulp_data.get("factor")
+            return jsonify(resp)
         except Exception as e:
             print(f"[REFRESH] Error leyendo disco: {e}")
             import traceback
