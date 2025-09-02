@@ -1581,26 +1581,20 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, agent_limi
             cuts=1
         )
         prob.solve(solver)
-        
-        # Extraer solución (parcial incluso si no es óptimo)
-        assignments = {}
-        for shift in shifts_list:
-            try:
-                value = int(shift_vars[shift].varValue or 0)
-            except Exception:
-                value = 0
-            if value > 0:
-                assignments[shift] = value
-        method = "PRECISION_TARGETING" if prob.status == pulp.LpStatusOptimal else None
-        if prob.status == pulp.LpStatusInfeasible:
-            print("⚠️ Problema infactible, relajando restricciones...")
-            # Intentar con restricciones más relajadas
-            return optimize_with_relaxed_constraints(shifts_coverage, demand_matrix)
-        else:
-            print(f"⚠️ Solver status: {prob.status}, usando fallback inteligente")
-            return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix)
-        
-        return assignments, method
+
+        if prob.status == pulp.LpStatusOptimal:
+            assignments = {}
+            for shift in shifts_list:
+                try:
+                    value = int(shift_vars[shift].varValue or 0)
+                except Exception:
+                    value = 0
+                if value > 0:
+                    assignments[shift] = value
+            return assignments, "PRECISION_TARGETING"
+
+        print(f"⚠️ Solver status: {prob.status}, usando fallback inteligente")
+        return optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix)
         
     except Exception as e:
         print(f"Error en optimización de precisión: {str(e)}")
