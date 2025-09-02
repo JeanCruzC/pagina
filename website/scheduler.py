@@ -1911,36 +1911,27 @@ def optimize_jean_search(
     shifts_coverage,
     demand_matrix,
     target_coverage=98.0,
-    max_iterations=7,
+    max_iterations=5,
     verbose=False,
     agent_limit_factor=30,
     excess_penalty=5.0,
     peak_bonus=2.0,
     critical_bonus=2.5,
-    time_limit_seconds=None,
-    iteration_time_limit=45,
+    iteration_time_limit=None,
     job_id=None,
 ):
     """Búsqueda iterativa EXACTA del legacy para el perfil JEAN minimizando exceso y déficit."""
-
-    # Si no se especifica tiempo total, asumir 45s por iteración
-    if time_limit_seconds is None:
-        time_limit_seconds = iteration_time_limit * max_iterations
+    if iteration_time_limit is None:
+        iteration_time_limit = current_app.config.get("TIME_SOLVER", 45)
 
     best_assignments = {}
     best_method = ""
     best_score = float("inf")
     best_coverage = 0
 
-    start_time = time.time()
     factor = agent_limit_factor
     iteration = 0
     while iteration < max_iterations and factor >= 1:
-        # Cortar por tiempo total
-        if (time.time() - start_time) > time_limit_seconds:
-            if verbose:
-                print(f"[JEAN] Cortado por tiempo")
-            break
 
         try:
             if job_id is not None:
@@ -2008,9 +1999,17 @@ def optimize_schedule_iterative(shifts_coverage, demand_matrix, optimization_pro
     if PULP_AVAILABLE:
         if optimization_profile == "JEAN":
             print("🔍 **Búsqueda JEAN**: cobertura sin exceso")
-            return optimize_jean_search(shifts_coverage, demand_matrix, verbose=VERBOSE, target_coverage=TARGET_COVERAGE,
-                                      agent_limit_factor=agent_limit_factor, excess_penalty=excess_penalty,
-                                      peak_bonus=peak_bonus, critical_bonus=critical_bonus)
+            return optimize_jean_search(
+                shifts_coverage,
+                demand_matrix,
+                verbose=VERBOSE,
+                target_coverage=TARGET_COVERAGE,
+                agent_limit_factor=agent_limit_factor,
+                excess_penalty=excess_penalty,
+                peak_bonus=peak_bonus,
+                critical_bonus=critical_bonus,
+                iteration_time_limit=current_app.config.get("TIME_SOLVER"),
+            )
 
         if optimization_profile == "JEAN Personalizado":
             if use_ft and use_pt:
@@ -2024,16 +2023,32 @@ def optimize_schedule_iterative(shifts_coverage, demand_matrix, optimization_pro
                     score = results["overstaffing"] + results["understaffing"]
                     if cov < TARGET_COVERAGE or score > 0:
                         print("♻️ **Refinando con búsqueda JEAN**")
-                        assignments, method = optimize_jean_search(shifts_coverage, demand_matrix, verbose=VERBOSE,
-                                                                 target_coverage=TARGET_COVERAGE, agent_limit_factor=agent_limit_factor,
-                                                                 excess_penalty=excess_penalty, peak_bonus=peak_bonus, critical_bonus=critical_bonus)
+                        assignments, method = optimize_jean_search(
+                            shifts_coverage,
+                            demand_matrix,
+                            verbose=VERBOSE,
+                            target_coverage=TARGET_COVERAGE,
+                            agent_limit_factor=agent_limit_factor,
+                            excess_penalty=excess_penalty,
+                            peak_bonus=peak_bonus,
+                            critical_bonus=critical_bonus,
+                            iteration_time_limit=current_app.config.get("TIME_SOLVER"),
+                        )
 
                 return assignments, method
             else:
                 print("🔍 **Búsqueda JEAN**: cobertura sin exceso")
-                return optimize_jean_search(shifts_coverage, demand_matrix, verbose=VERBOSE, target_coverage=TARGET_COVERAGE,
-                                          agent_limit_factor=agent_limit_factor, excess_penalty=excess_penalty,
-                                          peak_bonus=peak_bonus, critical_bonus=critical_bonus)
+                return optimize_jean_search(
+                    shifts_coverage,
+                    demand_matrix,
+                    verbose=VERBOSE,
+                    target_coverage=TARGET_COVERAGE,
+                    agent_limit_factor=agent_limit_factor,
+                    excess_penalty=excess_penalty,
+                    peak_bonus=peak_bonus,
+                    critical_bonus=critical_bonus,
+                    iteration_time_limit=current_app.config.get("TIME_SOLVER"),
+                )
 
         if use_ft and use_pt:
             print("🏢⏰ **Estrategia 2 Fases**: FT sin exceso → PT para completar")
@@ -2746,6 +2761,11 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
 
     try:
         cfg = apply_configuration(config)
+
+        # Propagar TIME_SOLVER desde la configuración recibida
+        solver_time = cfg.get("TIME_SOLVER", cfg.get("solver_time"))
+        if solver_time is not None:
+            current_app.config["TIME_SOLVER"] = solver_time
         
         # Extraer parámetros de configuración EXACTOS del legacy
         use_ft = cfg.get("use_ft", True)
@@ -2880,9 +2900,17 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         if optimization_profile == "JEAN":
             print("[SCHEDULER] Ejecutando búsqueda JEAN con reducción progresiva del factor")
             assignments, status = optimize_jean_search(
-                patterns, demand_matrix, target_coverage=TARGET_COVERAGE, verbose=VERBOSE,
-                agent_limit_factor=agent_limit_factor, excess_penalty=excess_penalty,
-                peak_bonus=peak_bonus, critical_bonus=critical_bonus, max_iterations=cfg.get("search_iterations", 7), job_id=job_id
+                patterns,
+                demand_matrix,
+                target_coverage=TARGET_COVERAGE,
+                verbose=VERBOSE,
+                agent_limit_factor=agent_limit_factor,
+                excess_penalty=excess_penalty,
+                peak_bonus=peak_bonus,
+                critical_bonus=critical_bonus,
+                max_iterations=cfg.get("search_iterations", 5),
+                iteration_time_limit=current_app.config.get("TIME_SOLVER"),
+                job_id=job_id,
             )
         elif optimization_profile == "JEAN Personalizado":
             print("[SCHEDULER] Ejecutando JEAN Personalizado con lógica completa del legacy")
@@ -2901,18 +2929,30 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
                     if coverage < TARGET_COVERAGE or score > 0:
                         print(f"[SCHEDULER] Refinando con JEAN (cov: {coverage:.1f}%, score: {score:.1f})")
                         refined_assignments, refined_status = optimize_jean_search(
-                            patterns, demand_matrix, target_coverage=TARGET_COVERAGE, verbose=VERBOSE,
-                            agent_limit_factor=agent_limit_factor, excess_penalty=excess_penalty,
-                            peak_bonus=peak_bonus, critical_bonus=critical_bonus
+                            patterns,
+                            demand_matrix,
+                            target_coverage=TARGET_COVERAGE,
+                            verbose=VERBOSE,
+                            agent_limit_factor=agent_limit_factor,
+                            excess_penalty=excess_penalty,
+                            peak_bonus=peak_bonus,
+                            critical_bonus=critical_bonus,
+                            iteration_time_limit=current_app.config.get("TIME_SOLVER"),
                         )
                         if refined_assignments:
                             assignments, status = refined_assignments, f"JEAN_CUSTOM_REFINED_{refined_status}"
             else:
                 # Solo un tipo de contrato, usar JEAN directo
                 assignments, status = optimize_jean_search(
-                    patterns, demand_matrix, target_coverage=TARGET_COVERAGE, verbose=VERBOSE,
-                    agent_limit_factor=agent_limit_factor, excess_penalty=excess_penalty,
-                    peak_bonus=peak_bonus, critical_bonus=critical_bonus
+                    patterns,
+                    demand_matrix,
+                    target_coverage=TARGET_COVERAGE,
+                    verbose=VERBOSE,
+                    agent_limit_factor=agent_limit_factor,
+                    excess_penalty=excess_penalty,
+                    peak_bonus=peak_bonus,
+                    critical_bonus=critical_bonus,
+                    iteration_time_limit=current_app.config.get("TIME_SOLVER"),
                 )
         elif optimization_profile == "Aprendizaje Adaptativo":
             print("[SCHEDULER] Ejecutando Aprendizaje Adaptativo con sistema evolutivo completo")
