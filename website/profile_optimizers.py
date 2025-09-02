@@ -2,10 +2,15 @@
 
 This module remains for backward compatibility. The application now uses
 ``scheduler.optimize_jean_search`` as the canonical implementation. The
-function below simply forwards to that implementation.
+wrapper below forwards to that implementation and emits a deprecation
+warning when invoked.
 """
 
 from __future__ import annotations
+
+import warnings
+
+from .scheduler import optimize_jean_search as _sched_opt
 
 
 def optimize_jean_search(
@@ -30,7 +35,12 @@ def optimize_jean_search(
     All other parameters mirror the scheduler version.
     """
 
-    from .scheduler import optimize_jean_search as _sched_opt
+    warnings.warn(
+        "profile_optimizers.optimize_jean_search is deprecated; use "
+        "scheduler.optimize_jean_search instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     return _sched_opt(
         shifts_coverage,
