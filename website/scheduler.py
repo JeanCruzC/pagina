@@ -58,6 +58,16 @@ try:
 except Exception:
     _ext_store = None
 
+try:
+    from .parallel_optimizer import save_partial_results
+    from .optimizer_greedy import optimize_with_greedy
+except Exception:  # pragma: no cover - allow direct execution
+    def save_partial_results(*args, **kwargs):
+        pass
+
+    def optimize_with_greedy(*args, **kwargs):
+        return {}, "NOT_EXECUTED"
+
 def _store(app=None):
     """Return backing store dict from extensions (jobs/results)."""
     if _ext_store is None:
@@ -2796,6 +2806,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
 
     try:
         cfg = apply_configuration(config)
+        app_ctx = current_app._get_current_object()
 
         # Propagar TIME_SOLVER desde la configuración recibida
         solver_time = cfg.get("TIME_SOLVER", cfg.get("solver_time"))
@@ -2932,7 +2943,16 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         print("[SCHEDULER] Ejecutando optimización con lógica legacy completa...")
         
         # LÓGICA EXACTA DEL LEGACY STREAMLIT con todas las funciones implementadas
-        if optimization_profile == "JEAN":
+        assignments, status = {}, "NO_METHOD"
+        if use_ft and use_pt and cfg.get("ft_first_pt_last", False):
+            print("[SCHEDULER] Estrategia FT→PT activada")
+            assignments, status = optimize_ft_then_pt_strategy(
+                patterns, demand_matrix,
+                agent_limit_factor=agent_limit_factor,
+                excess_penalty=excess_penalty,
+                TIME_SOLVER=current_app.config.get("TIME_SOLVER"),
+            )
+        elif optimization_profile == "JEAN":
             print("[SCHEDULER] Ejecutando búsqueda JEAN con reducción progresiva del factor")
             assignments, status = optimize_jean_search(
                 patterns,
@@ -2973,6 +2993,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
                             peak_bonus=peak_bonus,
                             critical_bonus=critical_bonus,
                             iteration_time_limit=current_app.config.get("TIME_SOLVER"),
+                            job_id=job_id,
                         )
                         if refined_assignments:
                             assignments, status = refined_assignments, f"JEAN_CUSTOM_REFINED_{refined_status}"
@@ -2988,6 +3009,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
                     peak_bonus=peak_bonus,
                     critical_bonus=critical_bonus,
                     iteration_time_limit=current_app.config.get("TIME_SOLVER"),
+                    job_id=job_id,
                 )
         elif optimization_profile == "Aprendizaje Adaptativo":
             print("[SCHEDULER] Ejecutando Aprendizaje Adaptativo con sistema evolutivo completo")
@@ -3013,11 +3035,47 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
             except Exception:
                 pass
 
-        total_agents = sum(assignments.values()) if assignments else 0
-        
-        # Simular resultados de PuLP y Greedy para compatibilidad
         pulp_assignments, pulp_status = assignments, status
-        greedy_assignments, greedy_status = {}, "NOT_EXECUTED"
+        pulp_metrics = analyze_results(pulp_assignments, patterns, demand_matrix) if pulp_assignments else None
+        if job_id:
+            save_partial_results(
+                job_id,
+                pulp_result={
+                    "assignments": pulp_assignments,
+                    "metrics": pulp_metrics,
+                    "status": pulp_status,
+                    "heatmaps": {},
+                },
+                demand_analysis=analysis,
+                cfg=cfg,
+                app_context=app_ctx,
+            )
+
+        greedy_assignments, greedy_status = optimize_with_greedy(
+            patterns, demand_matrix, cfg=cfg, job_id=job_id
+        )
+        greedy_metrics = analyze_results(greedy_assignments, patterns, demand_matrix) if greedy_assignments else None
+        if job_id:
+            save_partial_results(
+                job_id,
+                pulp_result={
+                    "assignments": pulp_assignments,
+                    "metrics": pulp_metrics,
+                    "status": pulp_status,
+                    "heatmaps": {},
+                },
+                greedy_result={
+                    "assignments": greedy_assignments,
+                    "metrics": greedy_metrics,
+                    "status": greedy_status,
+                    "heatmaps": {},
+                },
+                demand_analysis=analysis,
+                cfg=cfg,
+                app_context=app_ctx,
+            )
+
+        total_agents = sum(pulp_assignments.values()) if pulp_assignments else 0
         
         print(f"[SCHEDULER] Optimización legacy completada: {len(assignments)} turnos, {total_agents} agentes")
         print(f"[SCHEDULER] Método utilizado: {status}")
