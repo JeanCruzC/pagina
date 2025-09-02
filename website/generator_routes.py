@@ -342,6 +342,17 @@ def refresh_results(job_id):
                 resp["jean_iter"] = pulp_data.get("iteration")
             if pulp_data.get("factor") is not None:
                 resp["jean_factor"] = pulp_data.get("factor")
+            # Incluir progreso en memoria si está disponible
+            try:
+                st = scheduler.get_status(job_id)
+                progress = st.get("progress", {}) if isinstance(st, dict) else {}
+            except Exception:
+                progress = {}
+            if isinstance(progress, dict):
+                if progress.get("jean_status") is not None:
+                    resp["jean_status"] = progress.get("jean_status")
+                if progress.get("jean_time") is not None:
+                    resp["jean_time"] = progress.get("jean_time")
             return jsonify(resp)
         except Exception as e:
             print(f"[REFRESH] Error leyendo disco: {e}")
@@ -422,6 +433,10 @@ def refresh_results(job_id):
             resp["jean_iter"] = progress.get("jean_iter")
         if progress.get("jean_factor") is not None:
             resp["jean_factor"] = progress.get("jean_factor")
+        if progress.get("jean_status") is not None:
+            resp["jean_status"] = progress.get("jean_status")
+        if progress.get("jean_time") is not None:
+            resp["jean_time"] = progress.get("jean_time")
         # Campos adicionales para barra de progreso detallada
         if progress.get("stage"):
             resp["stage"] = progress.get("stage")
