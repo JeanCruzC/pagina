@@ -1,31 +1,6 @@
 import numpy as np
 
-import importlib
-import importlib.util
-import pathlib
-import sys
-
-
-def _scheduler_module():
-    """Load the scheduler module ensuring the real implementation is used."""
-    if "website.scheduler" in sys.modules and hasattr(sys.modules["website.scheduler"], "optimize_jean_search"):
-        return sys.modules["website.scheduler"]
-
-    path = pathlib.Path(__file__).resolve().parents[1] / "website" / "scheduler.py"
-    spec = importlib.util.spec_from_file_location("website.scheduler", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    sys.modules["website.scheduler"] = module
-    return module
-
-
-scheduler = _scheduler_module()
-
-
-def _profile_module():
-    """Import profile_optimizers after ensuring scheduler module is present."""
-    _scheduler_module()
-    return importlib.import_module("website.profile_optimizers")
+from website import profile_optimizers, scheduler
 
 
 def _sample_data():
@@ -51,7 +26,6 @@ def test_jean_search_equivalence_results():
         "agent_limit_factor": 5,
     }
 
-    profile_optimizers = _profile_module()
     sched_res = scheduler.optimize_jean_search(shifts, demand, **params)
     profile_res = profile_optimizers.optimize_jean_search(shifts, demand, **params)
     assert sched_res == profile_res
@@ -60,7 +34,6 @@ def test_jean_search_equivalence_results():
 def test_jean_search_default_params_match():
     import inspect
 
-    profile_optimizers = _profile_module()
     sched_params = inspect.signature(scheduler.optimize_jean_search).parameters
     profile_params = inspect.signature(profile_optimizers.optimize_jean_search).parameters
 
