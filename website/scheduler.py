@@ -1921,7 +1921,12 @@ def optimize_jean_search(
     iteration_time_limit=45,
     job_id=None,
 ):
-    """Búsqueda iterativa EXACTA del legacy para el perfil JEAN minimizando exceso y déficit."""
+    """Búsqueda iterativa EXACTA del legacy para el perfil JEAN minimizando exceso y déficit.
+
+    This is the canonical implementation used by the application. A thin
+    wrapper is exposed in :mod:`website.profile_optimizers` for backward
+    compatibility.
+    """
 
     # Si no se especifica tiempo total, asumir 45s por iteración
     if time_limit_seconds is None:
