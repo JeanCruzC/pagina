@@ -1907,36 +1907,58 @@ def optimize_schedule_greedy_enhanced(shifts_coverage, demand_matrix, agent_limi
         print(f"Error en greedy mejorado: {str(e)}")
         return {}, "ERROR"
 
-def optimize_jean_search(shifts_coverage, demand_matrix, target_coverage=98.0, max_iterations=7, verbose=False,
-                        agent_limit_factor=30, excess_penalty=5.0, peak_bonus=2.0, critical_bonus=2.5,
-                        time_limit_seconds=120, job_id=None):
+def optimize_jean_search(
+    shifts_coverage,
+    demand_matrix,
+    target_coverage=98.0,
+    max_iterations=7,
+    verbose=False,
+    agent_limit_factor=30,
+    excess_penalty=5.0,
+    peak_bonus=2.0,
+    critical_bonus=2.5,
+    time_limit_seconds=None,
+    iteration_time_limit=45,
+    job_id=None,
+):
     """Búsqueda iterativa EXACTA del legacy para el perfil JEAN minimizando exceso y déficit."""
-    # Secuencia EXACTA del legacy Streamlit
-    factor_sequence = [30, 20, 15, 10, 8, 6, 5]
-    
+
+    # Si no se especifica tiempo total, asumir 45s por iteración
+    if time_limit_seconds is None:
+        time_limit_seconds = iteration_time_limit * max_iterations
+
     best_assignments = {}
     best_method = ""
     best_score = float("inf")
     best_coverage = 0
 
     start_time = time.time()
-    for iteration, factor in enumerate(factor_sequence[:max_iterations]):
-        # Cortar por tiempo
+    factor = agent_limit_factor
+    iteration = 0
+    while iteration < max_iterations and factor >= 1:
+        # Cortar por tiempo total
         if (time.time() - start_time) > time_limit_seconds:
             if verbose:
                 print(f"[JEAN] Cortado por tiempo")
             break
+
         try:
             if job_id is not None:
                 update_progress(job_id, {"jean_iter": iteration + 1, "jean_factor": factor})
         except Exception:
             pass
         if verbose:
-            print(f"🔍 JEAN Iteración {iteration + 1}/{len(factor_sequence)}: factor {factor}")
-        
-        assignments, method = optimize_with_precision_targeting(shifts_coverage, demand_matrix, 
-                                                              agent_limit_factor=factor, excess_penalty=excess_penalty,
-                                                              peak_bonus=peak_bonus, critical_bonus=critical_bonus)
+            print(f"🔍 JEAN Iteración {iteration + 1}/{max_iterations}: factor {factor}")
+
+        assignments, method = optimize_with_precision_targeting(
+            shifts_coverage,
+            demand_matrix,
+            agent_limit_factor=factor,
+            excess_penalty=excess_penalty,
+            peak_bonus=peak_bonus,
+            critical_bonus=critical_bonus,
+            TIME_SOLVER=iteration_time_limit,
+        )
         results = analyze_results(assignments, shifts_coverage, demand_matrix)
         # Publicar snapshot parcial de esta iteración para que la UI siempre muestre progreso
         try:
@@ -1948,26 +1970,34 @@ def optimize_jean_search(shifts_coverage, demand_matrix, target_coverage=98.0, m
             cov = results["coverage_percentage"]
             score = results["overstaffing"] + results["understaffing"]
             if verbose:
-                print(f"Iteración {iteration + 1}: factor {factor}, cobertura {cov:.1f}%, score {score:.1f}")
+                print(
+                    f"Iteración {iteration + 1}: factor {factor}, cobertura {cov:.1f}%, score {score:.1f}"
+                )
 
-            # Lógica EXACTA del legacy: priorizar cobertura >= target, luego menor score
+            # Priorizar cobertura objetivo; terminar si se alcanza
             if cov >= target_coverage:
-                if score < best_score or not best_assignments:
-                    best_assignments, best_method = assignments, method
-                    best_score = score
-                    best_coverage = cov
-                    if verbose:
-                        print(f"✅ Nueva mejor solución: {cov:.1f}% cobertura, score {score:.1f}")
-                # Si ya tenemos una solución que cumple target y esta no mejora, continuar
+                best_assignments, best_method = assignments, method
+                best_score = score
+                best_coverage = cov
+                if verbose:
+                    print(
+                        f"✅ Cobertura objetivo alcanzada: {cov:.1f}% cobertura, score {score:.1f}"
+                    )
+                break
             elif cov > best_coverage and not best_assignments:
-                # Solo guardar si no tenemos nada mejor
+                # Solo guardar si no tenemos nada mejor aún
                 best_assignments, best_method, best_coverage = assignments, method, cov
                 if verbose:
                     print(f"📊 Solución parcial guardada: {cov:.1f}% cobertura")
 
+        factor = max(1, int(factor * 0.9))
+        iteration += 1
+
     if verbose:
-        print(f"🏁 JEAN completado: mejor cobertura {best_coverage:.1f}%, score {best_score:.1f}")
-    
+        print(
+            f"🏁 JEAN completado: mejor cobertura {best_coverage:.1f}%, score {best_score:.1f}"
+        )
+
     return best_assignments, best_method
 
 
@@ -2799,7 +2829,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         
         # LÓGICA EXACTA DEL LEGACY STREAMLIT con todas las funciones implementadas
         if optimization_profile == "JEAN":
-            print("[SCHEDULER] Ejecutando búsqueda JEAN con secuencia [30,20,15,10,8,6,5]")
+            print("[SCHEDULER] Ejecutando búsqueda JEAN con reducción progresiva del factor")
             assignments, status = optimize_jean_search(
                 patterns, demand_matrix, target_coverage=TARGET_COVERAGE, verbose=VERBOSE,
                 agent_limit_factor=agent_limit_factor, excess_penalty=excess_penalty,
