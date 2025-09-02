@@ -352,9 +352,24 @@ def refresh_results(job_id):
                 "has_greedy_results": True,
                 "has_greedy_charts": False,
                 "pulp_status": "READY",
-                "greedy_status": "READY", 
+                "greedy_status": "READY",
                 "should_refresh": False,  # Forzar parada de refresh
             })
+
+        # Consultar estado antes de indicar que debe seguir refrescando
+        st = scheduler.get_status(job_id) or {}
+        state = st.get("status")
+        if state in {"error", "cancelled"} or state == "finished":
+            return jsonify({
+                "has_pulp_results": False,
+                "has_greedy_results": False,
+                "has_greedy_charts": False,
+                "pulp_status": "PENDING",
+                "greedy_status": "PENDING",
+                "should_refresh": False,
+                "error": state or "unknown",
+            })
+
         return jsonify({
             "has_pulp_results": False,
             "has_greedy_results": False,

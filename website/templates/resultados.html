@@ -349,17 +349,19 @@
 
 <script>
 // Progreso en tiempo real y auto-refresh
-if (window.location.pathname.includes('/resultados/')) {
-  let refreshCount = 0;
-  const maxRefresh = 30;
-  const jobId = window.location.pathname.split('/').pop();
-  
-  const updateProgress = async () => {
-    try {
-      const response = await fetch(`/resultados/${jobId}/refresh`);
-      const data = await response.json();
-      
-      // Actualizar progreso PuLP
+  if (window.location.pathname.includes('/resultados/')) {
+    let refreshCount = 0;
+    const maxRefresh = 30;
+    const jobId = window.location.pathname.split('/').pop();
+
+    let refreshInterval;
+
+    const updateProgress = async () => {
+      try {
+        const response = await fetch(`/resultados/${jobId}/refresh`);
+        const data = await response.json();
+
+        // Actualizar progreso PuLP
       if (data.pulp_progress) {
         const pulpBar = document.getElementById('pulp-progress');
         const pulpStatus = document.getElementById('pulp-status');
@@ -379,6 +381,11 @@ if (window.location.pathname.includes('/resultados/')) {
       }
       
       // Auto-refresh cuando termine
+      if (data.error) {
+        console.log(`Job terminado con estado: ${data.error} - deteniendo polling`);
+        clearInterval(refreshInterval);
+        return;
+      }
       if (data.should_refresh && refreshCount < maxRefresh) {
         refreshCount++;
         console.log(`Auto-refresh ${refreshCount}/${maxRefresh} - PuLP: ${data.has_pulp_results ? 'Done' : 'Running'}, Greedy: ${data.has_greedy_results ? 'Done' : 'Running'}`);
@@ -387,16 +394,17 @@ if (window.location.pathname.includes('/resultados/')) {
         }, 5000);
       } else if (!data.should_refresh) {
         console.log('Ambos algoritmos completados - deteniendo auto-refresh');
+        clearInterval(refreshInterval);
         // No recargar más - los resultados ya están listos
       }
     } catch (error) {
       console.log('Error updating progress:', error);
     }
   };
-  
+
   // Actualizar progreso cada 5 segundos
   updateProgress();
-  setInterval(updateProgress, 5000);
+  refreshInterval = setInterval(updateProgress, 5000);
 }
 </script>
 
