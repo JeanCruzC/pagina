@@ -2117,6 +2117,55 @@ def analyze_results(assignments, shifts_coverage, demand_matrix):
         'diff_matrix': diff_matrix
     }
 
+
+def _write_partial_result(job_id, assignments, shifts_coverage, demand_matrix):
+    """Persist a snapshot of ``assignments`` and metrics for ``job_id``.
+
+    The data is serialized to ``scheduler_result_<job_id>.json`` inside the
+    temporary directory so the ``/refresh`` endpoint can pick it up and display
+    progress while lengthy optimizations run.
+    """
+    if not job_id or not assignments:
+        return
+
+    try:
+        metrics = analyze_results(assignments, shifts_coverage, demand_matrix)
+        if not metrics:
+            return
+
+        def _convert(obj):
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            if isinstance(obj, (np.integer, np.floating)):
+                return obj.item()
+            if isinstance(obj, dict):
+                return {k: _convert(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return [_convert(v) for v in obj]
+            return obj
+
+        payload = {
+            "assignments": assignments,
+            "metrics": _convert(metrics),
+            "status": "RUNNING",
+        }
+
+        path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
+        existing = {}
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as fh:
+                    existing = json.load(fh)
+            except Exception:
+                existing = {}
+
+        existing.setdefault("pulp_results", {}).update(payload)
+
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(existing, fh, ensure_ascii=False)
+    except Exception as e:  # pragma: no cover - best effort logging
+        print(f"[SCHEDULER] Error writing partial result: {e}")
+
 def create_heatmap(matrix, title, cmap='RdYlBu_r'):
     """Crea un heatmap de la matriz"""
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -2846,12 +2895,19 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         else:
             print(f"[SCHEDULER] Ejecutando perfil estándar con chunks: {optimization_profile}")
             # Usar solve_in_chunks_optimized para todos los perfiles estándar EXACTO del legacy
-            assignments = solve_in_chunks_optimized(patterns, demand_matrix, 
-                                                   optimization_profile=optimization_profile, use_ft=use_ft, use_pt=use_pt, 
+            assignments = solve_in_chunks_optimized(patterns, demand_matrix,
+                                                   optimization_profile=optimization_profile, use_ft=use_ft, use_pt=use_pt,
                                                    TARGET_COVERAGE=TARGET_COVERAGE, agent_limit_factor=agent_limit_factor,
                                                    excess_penalty=excess_penalty, peak_bonus=peak_bonus, critical_bonus=critical_bonus)
             status = f"CHUNKS_OPTIMIZED_{optimization_profile.upper().replace(' ', '_')}"
-        
+
+        # Guardar snapshot parcial para que la UI pueda refrescar
+        if job_id:
+            try:
+                _write_partial_result(job_id, assignments, patterns, demand_matrix)
+            except Exception:
+                pass
+
         total_agents = sum(assignments.values()) if assignments else 0
         
         # Simular resultados de PuLP y Greedy para compatibilidad
