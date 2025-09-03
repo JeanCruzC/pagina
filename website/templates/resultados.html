@@ -602,43 +602,46 @@
     const updateProgress = async () => {
       try {
         const response = await fetch(`/resultados/${jobId}/refresh`);
-        const data = await response.json();
+        const payload = await response.json();
+        if (payload && payload.pulp_results && payload.pulp_results.charts) {
+          updatePulpCharts(payload.pulp_results);
+        }
         if (typeof onRefreshPayload === 'function') {
-          onRefreshPayload(data);
+          onRefreshPayload(payload);
         }
 
         // Actualizar progreso PuLP
-      if (data.pulp_progress) {
+      if (payload.pulp_progress) {
         const pulpBar = document.getElementById('pulp-progress');
         const pulpStatus = document.getElementById('pulp-status');
         const pulpTime = document.getElementById('pulp-time');
-        
+
         if (pulpBar) {
-          const progress = parseInt(data.pulp_progress);
+          const progress = parseInt(payload.pulp_progress);
           pulpBar.style.width = progress + '%';
           pulpBar.textContent = progress + '%';
         }
-        if (pulpStatus && data.pulp_status) {
-          pulpStatus.textContent = data.pulp_status;
+        if (pulpStatus && payload.pulp_status) {
+          pulpStatus.textContent = payload.pulp_status;
         }
-        if (pulpTime && data.pulp_time) {
-          pulpTime.textContent = data.pulp_time;
+        if (pulpTime && payload.pulp_time) {
+          pulpTime.textContent = payload.pulp_time;
         }
       }
-      
+
       // Auto-refresh cuando termine
-      if (data.error) {
-        console.log(`Job terminado con estado: ${data.error} - deteniendo polling`);
+      if (payload.error) {
+        console.log(`Job terminado con estado: ${payload.error} - deteniendo polling`);
         clearInterval(refreshInterval);
         return;
       }
-      if (data.should_refresh && refreshCount < maxRefresh) {
+      if (payload.should_refresh && refreshCount < maxRefresh) {
         refreshCount++;
-        console.log(`Auto-refresh ${refreshCount}/${maxRefresh} - PuLP: ${data.has_pulp_results ? 'Done' : 'Running'}, Greedy: ${data.has_greedy_results ? 'Done' : 'Running'}`);
+        console.log(`Auto-refresh ${refreshCount}/${maxRefresh} - PuLP: ${payload.has_pulp_results ? 'Done' : 'Running'}, Greedy: ${payload.has_greedy_results ? 'Done' : 'Running'}`);
         setTimeout(() => {
           window.location.reload();
         }, 5000);
-      } else if (!data.should_refresh) {
+      } else if (!payload.should_refresh) {
         console.log('Ambos algoritmos completados - deteniendo auto-refresh');
         clearInterval(refreshInterval);
         // No recargar más - los resultados ya están listos
