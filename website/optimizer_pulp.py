@@ -17,10 +17,12 @@ except Exception:
 from .scheduler_core import merge_config, analyze_results
 
 try:
-    from .scheduler import _write_partial_result
+    from .scheduler import _write_partial_result, _compact_patterns_for
 except Exception:  # pragma: no cover - fallback if scheduler not available
     def _write_partial_result(*args, **kwargs):
         pass
+    def _compact_patterns_for(*args, **kwargs):
+        return {}
 
 # Lock para evitar múltiples modelos simultáneos
 _MODEL_LOCK = RLock()
@@ -195,27 +197,29 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
             
             # Solver con límites muy agresivos para terminar rápido
             solver = pl.PULP_CBC_CMD(
-                msg=1,  # Mostrar progreso
-                timeLimit=solver_time,  # EXACTO del legacy
-                gapRel=0.05,  # Gap del legacy
-                threads=4  # Threads del legacy
+                msg=True,
+                timeLimit=solver_time,
+                threads=0,
             )
-            status = prob.solve(solver)
-            print(f"[PULP] Solver status: {status}")
+            try:
+                status = prob.solve(solver)
+                print(f"[PULP] Solver status: {status}")
+            except Exception as e:
+                print(f"[PULP] Error con solver configurado: {str(e)[:100]}")
+                _write_partial_result(job_id, None, None, None, meta={"error": str(e)})
+                # Fallback a solver simple con timeout muy corto
+                try:
+                    print(f"[PULP] Intentando solver simple")
+                    simple_solver = pl.PULP_CBC_CMD(timeLimit=solver_time, msg=True, threads=0)
+                    status = prob.solve(simple_solver)
+                    print(f"[PULP] Solver simple status: {status}")
+                except Exception as e2:
+                    print(f"[PULP] Error final: {str(e2)[:100]}")
+                    _write_partial_result(job_id, None, None, None, meta={"error": str(e2)})
+                    return {}, "SOLVER_ERROR"
         except KeyboardInterrupt:
             print(f"[PULP] Interrumpido por usuario")
             return {}, "PULP_INTERRUPTED"
-        except Exception as e:
-            print(f"[PULP] Error con solver configurado: {str(e)[:100]}")
-            # Fallback a solver simple con timeout muy corto
-            try:
-                print(f"[PULP] Intentando solver simple")
-                simple_solver = pl.PULP_CBC_CMD(timeLimit=solver_time, msg=0)
-                status = prob.solve(simple_solver)
-                print(f"[PULP] Solver simple status: {status}")
-            except Exception as e2:
-                print(f"[PULP] Error final: {str(e2)[:100]}")
-                return {}, "SOLVER_ERROR"
         
         solve_time = time.time() - start_time
         
@@ -328,10 +332,9 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_cov
                 _write_partial_result(
                     job_id,
                     {},
-                    shifts_coverage,
-                    demand_matrix,
-                    iteration=iteration + 1,
-                    factor=factor,
+                    None,
+                    None,
+                    meta={"iteration": iteration + 1, "factor": factor},
                 )
         except Exception:
             pass
@@ -348,13 +351,19 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_cov
             # Guardar snapshot con resultados si existen
             try:
                 if job_id is not None:
+                    assign_out = assignments if results else {}
+                    try:
+                        D, H = demand_matrix.shape
+                    except Exception:
+                        D = len(demand_matrix)
+                        H = len(demand_matrix[0]) if D else 0
+                    pat_small = _compact_patterns_for(assign_out, shifts_coverage, D, H)
                     _write_partial_result(
                         job_id,
-                        assignments if results else {},
-                        shifts_coverage,
+                        assign_out,
+                        pat_small,
                         demand_matrix,
-                        iteration=iteration + 1,
-                        factor=factor,
+                        meta={"iteration": iteration + 1, "factor": factor},
                     )
             except Exception:
                 pass

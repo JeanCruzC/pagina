@@ -145,7 +145,7 @@
             </div>
             <div class="col-4">
               <div class="small text-muted">Cobertura</div>
-              <div class="fw-bold">
+              <div class="fw-bold" id="pulp-coverage-pct">
                 {% if resultado.pulp_results.metrics.coverage_percentage is not none %}
                   {{ '%.1f'|format(resultado.pulp_results.metrics.coverage_percentage) }}%
                 {% else %}
@@ -216,7 +216,23 @@
     </div>
     {% endif %}
   </div>
-  {% endif %}
+{% endif %}
+
+  <!-- Gráficas PuLP dinámicas -->
+  <div class="row g-4 mb-4">
+    <div class="col-12">
+      <div id="pulp-charts" class="card">
+        <div class="card-body">
+          <h5 class="card-title">Cobertura vs. Demanda (PuLP)</h5>
+          <canvas id="chartCoverage"></canvas>
+          <h6 class="mt-4">Déficit</h6>
+          <canvas id="chartDeficit"></canvas>
+          <h6 class="mt-4">Exceso</h6>
+          <canvas id="chartExcess"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Resultado Principal -->
   {% if resultado and resultado.pulp_results and resultado.pulp_results.metrics %}
@@ -572,6 +588,8 @@
   <div class="alert alert-warning">No hay resultados para mostrar.</div>
   {% endif %}
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+
 <script>
 // Progreso en tiempo real y auto-refresh
   if (window.location.pathname.includes('/resultados/')) {
@@ -585,6 +603,9 @@
       try {
         const response = await fetch(`/resultados/${jobId}/refresh`);
         const data = await response.json();
+        if (typeof onRefreshPayload === 'function') {
+          onRefreshPayload(data);
+        }
 
         // Actualizar progreso PuLP
       if (data.pulp_progress) {
