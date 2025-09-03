@@ -1925,11 +1925,15 @@ def optimize_jean_search(
     job_id=None,
 ):
     """Búsqueda iterativa EXACTA del legacy para el perfil JEAN minimizando exceso y déficit."""
+    try:
+        cfg = current_app.config
+    except Exception:
+        cfg = {}
     if iteration_time_limit is None:
-        iteration_time_limit = current_app.config.get("TIME_SOLVER", 45)
+        iteration_time_limit = cfg.get("TIME_SOLVER", 45)
     # Limitar el tiempo de cada iteración para evitar que la interfaz quede congelada
     iteration_time_limit = min(
-        iteration_time_limit, current_app.config.get("JEAN_ITER_TIME_LIMIT", 25)
+        iteration_time_limit, cfg.get("JEAN_ITER_TIME_LIMIT", 25)
     )
 
     best_assignments = {}
@@ -1946,16 +1950,17 @@ def optimize_jean_search(
             if job_id is not None:
                 update_progress(
                     job_id,
-                    {"jean_iter": iteration + 1, "jean_factor": factor, "jean_status": "solving"},
+                    {
+                        "job_id": job_id,
+                        "jean_iter": iteration + 1,
+                        "jean_total_iters": max_iterations,
+                        "running": True,
+                    },
                 )
-        except Exception:
-            pass
-        # Escribir snapshot mínimo antes de resolver la iteración
-        try:
-            if job_id is not None:
+                # Snapshot ligero que no toca assignments
                 _write_partial_result(
                     job_id,
-                    {},
+                    None,
                     shifts_coverage,
                     demand_matrix,
                     iteration=iteration + 1,
@@ -1983,7 +1988,7 @@ def optimize_jean_search(
             if job_id is not None:
                 _write_partial_result(
                     job_id,
-                    assignments if results else {},
+                    assignments or {},
                     shifts_coverage,
                     demand_matrix,
                     iteration=iteration + 1,
@@ -2204,64 +2209,52 @@ def analyze_results(assignments, shifts_coverage, demand_matrix):
         'understaffing': understaffing,
         'diff_matrix': diff_matrix
     }
+def _safe_sum(d):
+    return sum(d.values()) if isinstance(d, dict) else 0
 
 
-def _write_partial_result(job_id, assignments, shifts_coverage, demand_matrix, *, iteration=None, factor=None):
-    """Persist a snapshot of ``assignments`` and minimal progress info.
-
-    The data is serialized to ``scheduler_result_<job_id>.json`` inside the
-    temporary directory so the ``/refresh`` endpoint can pick it up and display
-    progress while lengthy optimizations run.
-    """
-    if not job_id:
-        return
-
+def _write_partial_result(job_id, assignments, patterns, demand_matrix, **meta):
+    path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
     try:
-        metrics = None
-        if assignments:
-            metrics = analyze_results(assignments, shifts_coverage, demand_matrix)
-
-        def _convert(obj):
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            if isinstance(obj, (np.integer, np.floating)):
-                return obj.item()
-            if isinstance(obj, dict):
-                return {k: _convert(v) for k, v in obj.items()}
-            if isinstance(obj, (list, tuple)):
-                return [_convert(v) for v in obj]
-            return obj
-
-        payload = {
-            "assignments": assignments or {},
-            "metrics": _convert(metrics) if metrics else None,
-            "status": "RUNNING",
-            "iteration": iteration,
-            "factor": factor,
-            "timestamp": time.time(),
-        }
-
-        path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
+        with open(path, "r", encoding="utf-8") as fh:
+            existing = json.load(fh)
+    except Exception:
         existing = {}
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as fh:
-                    existing = json.load(fh)
-            except Exception:
-                existing = {}
 
-        existing.setdefault("pulp_results", {}).update(payload)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(existing, fh, ensure_ascii=False)
-            fh.flush()
-            os.fsync(fh.fileno())
-        try:
-            assigns = sum(assignments.values()) if assignments else 0
-        except Exception:
-            assigns = 0
-        print(f"[PARTIAL] {path} escrito (PuLP) — assigns={assigns}")
-    except Exception as e:  # pragma: no cover - best effort logging
-        print(f"[SCHEDULER] Error writing partial result: {e}")
+    pr = existing.setdefault("pulp_results", {})
+
+    # >>>>> PARCHE: NO tocar assignments si assignments es None
+    if assignments is None:
+        new_cnt = None
+        prev_cnt = _safe_sum(pr.get("assignments", {}))
+        wrote_new = False
+    else:
+        new_cnt = _safe_sum(assignments)
+        prev_cnt = _safe_sum(pr.get("assignments", {}))
+        # Solo aceptar reemplazo si el nuevo tiene contenido (>0) o si nunca hubo nada
+        if new_cnt > 0 or prev_cnt == 0:
+            pr["assignments"] = assignments
+            wrote_new = True
+        else:
+            wrote_new = False
+    # <<<<< FIN PARCHE
+
+    # Actualiza meta sin campos pesados
+    pr.update({k: v for k, v in meta.items() if k not in ("patterns", "demand_matrix")})
+    existing["pulp_results"] = pr
+
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(existing, fh, ensure_ascii=False)
+        fh.flush()
+        os.fsync(fh.fileno())
+
+    # Log claro para verificar el comportamiento
+    print(
+        f"[PARTIAL] {path} escrito (PuLP) — "
+        f"new={new_cnt if new_cnt is not None else 'None'}, "
+        f"prev={prev_cnt}, wrote_new={wrote_new}"
+    )
+
 
 def create_heatmap(matrix, title, cmap='RdYlBu_r'):
     """Crea un heatmap de la matriz"""
