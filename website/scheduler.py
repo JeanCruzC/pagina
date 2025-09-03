@@ -6,6 +6,7 @@ import os
 import gc
 import hashlib
 import signal
+import io
 from io import BytesIO, StringIO
 from itertools import combinations, permutations, product
 import heapq
@@ -2407,18 +2408,15 @@ def _compact_patterns_for(assignments, patterns, D, H):
 # ------------------------------------------------------------
 # Utilidades para "modo Streamlit": todo en RAM, sin snapshots
 # ------------------------------------------------------------
-
 def _pattern_matrix(pattern):
-    """Devuelve la matriz D x H (lista de listas o np.array) de un patrón."""
     if pattern is None:
         return None
     if isinstance(pattern, dict) and "matrix" in pattern:
         return np.asarray(pattern["matrix"])
-    return np.asarray(pattern)  # fallback: ya es la matriz
+    return np.asarray(pattern)
 
 
 def _assigned_matrix_from(assignments, patterns, D, H):
-    """Suma las matrices de los patrones asignados → cobertura por (día, hora)."""
     cov = np.zeros((D, H), dtype=int)
     if not assignments:
         return cov
@@ -2433,7 +2431,7 @@ def _assigned_matrix_from(assignments, patterns, D, H):
 
 
 def _fig_to_b64(fig):
-    buf = BytesIO()
+    buf = io.BytesIO()
     fig.tight_layout()
     fig.savefig(buf, format="png", dpi=140, bbox_inches="tight")
     plt.close(fig)
@@ -2449,13 +2447,9 @@ def _heatmap(matrix, title, day_labels=None, hour_labels=None, annotate=True, cm
         hour_labels = [f"{h:02d}" for h in range(H)]
     if day_labels is None:
         day_labels = [f"Día {i+1}" for i in range(D)]
-    ax.set_xticks(range(H))
-    ax.set_xticklabels(hour_labels, fontsize=8, rotation=0)
-    ax.set_yticks(range(D))
-    ax.set_yticklabels(day_labels, fontsize=9)
-    ax.set_title(title)
-    ax.set_xlabel("Hora del día")
-    ax.set_ylabel("Día")
+    ax.set_xticks(range(H)); ax.set_xticklabels(hour_labels, fontsize=8)
+    ax.set_yticks(range(D)); ax.set_yticklabels(day_labels, fontsize=9)
+    ax.set_title(title); ax.set_xlabel("Hora del día"); ax.set_ylabel("Día")
     if annotate and H <= 30 and D <= 14:
         for i in range(D):
             for j in range(H):
@@ -2465,38 +2459,21 @@ def _heatmap(matrix, title, day_labels=None, hour_labels=None, annotate=True, cm
 
 
 def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None, hour_labels=None, meta=None):
-    """Construye matrices, métricas y gráficos (base64) en RAM."""
-    D, H = demand_matrix.shape
-    cov = _assigned_matrix_from(assignments, patterns, D, H)
     dem = np.asarray(demand_matrix, dtype=int)
+    D, H = dem.shape
+    cov = _assigned_matrix_from(assignments, patterns, D, H)
     diff = cov - dem
-
     total_dem = int(dem.sum())
     total_cov = int(cov.sum())
     deficit = int(np.clip(dem - cov, 0, None).sum())
     excess = int(np.clip(cov - dem, 0, None).sum())
     coverage_pct = (total_cov / total_dem * 100.0) if total_dem > 0 else 0.0
 
-    # Gráficos
     fig_dem = _heatmap(dem, "Demanda (agentes-hora)", day_labels, hour_labels, annotate=True, cmap="Reds")
-    fig_cov = _heatmap(
-        cov,
-        "Cobertura Asignada (agentes-hora)",
-        day_labels,
-        hour_labels,
-        annotate=True,
-        cmap="Blues",
-    )
-    fig_diff = _heatmap(
-        diff,
-        "Cobertura - Demanda (positivo = exceso / negativo = déficit)",
-        day_labels,
-        hour_labels,
-        annotate=True,
-        cmap="RdBu_r",
-    )
+    fig_cov = _heatmap(cov, "Cobertura (agentes-hora)", day_labels, hour_labels, annotate=True, cmap="Blues")
+    fig_diff = _heatmap(diff, "Cobertura - Demanda (exceso/deficit)", day_labels, hour_labels, annotate=True, cmap="RdBu_r")
 
-    payload = {
+    return {
         "metrics": {
             "total_demand": total_dem,
             "total_coverage": total_cov,
@@ -2519,792 +2496,91 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
         },
         "meta": meta or {},
     }
-    return payload
 
-
-def create_heatmap(matrix, title, cmap='RdYlBu_r'):
-    """Crea un heatmap de la matriz"""
-    fig, ax = plt.subplots(figsize=(12, 6))
-    im = ax.imshow(matrix, cmap=cmap, aspect='auto')
-    
-    ax.set_xticks(range(24))
-    ax.set_xticklabels([f"{h:02d}" for h in range(24)])
-    ax.set_yticks(range(7))
-    ax.set_yticklabels(['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'])
-    
-    for i in range(7):
-        for j in range(24):
-            text = ax.text(j, i, f'{matrix[i, j]:.0f}',
-                         ha="center", va="center", color="black", fontsize=8)
-    
-    ax.set_title(title)
-    ax.set_xlabel('Hora del día')
-    ax.set_ylabel('Día de la semana')
-    plt.colorbar(im, ax=ax)
-    return fig
-
-def analyze_coverage_precision(assignments, shifts_coverage, demand_matrix):
-    """Analiza la precisión de cobertura con métricas detalladas EXACTO del legacy"""
-    if not assignments:
-        return None
-    
-    # Calcular cobertura total
-    slots_per_day = len(next(iter(shifts_coverage.values()))) // 7 if shifts_coverage else 24
-    total_coverage = np.zeros((7, slots_per_day), dtype=np.int16)
-    for shift_name, count in assignments.items():
-        weekly_pattern = shifts_coverage[shift_name]
-        slots_per_day = len(weekly_pattern) // 7
-        pattern_matrix = np.array(weekly_pattern).reshape(7, slots_per_day)
-        total_coverage += pattern_matrix * count
-    
-    # Métricas de precisión EXACTAS del legacy
-    total_demand = demand_matrix.sum()
-    exact_coverage_sum = np.minimum(total_coverage, demand_matrix).sum()
-    exact_coverage_pct = (exact_coverage_sum / total_demand * 100) if total_demand > 0 else 0
-    
-    # Contar horas con problemas
-    deficit_mask = total_coverage < demand_matrix
-    excess_mask = total_coverage > demand_matrix
-    deficit_hours = np.sum(deficit_mask & (demand_matrix > 0))
-    excess_hours = np.sum(excess_mask)
-    
-    # Calcular eficiencia (cobertura útil vs total)
-    total_coverage_sum = total_coverage.sum()
-    efficiency = (exact_coverage_sum / total_coverage_sum * 100) if total_coverage_sum > 0 else 0
-    
-    # Identificar patrones problemáticos EXACTO del legacy
-    problem_areas = []
-    dias_semana = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
-    
-    for day in range(7):
-        for hour in range(slots_per_day):  # Usar slots_per_day en lugar de 24 fijo
-            if day < demand_matrix.shape[0] and hour < demand_matrix.shape[1]:
-                if demand_matrix[day, hour] > 0:
-                    if total_coverage[day, hour] < demand_matrix[day, hour]:
-                        deficit = demand_matrix[day, hour] - total_coverage[day, hour]
-                        problem_areas.append({
-                            'day': dias_semana[day],
-                            'hour': f"{hour:02d}:00",
-                            'type': 'Déficit',
-                            'amount': deficit,
-                            'demand': demand_matrix[day, hour],
-                            'coverage': total_coverage[day, hour]
-                        })
-                    elif total_coverage[day, hour] > demand_matrix[day, hour]:
-                        excess = total_coverage[day, hour] - demand_matrix[day, hour]
-                        problem_areas.append({
-                            'day': dias_semana[day],
-                            'hour': f"{hour:02d}:00",
-                            'type': 'Exceso',
-                            'amount': excess,
-                            'demand': demand_matrix[day, hour],
-                            'coverage': total_coverage[day, hour]
-                        })
-    
-    return {
-        'exact_coverage': exact_coverage_pct,
-        'deficit_hours': deficit_hours,
-        'excess_hours': excess_hours,
-        'efficiency': efficiency,
-        'problem_areas': problem_areas[:10],  # Top 10 problemas
-        'total_coverage': total_coverage
-    }
-
-def _extract_start_hour(name: str) -> float:
-    """Return the first decimal start hour found in ``name``.
-
-    The shift naming convention encodes the start hour separated by
-    underscores.  Older patterns only looked for the first numeric
-    segment after an underscore which failed when additional metadata
-    preceded the hour.  The updated logic scans all underscore
-    separated tokens and returns the first value containing a decimal
-    point, e.g. ``08.0``.
-    """
-    for part in name.split('_'):
-        if '.' in part and part.replace('.', '').isdigit():
-            try:
-                return float(part)
-            except ValueError:
-                continue
-    return 0.0
-
-def export_detailed_schedule(assignments, shifts_coverage):
-    """Exporta horarios semanales detallados - ROBUSTO"""
-    if not assignments:
-        return None
-
-    detailed_data = []
-    agent_id = 1
-
-    for shift_name, count in assignments.items():
-        weekly_pattern = shifts_coverage[shift_name]
-        slots_per_day = len(weekly_pattern) // 7
-        pattern_matrix = np.array(weekly_pattern).reshape(7, slots_per_day)
-
-        # Parsing robusto del nombre del turno
-        parts = shift_name.split('_')
-        start_hour = _extract_start_hour(shift_name)
-
-        # Determinar tipo y duración del turno
-        if shift_name.startswith('FT10p8'):
-            shift_type = 'FT'
-            shift_duration = 10
-            total_hours = shift_duration + 1
-        elif shift_name.startswith('FT'):
-            shift_type = 'FT'
-            if '_Variado_' in shift_name or len(parts) > 4:
-                shift_duration = int(pattern_matrix.sum(axis=1).max())
-            else:
-                try:
-                    if len(parts[0]) > 2 and parts[0][2:].isdigit():
-                        shift_duration = int(parts[0][2:])
-                    else:
-                        shift_duration = int(pattern_matrix.sum(axis=1).max())
-                except (ValueError, IndexError):
-                    shift_duration = int(pattern_matrix.sum(axis=1).max())
-            total_hours = shift_duration + 1
-        elif shift_name.startswith('PT'):
-            shift_type = 'PT'
-            if '_Variado_' in shift_name or len(parts) > 4:
-                shift_duration = int(pattern_matrix.sum(axis=1).max())
-            else:
-                try:
-                    if len(parts[0]) > 2 and parts[0][2:].isdigit():
-                        shift_duration = int(parts[0][2:])
-                    else:
-                        shift_duration = int(pattern_matrix.sum(axis=1).max())
-                except (ValueError, IndexError):
-                    shift_duration = int(pattern_matrix.sum(axis=1).max())
-            total_hours = shift_duration
-        else:
-            shift_type = 'FT'
-            shift_duration = 8
-            total_hours = 9
-
-        for agent_num in range(count):
-            for day in range(7):
-                day_pattern = pattern_matrix[day]
-                work_hours = np.where(day_pattern == 1)[0]
-
-                if len(work_hours) > 0:
-                    start_idx = int(start_hour)
-                    # Calcular horario específico para cada tipo
-                    if shift_name.startswith('PT'):
-                        # Para PT usar las horas reales trabajadas según el patrón
-                        end_idx = (int(work_hours[-1]) + 1) % 24
-                        next_day = end_idx <= start_idx
-                        horario = f"{start_idx:02d}:00-{end_idx:02d}:00" + ("+1" if next_day else "")
-                    elif shift_name.startswith('FT10p8'):
-                        end_idx = (int(work_hours[-1]) + 1) % 24
-                        next_day = end_idx <= start_idx
-                        horario = f"{start_idx:02d}:00-{end_idx:02d}:00" + ("+1" if next_day else "")
-                    else:
-                        # Otros turnos normales
-                        end_idx = int(work_hours[-1]) + 1
-                        next_day = end_idx <= start_idx
-                        horario = (
-                            f"{start_idx:02d}:00-{end_idx % 24:02d}:00" + ("+1" if next_day else "")
-                        )
-
-                    # Calcular break específico
-                    if shift_name.startswith('PT'):
-                        break_time = ""
-                    elif shift_name.startswith('FT10p8'):
-                        all_expected = set(range(int(start_hour), int(start_hour + total_hours)))
-                        actual_hours = set(work_hours)
-                        break_hours = all_expected - actual_hours
-
-                        if break_hours:
-                            break_hour = min(break_hours) % 24
-                            break_end = (break_hour + 1) % 24
-                            if break_end == 0:
-                                break_end = 24
-                            break_time = f"{break_hour:02d}:00-{break_end:02d}:00"
-                        else:
-                            break_time = ""
-                    else:
-                        # Otros turnos con break de 1 hora
-                        expected = list(range(start_idx, end_idx))
-                        if next_day:
-                            expected = list(range(start_idx, 24)) + list(range(0, end_idx % 24))
-                        break_hours = set(expected) - set(work_hours)
-
-                        if break_hours:
-                            break_hour = min(break_hours)
-                            break_time = f"{break_hour % 24:02d}:00-{((break_hour + 1) % 24) or 24:02d}:00"
-                        else:
-                            break_time = ""
-
-                    detailed_data.append({
-                        'Agente': f"AGT_{agent_id:03d}",
-                        'Dia': ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][day],
-                        'Horario': horario,
-                        'Break': break_time,
-                        'Turno': shift_name,
-                        'Tipo': shift_type
-                    })
-                else:
-                    detailed_data.append({
-                        'Agente': f"AGT_{agent_id:03d}",
-                        'Dia': ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][day],
-                        'Horario': "DSO",
-                        'Break': "",
-                        'Turno': shift_name,
-                        'Tipo': 'DSO'
-                    })
-            agent_id += 1
-
-    df_detailed = pd.DataFrame(detailed_data)
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_detailed.to_excel(writer, sheet_name='Horarios_Semanales', index=False)
-
-        df_summary = df_detailed.groupby(['Agente', 'Turno']).size().reset_index(name='Dias_Trabajo')
-        df_summary.to_excel(writer, sheet_name='Resumen_Agentes', index=False)
-
-        df_shifts = pd.DataFrame([
-            {'Turno': shift, 'Agentes': count}
-            for shift, count in assignments.items()
-        ])
-        df_shifts.to_excel(writer, sheet_name='Turnos_Asignados', index=False)
-
-    return output.getvalue()
-
-# ——————————————————————————————————————————————————————————————
-# Funciones de demanda y análisis EXACTAS del legacy
-# ——————————————————————————————————————————————————————————————
-
-def load_demand_excel(file_stream) -> np.ndarray:
-    """Parse an Excel file exported from Ntech and return a matrix."""
-    df = pd.read_excel(file_stream)
-    day_col = [c for c in df.columns if "Día" in c][0]
-    demand_col = [c for c in df.columns if "Erlang" in c or "Requeridos" in c][-1]
-    dm = df.pivot_table(index=day_col, values=demand_col, columns=df.index % 24, aggfunc="first").fillna(0)
-    dm = dm.reindex(range(1, 8)).fillna(0)
-    dm = dm.sort_index()
-    matrix = dm.to_numpy(dtype=int)
-    if matrix.shape[1] != 24:
-        matrix = np.pad(matrix, ((0, 0), (0, 24 - matrix.shape[1])), constant_values=0)
-    return matrix
-
-def load_demand_matrix_from_df(df) -> np.ndarray:
-    """Return a 7x24 demand matrix from an Ntech formatted dataframe."""
-
-    demand_matrix = np.zeros((7, 24), dtype=float)
-
-    day_col = "Día"
-    time_col = "Horario"
-    demand_col = "Suma de Agentes Requeridos Erlang"
-
-    if day_col not in df.columns or time_col not in df.columns or demand_col not in df.columns:
-        for col in df.columns:
-            if "día" in col.lower() or "dia" in col.lower():
-                day_col = col
-            elif "horario" in col.lower():
-                time_col = col
-            elif "erlang" in col.lower() or "requeridos" in col.lower():
-                demand_col = col
-
-    for _, row in df.iterrows():
-        try:
-            day = int(row[day_col])
-            if not (1 <= day <= 7):
-                continue
-            day_idx = day - 1
-
-            horario = str(row[time_col])
-            if ":" in horario:
-                hour = int(horario.split(":")[0])
-            else:
-                hour = int(float(horario))
-            if not (0 <= hour <= 23):
-                continue
-
-            demanda = float(row[demand_col])
-            demand_matrix[day_idx, hour] = demanda
-        except (ValueError, TypeError, IndexError):
-            continue
-
-    return demand_matrix
-
-def analyze_demand_matrix(matrix: np.ndarray) -> dict:
-    """Return basic metrics from a demand matrix."""
-    daily_demand = matrix.sum(axis=1)
-    hourly_demand = matrix.sum(axis=0)
-    active_days = [d for d in range(7) if daily_demand[d] > 0]
-    inactive_days = [d for d in range(7) if daily_demand[d] == 0]
-    working_days = len(active_days)
-    active_hours = np.where(hourly_demand > 0)[0]
-    first_hour = int(active_hours.min()) if active_hours.size else 8
-    last_hour = int(active_hours.max()) if active_hours.size else 20
-    operating_hours = last_hour - first_hour + 1
-    peak_demand = float(matrix.max()) if matrix.size else 0.0
-    avg_demand = float(matrix[active_days].mean()) if active_days else 0.0
-    daily_totals = matrix.sum(axis=1)
-    hourly_totals = matrix.sum(axis=0)
-    critical_days = (
-        np.argsort(daily_totals)[-2:] if daily_totals.size > 1 else [int(np.argmax(daily_totals))]
-    )
-    peak_threshold = (
-        np.percentile(hourly_totals[hourly_totals > 0], 75)
-        if np.any(hourly_totals > 0)
-        else 0
-    )
-    peak_hours = np.where(hourly_totals >= peak_threshold)[0]
-    return {
-        "daily_demand": daily_demand,
-        "hourly_demand": hourly_demand,
-        "active_days": active_days,
-        "inactive_days": inactive_days,
-        "working_days": working_days,
-        "first_hour": first_hour,
-        "last_hour": last_hour,
-        "operating_hours": operating_hours,
-        "peak_demand": peak_demand,
-        "average_demand": avg_demand,
-        "critical_days": critical_days,
-        "peak_hours": peak_hours,
-    }
-
-def generate_all_heatmaps(demand, coverage=None, diff=None) -> dict:
-    """Generate heatmaps for demand, coverage and difference matrices."""
-    maps = {"demand": create_heatmap(demand, "Demanda por Hora y Día", "Reds")}
-    if coverage is not None:
-        maps["coverage"] = create_heatmap(coverage, "Cobertura por Hora y Día", "Blues")
-    if diff is not None:
-        maps["difference"] = create_heatmap(diff, "Diferencias por Hora y Día", "RdBu")
-    return maps
-
-def heatmap(matrix: np.ndarray, title: str) -> BytesIO:
-    """Return an image buffer with ``matrix`` rendered as a heatmap."""
-    fig, ax = plt.subplots(figsize=(10, 4))
-    sns.heatmap(matrix, ax=ax, cmap="viridis", cbar=False)
-    ax.set_title(title)
-    ax.set_xlabel("Hora")
-    ax.set_ylabel("Dia")
-    buf = BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-# ——————————————————————————————————————————————————————————————
-# Perfiles de optimización EXACTOS del legacy
-# ——————————————————————————————————————————————————————————————
-
-PROFILES = {
-    "Equilibrado (Recomendado)": {"agent_limit_factor": 12, "excess_penalty": 2.0, "peak_bonus": 1.5, "critical_bonus": 2.0},
-    "Conservador": {"agent_limit_factor": 30, "excess_penalty": 0.5, "peak_bonus": 1.0, "critical_bonus": 1.2},
-    "Agresivo": {"agent_limit_factor": 15, "excess_penalty": 0.05, "peak_bonus": 1.5, "critical_bonus": 2.0},
-    "Máxima Cobertura": {"agent_limit_factor": 7, "excess_penalty": 0.005, "peak_bonus": 3.0, "critical_bonus": 4.0},
-    "Mínimo Costo": {"agent_limit_factor": 35, "excess_penalty": 0.8, "peak_bonus": 0.8, "critical_bonus": 1.0},
-    "100% Cobertura Eficiente": {"agent_limit_factor": 6, "excess_penalty": 0.01, "peak_bonus": 3.5, "critical_bonus": 4.5},
-    "100% Cobertura Total": {"agent_limit_factor": 5, "excess_penalty": 0.001, "peak_bonus": 4.0, "critical_bonus": 5.0},
-    "Cobertura Perfecta": {"agent_limit_factor": 8, "excess_penalty": 0.01, "peak_bonus": 3.0, "critical_bonus": 4.0},
-    "100% Exacto": {"agent_limit_factor": 6, "excess_penalty": 0.005, "peak_bonus": 4.0, "critical_bonus": 5.0},
-    "JEAN": {"agent_limit_factor": 30, "excess_penalty": 5.0, "peak_bonus": 2.0, "critical_bonus": 2.5},
-    "Aprendizaje Adaptativo": {"agent_limit_factor": 8, "excess_penalty": 0.01, "peak_bonus": 3.0, "critical_bonus": 4.0},
-}
-
-# ——————————————————————————————————————————————————————————————
-# Funciones de utilidad y configuración EXACTAS del legacy
-# ——————————————————————————————————————————————————————————————
-
-def init_app(app):
-    """Initialize scheduler storage and defaults on ``app``."""
-    if not hasattr(app, "extensions"):
-        app.extensions = {}
-    if "scheduler" not in app.extensions:
-        app.extensions["scheduler"] = {"jobs": {}, "results": {}, "active_jobs": active_jobs}
-    app.config.setdefault("SCHEDULER_MAX_RUNTIME", 300)
-    app.config.setdefault("SCHEDULER_MAX_MEMORY_GB", None)
-
-def _store(app=None):
-    """Return the shared scheduler store."""
-    app = app or current_app
-    if not hasattr(app, "extensions"):
-        app.extensions = {}
-    return app.extensions.setdefault("scheduler", {"jobs": {}, "results": {}, "active_jobs": active_jobs})
-
-def mark_running(job_id, app=None):
-    s = _store(app)
-    s.setdefault("jobs", {})[job_id] = {"status": "running", "progress": {}}
-
-def mark_finished(job_id, result, excel_path, csv_path, app=None):
-    s = _store(app)
-    s.setdefault("jobs", {})[job_id] = {"status": "finished"}
-    s.setdefault("results", {})[job_id] = {
-        "result": result,
-        "excel_path": excel_path,
-        "csv_path": csv_path,
-        "timestamp": time.time(),
-    }
-
-def mark_error(job_id, error_msg, app=None):
-    s = _store(app)
-    s.setdefault("jobs", {})[job_id] = {"status": "error", "error": error_msg}
-
-def mark_cancelled(job_id, app=None):
-    s = _store(app)
-    s.setdefault("jobs", {})[job_id] = {"status": "cancelled"}
-
-def get_status(job_id, app=None):
-    return _store(app).get("jobs", {}).get(job_id, {"status": "unknown", "progress": {}})
-
-def update_progress(job_id, progress_info, app=None):
-    """Actualizar información de progreso de un job."""
-    s = _store(app)
-    job_data = s.setdefault("jobs", {}).setdefault(job_id, {"status": "running", "progress": {}})
-    job_data["progress"].update(progress_info)
-
-def get_result(job_id, app=None):
-    return _store(app).get("results", {}).get(job_id)
-
-# Compatibility alias
-get_payload = get_result
-
-def _stop_thread(thread):
-    """Attempt to stop a running thread by raising ``SystemExit`` inside it."""
-    if thread and thread.is_alive():  # pragma: no cover - safety guard
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(
-            ctypes.c_long(thread.ident), ctypes.py_object(SystemExit)
-        )
-
-# Default configuration values used when no override is supplied
-DEFAULT_CONFIG = {
-    # Streamlit legacy defaults from ``legacy/app1.py``
-    "solver_time": 240,  # EXACTO del legacy
-    "solver_msg": 1,
-    "TARGET_COVERAGE": 98.0,
-    "agent_limit_factor": 12,
-    "excess_penalty": 2.0,
-    "peak_bonus": 1.5,
-    "critical_bonus": 2.0,
-    "iterations": 30,
-    "solver_threads": os.cpu_count() or 1,
-    "max_memory_gb": None,  # None uses all available memory
-    "max_patterns": None,
-    "batch_size": 2000,
-    "quality_threshold": 0,
-    "use_ft": True,
-    "use_pt": True,
-    "allow_8h": True,
-    "allow_10h8": False,
-    "allow_pt_4h": True,
-    "allow_pt_6h": True,
-    "allow_pt_5h": False,
-    "break_from_start": 2.5,
-    "break_from_end": 2.5,
-    "optimization_profile": "Equilibrado (Recomendado)",
-    "profile": "Equilibrado (Recomendado)",  # Alias para compatibilidad
-    "ACTIVE_DAYS": list(range(7)),
-    "K": 1000,
-}
-
-def merge_config(cfg=None):
-    """Return a configuration dictionary overlaying defaults with ``cfg``."""
-    merged = DEFAULT_CONFIG.copy()
-    try:
-        app_cfg = current_app.config
-        merged.update({k: app_cfg[k] for k in DEFAULT_CONFIG.keys() if k in app_cfg})
-    except Exception:
-        pass
-    if cfg:
-        merged.update({k: v for k, v in cfg.items() if v is not None})
-    return merged
-
-def apply_configuration(cfg=None):
-    """Apply an optimization profile over ``cfg`` and return the result."""
-    cfg = merge_config(cfg)
-    profile = cfg.get("optimization_profile", "Equilibrado (Recomendado)")
-    
-    print(f"[CONFIG] Aplicando perfil: {profile}")
-    
-    # Obtener parámetros del perfil
-    profile_params = PROFILES.get(profile)
-    
-    if profile_params:
-        # Aplicar todos los parámetros del perfil
-        for key, val in profile_params.items():
-            if key not in cfg or cfg[key] is None:
-                cfg[key] = val
-        
-        # Configuraciones específicas por perfil
-        if profile == "JEAN":
-            cfg["optimization_profile"] = "JEAN"
-            cfg["use_jean_search"] = True
-            print(f"[CONFIG] JEAN: factor={cfg['agent_limit_factor']}, penalty={cfg['excess_penalty']}, target={cfg.get('TARGET_COVERAGE', 98)}%")
-        
-        elif profile == "JEAN Personalizado":
-            cfg["optimization_profile"] = "JEAN Personalizado"
-            cfg["use_jean_search"] = True
-            # Solo habilitar custom shifts si hay JSON
-            if cfg.get("custom_shifts_json"):
-                cfg["use_custom_shifts"] = True
-                print(f"[CONFIG] JEAN Personalizado: shifts personalizados habilitados")
-            else:
-                print(f"[CONFIG] JEAN Personalizado: usando lógica JEAN estándar (sin JSON personalizado)")
-        
-        elif profile == "Aprendizaje Adaptativo":
-            # Aplicar parámetros adaptativos si están disponibles
-            if cfg.get("demand_matrix") is not None:
-                adaptive_params = get_adaptive_params(cfg["demand_matrix"], cfg.get("TARGET_COVERAGE", 98.0))
-                cfg.update(adaptive_params)
-                print(f"[CONFIG] Adaptativo: parámetros evolutivos aplicados")
-        
-        print(f"[CONFIG] Configuración aplicada - Strategy: {cfg.get('strategy', 'default')}")
-    else:
-        print(f"[CONFIG] ADVERTENCIA: Perfil '{profile}' no encontrado, usando configuración por defecto")
-    
-    return cfg
-# ——————————————————————————————————————————————————————————————
-# Función principal de optimización completa EXACTA del legacy
-# ——————————————————————————————————————————————————————————————
 
 def run_complete_optimization(file_stream, config=None, generate_charts=False, job_id=None, return_payload=False):
-    """Run the full optimization pipeline matching legacy behavior EXACTLY."""
-    print("[SCHEDULER] Iniciando run_complete_optimization LEGACY")
-    print(f"[SCHEDULER] Config recibido: {config}")
+    cfg = apply_configuration(config)
+    solver_time = cfg.get("TIME_SOLVER", cfg.get("solver_time"))
+    if solver_time is not None:
+        current_app.config["TIME_SOLVER"] = solver_time
 
-    if job_id:
-        active_jobs[job_id] = current_thread()
-        update_progress(job_id, {"stage": "Iniciando optimización"}, None)
+    df = pd.read_excel(file_stream)
+    demand_matrix = load_demand_matrix_from_df(df)
+    analysis = analyze_demand_matrix(demand_matrix)
 
-    try:
-        cfg = apply_configuration(config)
-        app_ctx = current_app._get_current_object()
+    use_ft = cfg.get("use_ft", True)
+    use_pt = cfg.get("use_pt", True)
+    allow_8h = cfg.get("allow_8h", True)
+    allow_10h8 = cfg.get("allow_10h8", False)
+    allow_pt_4h = cfg.get("allow_pt_4h", True)
+    allow_pt_6h = cfg.get("allow_pt_6h", True)
+    allow_pt_5h = cfg.get("allow_pt_5h", False)
+    break_from_start = cfg.get("break_from_start", 2.5)
+    break_from_end = cfg.get("break_from_end", 2.5)
+    optimization_profile = cfg.get("optimization_profile", "JEAN")
+    agent_limit_factor = cfg.get("agent_limit_factor", 12)
+    excess_penalty = cfg.get("excess_penalty", 2.0)
+    peak_bonus = cfg.get("peak_bonus", 1.5)
+    critical_bonus = cfg.get("critical_bonus", 2.0)
+    TARGET_COVERAGE = cfg.get("TARGET_COVERAGE", cfg.get("coverage", 98.0))
+    VERBOSE = cfg.get("VERBOSE", False)
+    ft_first_pt_last = cfg.get("ft_first_pt_last", True)
 
-        # Propagar TIME_SOLVER desde la configuración recibida
-        solver_time = cfg.get("TIME_SOLVER", cfg.get("solver_time"))
-        if solver_time is not None:
-            current_app.config["TIME_SOLVER"] = solver_time
+    patterns = {}
+    active_days = [d for d in range(7) if demand_matrix.sum(axis=1)[d] > 0]
+    if optimization_profile == "JEAN Personalizado" and cfg.get("custom_shifts_json"):
+        patterns = load_shift_patterns(
+            cfg.get("custom_shifts_json"),
+            start_hours=list(np.arange(0, 24, 0.5)),
+            break_from_start=break_from_start,
+            break_from_end=break_from_end,
+            slot_duration_minutes=30,
+            max_patterns=cfg.get("max_patterns"),
+            demand_matrix=demand_matrix,
+            keep_percentage=0.3,
+            peak_bonus=peak_bonus,
+            critical_bonus=critical_bonus,
+        )
+    else:
+        for batch in generate_shifts_coverage_optimized(
+            demand_matrix,
+            max_patterns=cfg.get("max_patterns"),
+            batch_size=cfg.get("batch_size", 2000),
+            quality_threshold=cfg.get("quality_threshold", 0),
+            use_ft=use_ft,
+            use_pt=use_pt,
+            allow_8h=allow_8h,
+            allow_10h8=allow_10h8,
+            allow_pt_4h=allow_pt_4h,
+            allow_pt_6h=allow_pt_6h,
+            allow_pt_5h=allow_pt_5h,
+            ACTIVE_DAYS=active_days,
+            break_from_start=break_from_start,
+            break_from_end=break_from_end,
+            optimization_profile=optimization_profile,
+            template_cfg=cfg.get("custom_shifts_json"),
+        ):
+            patterns.update(batch)
+            if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
+                break
 
-        # Limitar tiempo de cada iteración JEAN para pruebas rápidas
-        current_app.config["JEAN_ITER_TIME_LIMIT"] = 20
-        
-        # Extraer parámetros de configuración EXACTOS del legacy
-        use_ft = cfg.get("use_ft", True)
-        use_pt = cfg.get("use_pt", True)
-        allow_8h = cfg.get("allow_8h", True)
-        allow_10h8 = cfg.get("allow_10h8", False)
-        allow_pt_4h = cfg.get("allow_pt_4h", True)
-        allow_pt_6h = cfg.get("allow_pt_6h", True)
-        allow_pt_5h = cfg.get("allow_pt_5h", False)
-        break_from_start = cfg.get("break_from_start", 2.5)
-        break_from_end = cfg.get("break_from_end", 2.5)
-        optimization_profile = cfg.get("optimization_profile", "Equilibrado (Recomendado)")
-        TARGET_COVERAGE = cfg.get("TARGET_COVERAGE", 98.0)
-        VERBOSE = cfg.get("VERBOSE", False)
-        agent_limit_factor = cfg.get("agent_limit_factor", 12)
-        excess_penalty = cfg.get("excess_penalty", 2.0)
-        peak_bonus = cfg.get("peak_bonus", 1.5)
-        critical_bonus = cfg.get("critical_bonus", 2.0)
-        template_cfg = cfg.get("custom_shifts_json")
+    assignments = {}
+    status = "NO_SOLUTION"
 
-        print(f"[MEM] Antes de carga de demanda: {monitor_memory_usage():.1f}%")
-        print("[SCHEDULER] Leyendo archivo Excel...")
-        df = pd.read_excel(file_stream)
-        print("[SCHEDULER] Archivo Excel leído correctamente")
-
-        print("[SCHEDULER] Procesando matriz de demanda...")
-        demand_matrix = load_demand_matrix_from_df(df)
-        analysis = analyze_demand_matrix(demand_matrix)
-        print("[SCHEDULER] Matriz de demanda procesada")
-        print(f"[MEM] Después de procesar demanda: {monitor_memory_usage():.1f}%")
-
-        # Análisis de demanda EXACTO del legacy con todas las métricas
-        daily_demand = demand_matrix.sum(axis=1)
-        hourly_demand = demand_matrix.sum(axis=0)
-        ACTIVE_DAYS = [d for d in range(7) if daily_demand[d] > 0]
-        INACTIVE_DAYS = [d for d in range(7) if daily_demand[d] == 0]
-        WORKING_DAYS = len(ACTIVE_DAYS)
-        
-        # Análisis de ventana horaria EXACTO del legacy
-        active_hours = np.where(hourly_demand > 0)[0]
-        first_hour = int(active_hours.min()) if len(active_hours) > 0 else 8
-        last_hour = int(active_hours.max()) if len(active_hours) > 0 else 20
-        OPERATING_HOURS = last_hour - first_hour + 1
-        
-        # Análisis de picos EXACTO del legacy
-        peak_demand = demand_matrix.max()
-        avg_demand = demand_matrix[ACTIVE_DAYS].mean() if ACTIVE_DAYS else 0
-        
-        # Análisis dinámico de patrones críticos EXACTO del legacy
-        daily_totals = demand_matrix.sum(axis=1)
-        hourly_totals = demand_matrix.sum(axis=0)
-        critical_days_analysis = np.argsort(daily_totals)[-2:] if len(daily_totals) > 1 else [np.argmax(daily_totals)]
-        peak_threshold = np.percentile(hourly_totals[hourly_totals > 0], 75) if np.any(hourly_totals > 0) else 0
-        peak_hours_analysis = np.where(hourly_totals >= peak_threshold)[0]
-        
-        print(f"[SCHEDULER] Análisis completado: {WORKING_DAYS} días activos, {OPERATING_HOURS}h operativas, pico {peak_demand:.0f}")
-        print(f"[SCHEDULER] Días críticos: {critical_days_analysis}, Horas pico: {len(peak_hours_analysis)} horas")
-
-        print(f"[MEM] Antes de generación de patrones: {monitor_memory_usage():.1f}%")
-        print("[SCHEDULER] Generando patrones de turnos con lógica completa del legacy...")
-        
-        # Actualizar progreso
-        if job_id:
-            update_progress(job_id, {"stage": "Generando patrones", "patterns_count": 0}, None)
-        
-        # Aplicar configuración de aprendizaje adaptativo EXACTO del legacy
-        if optimization_profile == "Aprendizaje Adaptativo":
-            adaptive_config = get_adaptive_params(demand_matrix, TARGET_COVERAGE)
-            
-            # Aplicar parámetros automáticamente sin intervención del usuario
-            agent_limit_factor = adaptive_config["agent_limit_factor"]
-            excess_penalty = adaptive_config["excess_penalty"]
-            peak_bonus = adaptive_config["peak_bonus"]
-            critical_bonus = adaptive_config["critical_bonus"]
-            
-            if adaptive_config.get("learned", False):
-                evolution_step = adaptive_config.get("evolution_step", "unknown")
-                print(f"🧠 **IA Evolutiva Activa** - Evolución #{adaptive_config['runs_count']}: {evolution_step}")
-            else:
-                print("🆕 **IA Iniciando Evolución** - Primera ejecución - estableciendo baseline")
-
-        patterns = {}
-        # Usar la generación EXACTA del legacy con todas las funciones
-        if optimization_profile == "JEAN Personalizado" and template_cfg:
-            # Usar load_shift_patterns para JEAN Personalizado
-            patterns = load_shift_patterns(
-                template_cfg,
-                start_hours=list(np.arange(0, 24, 0.5)),
-                break_from_start=break_from_start,
-                break_from_end=break_from_end,
-                slot_duration_minutes=30,
-                max_patterns=cfg.get("max_patterns"),
-                demand_matrix=demand_matrix,
-                keep_percentage=0.3,
-                peak_bonus=peak_bonus,
-                critical_bonus=critical_bonus
-            )
-        else:
-            # Usar generate_shifts_coverage_optimized para otros perfiles
-            for batch in generate_shifts_coverage_optimized(
-                demand_matrix,
-                max_patterns=cfg.get("max_patterns"),
-                batch_size=cfg.get("batch_size", 2000),
-                quality_threshold=cfg.get("quality_threshold", 0),
-                use_ft=use_ft, use_pt=use_pt, allow_8h=allow_8h, allow_10h8=allow_10h8,
-                allow_pt_4h=allow_pt_4h, allow_pt_6h=allow_pt_6h, allow_pt_5h=allow_pt_5h,
-                ACTIVE_DAYS=ACTIVE_DAYS, break_from_start=break_from_start, break_from_end=break_from_end,
-                optimization_profile=optimization_profile, template_cfg=template_cfg
-            ):
-                patterns.update(batch)
-                if cfg.get("max_patterns") and len(patterns) >= cfg["max_patterns"]:
-                    break
-        
-        print(f"[SCHEDULER] Patrones generados: {len(patterns)} patrones únicos")
-        print(f"[MEM] Después de generación de patrones: {monitor_memory_usage():.1f}%")
-        
-        # Actualizar progreso
-        if job_id:
-            update_progress(job_id, {"stage": "Patrones generados", "patterns_count": len(patterns)}, None)
-
-        print("[SCHEDULER] Iniciando optimización con algoritmos completos del legacy...")
-        print(f"[MEM] Antes de resolver: {monitor_memory_usage():.1f}%")
-        
-        # Actualizar progreso
-        if job_id:
-            update_progress(job_id, {"stage": "Optimizando", "algorithm": optimization_profile}, None)
-        
-        # Usar lógica EXACTA del legacy Streamlit con solve_in_chunks_optimized
-        print("[SCHEDULER] Ejecutando optimización con lógica legacy completa...")
-        
-        # LÓGICA EXACTA DEL LEGACY STREAMLIT con todas las funciones implementadas
-        assignments, status = {}, "NO_METHOD"
-        if use_ft and use_pt and cfg.get("ft_first_pt_last", True):
-            print("[SCHEDULER] Estrategia FT→PT activada")
-            assignments, status = optimize_ft_then_pt_strategy(
-                patterns, demand_matrix,
-                agent_limit_factor=agent_limit_factor,
-                excess_penalty=excess_penalty,
-                TIME_SOLVER=current_app.config.get("TIME_SOLVER"),
-            )
-            if job_id:
-                try:
-                    D, H = demand_matrix.shape
-                    pat_small = _compact_patterns_for(assignments, patterns, D, H)
-                    _write_partial_result(
-                        job_id,
-                        assignments=assignments,
-                        patterns=pat_small,
-                        demand_matrix=demand_matrix,
-                        meta={
-                            "day_labels": [f"Día {i+1}" for i in range(D)],
-                            "hour_labels": list(range(H)),
-                        },
-                    )
-                except Exception:
-                    pass
-            results = analyze_results(assignments, patterns, demand_matrix)
-            if results:
-                coverage = results["coverage_percentage"]
-                score = results["overstaffing"] + results["understaffing"]
-                if coverage < TARGET_COVERAGE or score > 0:
-                    print("[SCHEDULER] Refinando con JEAN tras FT→PT")
-                    refined_assignments, status = optimize_jean_search(
-                        patterns,
-                        demand_matrix,
-                        target_coverage=TARGET_COVERAGE,
-                        verbose=VERBOSE,
-                        agent_limit_factor=agent_limit_factor,
-                        excess_penalty=excess_penalty,
-                        peak_bonus=peak_bonus,
-                        critical_bonus=critical_bonus,
-                        iteration_time_limit=current_app.config.get("TIME_SOLVER"),
-                        job_id=job_id,
-                    )
-                    if refined_assignments:
-                        assignments = refined_assignments
-        elif optimization_profile == "JEAN":
-            print("[SCHEDULER] Ejecutando búsqueda JEAN con reducción progresiva del factor")
-            assignments, status = optimize_jean_search(
-                patterns,
-                demand_matrix,
-                target_coverage=TARGET_COVERAGE,
-                verbose=VERBOSE,
-                agent_limit_factor=agent_limit_factor,
-                excess_penalty=excess_penalty,
-                peak_bonus=peak_bonus,
-                critical_bonus=critical_bonus,
-                max_iterations=cfg.get("search_iterations", 5),
-                iteration_time_limit=current_app.config.get("TIME_SOLVER"),
-                job_id=job_id,
-            )
-        elif optimization_profile == "JEAN Personalizado":
-            print("[SCHEDULER] Ejecutando JEAN Personalizado con lógica completa del legacy")
-            # Si hay FT y PT, usar estrategia 2 fases + refinamiento JEAN EXACTO del legacy
-            if use_ft and use_pt:
-                print("[SCHEDULER] Estrategia 2 fases FT->PT + refinamiento JEAN")
-                assignments, status = optimize_ft_then_pt_strategy(patterns, demand_matrix, 
-                                                                 agent_limit_factor=agent_limit_factor, excess_penalty=excess_penalty)
-                
-                # Verificar si necesita refinamiento EXACTO del legacy
-                results = analyze_results(assignments, patterns, demand_matrix)
-                if results:
-                    coverage = results["coverage_percentage"]
-                    score = results["overstaffing"] + results["understaffing"]
-                    
-                    if coverage < TARGET_COVERAGE or score > 0:
-                        print(f"[SCHEDULER] Refinando con JEAN (cov: {coverage:.1f}%, score: {score:.1f})")
-                        refined_assignments, refined_status = optimize_jean_search(
-                            patterns,
-                            demand_matrix,
-                            target_coverage=TARGET_COVERAGE,
-                            verbose=VERBOSE,
-                            agent_limit_factor=agent_limit_factor,
-                            excess_penalty=excess_penalty,
-                            peak_bonus=peak_bonus,
-                            critical_bonus=critical_bonus,
-                            iteration_time_limit=current_app.config.get("TIME_SOLVER"),
-                            job_id=job_id,
-                        )
-                        if refined_assignments:
-                            assignments, status = refined_assignments, f"JEAN_CUSTOM_REFINED_{refined_status}"
-            else:
-                # Solo un tipo de contrato, usar JEAN directo
-                assignments, status = optimize_jean_search(
+    if use_ft and use_pt and ft_first_pt_last:
+        assignments, status = optimize_ft_then_pt_strategy(
+            patterns,
+            demand_matrix,
+            agent_limit_factor=agent_limit_factor,
+            excess_penalty=excess_penalty,
+            TIME_SOLVER=current_app.config.get("TIME_SOLVER"),
+        )
+        results = analyze_results(assignments, patterns, demand_matrix)
+        if results:
+            coverage = results["coverage_percentage"]
+            score = results["overstaffing"] + results["understaffing"]
+            if coverage < TARGET_COVERAGE or score > 0:
+                refined, status = optimize_jean_search(
                     patterns,
                     demand_matrix,
                     target_coverage=TARGET_COVERAGE,
@@ -3314,322 +2590,83 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
                     peak_bonus=peak_bonus,
                     critical_bonus=critical_bonus,
                     iteration_time_limit=current_app.config.get("TIME_SOLVER"),
-                    job_id=job_id,
                 )
-        elif optimization_profile == "Aprendizaje Adaptativo":
-            print("[SCHEDULER] Ejecutando Aprendizaje Adaptativo con sistema evolutivo completo")
-            # Usar solve_in_chunks_optimized con parámetros adaptativos EXACTO del legacy
-            assignments = solve_in_chunks_optimized(patterns, demand_matrix, 
-                                                   optimization_profile=optimization_profile, use_ft=use_ft, use_pt=use_pt, 
-                                                   TARGET_COVERAGE=TARGET_COVERAGE, agent_limit_factor=agent_limit_factor,
-                                                   excess_penalty=excess_penalty, peak_bonus=peak_bonus, critical_bonus=critical_bonus)
-            status = "ADAPTIVE_LEARNING_CHUNKS"
-        else:
-            print(f"[SCHEDULER] Ejecutando perfil estándar con chunks: {optimization_profile}")
-            # Usar solve_in_chunks_optimized para todos los perfiles estándar EXACTO del legacy
-            assignments = solve_in_chunks_optimized(patterns, demand_matrix,
-                                                   optimization_profile=optimization_profile, use_ft=use_ft, use_pt=use_pt,
-                                                   TARGET_COVERAGE=TARGET_COVERAGE, agent_limit_factor=agent_limit_factor,
-                                                   excess_penalty=excess_penalty, peak_bonus=peak_bonus, critical_bonus=critical_bonus)
-            status = f"CHUNKS_OPTIMIZED_{optimization_profile.upper().replace(' ', '_')}"
-
-        # Guardar snapshot parcial para que la UI pueda refrescar
-        if job_id:
-            try:
-                D, H = demand_matrix.shape
-                pat_small = _compact_patterns_for(assignments, patterns, D, H)
-                _write_partial_result(
-                    job_id,
-                    assignments=assignments,
-                    patterns=pat_small,
-                    demand_matrix=demand_matrix,
-                    meta={
-                        "day_labels": [f"Día {i+1}" for i in range(D)],
-                        "hour_labels": list(range(H)),
-                    },
-                )
-            except Exception:
-                pass
-
-        pulp_assignments, pulp_status = assignments, status
-        pulp_metrics = analyze_results(pulp_assignments, patterns, demand_matrix) if pulp_assignments else None
-        if job_id:
-            save_partial_results(
-                job_id,
-                pulp_result={
-                    "assignments": pulp_assignments,
-                    "metrics": pulp_metrics,
-                    "status": pulp_status,
-                    "heatmaps": {},
-                },
-                demand_analysis=analysis,
-                cfg=cfg,
-                app_context=app_ctx,
-            )
-
-        greedy_assignments, greedy_status = optimize_with_greedy(
-            patterns, demand_matrix, cfg=cfg, job_id=job_id
+                if refined:
+                    assignments = refined
+    elif optimization_profile == "JEAN":
+        assignments, status = optimize_jean_search(
+            patterns,
+            demand_matrix,
+            target_coverage=TARGET_COVERAGE,
+            verbose=VERBOSE,
+            agent_limit_factor=agent_limit_factor,
+            excess_penalty=excess_penalty,
+            peak_bonus=peak_bonus,
+            critical_bonus=critical_bonus,
+            iteration_time_limit=current_app.config.get("TIME_SOLVER"),
         )
-        greedy_metrics = analyze_results(greedy_assignments, patterns, demand_matrix) if greedy_assignments else None
-        if job_id:
-            save_partial_results(
-                job_id,
-                pulp_result={
-                    "assignments": pulp_assignments,
-                    "metrics": pulp_metrics,
-                    "status": pulp_status,
-                    "heatmaps": {},
-                },
-                greedy_result={
-                    "assignments": greedy_assignments,
-                    "metrics": greedy_metrics,
-                    "status": greedy_status,
-                    "heatmaps": {},
-                },
-                demand_analysis=analysis,
-                cfg=cfg,
-                app_context=app_ctx,
-            )
+    else:
+        assignments = solve_in_chunks_optimized(
+            patterns,
+            demand_matrix,
+            optimization_profile=optimization_profile,
+            use_ft=use_ft,
+            use_pt=use_pt,
+            TARGET_COVERAGE=TARGET_COVERAGE,
+            agent_limit_factor=agent_limit_factor,
+            excess_penalty=excess_penalty,
+            peak_bonus=peak_bonus,
+            critical_bonus=critical_bonus,
+        )
+        status = f"CHUNKS_OPTIMIZED_{optimization_profile.upper().replace(' ', '_')}"
 
-        total_agents = sum(pulp_assignments.values()) if pulp_assignments else 0
-        
-        print(f"[SCHEDULER] Optimización legacy completada: {len(assignments)} turnos, {total_agents} agentes")
-        print(f"[SCHEDULER] Método utilizado: {status}")
-        
-        # Actualizar progreso
-        if job_id:
-            update_progress(job_id, {"stage": "Cálculo de métricas", "total_agents": total_agents}, None)
-        
-        warning_msg = None
-        
-        # Guardar resultado para aprendizaje si está habilitado EXACTO del legacy
-        if optimization_profile == "Aprendizaje Adaptativo" and assignments:
-            execution_time = time.time() - start_time
-            
-            # Calcular coverage matrix - usar dimensiones de la demanda EXACTO del legacy
-            coverage_matrix = np.zeros_like(demand_matrix)
-            if assignments:
-                for name, count in assignments.items():
-                    if name in patterns:
-                        try:
-                            pattern_flat = patterns[name]
-                            # Convertir a las dimensiones de demand_matrix EXACTO del legacy
-                            target_shape = demand_matrix.shape
-                            
-                            if len(pattern_flat) == target_shape[0] * target_shape[1]:
-                                # Dimensiones coinciden exactamente
-                                pattern = pattern_flat.reshape(target_shape)
-                            else:
-                                # Convertir a matriz temporal y luego ajustar
-                                pattern_temp = pattern_flat.reshape(7, -1)
-                                pattern = np.zeros(target_shape)
-                                
-                                if pattern_temp.shape[1] == target_shape[1]:
-                                    # Mismo número de columnas
-                                    pattern = pattern_temp
-                                else:
-                                    # Fallback: copiar lo que se pueda
-                                    cols_to_copy = min(pattern_temp.shape[1], target_shape[1])
-                                    pattern[:, :cols_to_copy] = pattern_temp[:, :cols_to_copy]
-                            
-                            coverage_matrix += pattern * count
-                        except Exception as e:
-                            print(f"[SCHEDULER] Error procesando patrón {name}: {e}")
-                            continue
-            
-            coverage_pct = (np.minimum(coverage_matrix, demand_matrix).sum() / demand_matrix.sum()) * 100 if demand_matrix.sum() > 0 else 0
-            
-            # Usar parámetros actuales para el aprendizaje EXACTO del legacy
-            current_params = {
-                "agent_limit_factor": agent_limit_factor,
-                "excess_penalty": excess_penalty,
-                "peak_bonus": peak_bonus,
-                "critical_bonus": critical_bonus,
-                "evolution_step": cfg.get("evolution_step", "adaptive")
-            }
-            
-            save_execution_result(demand_matrix, current_params, coverage_pct, total_agents, execution_time)
-            print(f"[SCHEDULER] Resultado guardado para aprendizaje: {coverage_pct:.1f}% cobertura")
+    pulp_assignments = assignments
+    pulp_status = status
+    pulp_metrics = analyze_results(pulp_assignments, patterns, demand_matrix) if pulp_assignments else None
 
-        print(f"[MEM] Después de resolver: {monitor_memory_usage():.1f}%")
-        print(f"[OPTIMIZER] Status: {status}")
-        print(f"[OPTIMIZER] Total agents: {total_agents}")
-        print("✅ [SCHEDULER] Optimización completada con lógica completa del legacy")
-        
-        # Actualizar progreso final
-        if job_id:
-            update_progress(job_id, {"stage": "Optimización completada", "status": status}, None)
-        
-        # Agregar resultados de ambos algoritmos
-        pulp_metrics = analyze_results(pulp_assignments, patterns, demand_matrix) if pulp_assignments else None
-        greedy_metrics = analyze_results(greedy_assignments, patterns, demand_matrix) if greedy_assignments else None
+    greedy_assignments, greedy_status = optimize_with_greedy(
+        patterns, demand_matrix, cfg=cfg
+    )
+    greedy_metrics = analyze_results(greedy_assignments, patterns, demand_matrix) if greedy_assignments else None
 
-        print(f"[MEM] Antes de exportar resultados: {monitor_memory_usage():.1f}%")
-        
-        # Actualizar progreso
-        if job_id:
-            update_progress(job_id, {"stage": "Exportación (opcional)"}, None)
-        metrics = analyze_results(assignments, patterns, demand_matrix)
-        
-        # Exportación de archivos opcional para evitar bloquear la entrega de resultados
-        export_files = bool(cfg.get("export_files", False))
-        if export_files:
-            excel_bytes = export_detailed_schedule(assignments, patterns)
-            csv_bytes = None  # El legacy no genera CSV separado
-        else:
-            excel_bytes, csv_bytes = None, None
+    result = {
+        "pulp": {
+            "assignments": pulp_assignments,
+            "metrics": pulp_metrics,
+            "status": pulp_status,
+        },
+        "greedy": {
+            "assignments": greedy_assignments,
+            "metrics": greedy_metrics,
+            "status": greedy_status,
+        },
+        "analysis": analysis,
+        "config": cfg,
+    }
 
-        heatmaps = {}
-        pulp_heatmaps = {}
-        greedy_heatmaps = {}
-        
-        if generate_charts:
-            # Gráficas generales (demanda)
-            demand_maps = generate_all_heatmaps(demand_matrix)
-            for key, fig in demand_maps.items():
-                if key == "demand":  # Solo la gráfica de demanda es común
-                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                    fig.savefig(tmp.name, format="png", bbox_inches="tight")
-                    tmp.flush()
-                    tmp.close()
-                    filename = os.path.basename(tmp.name)
-                    heatmaps[key] = f"/heatmap/{filename}"
-                plt.close(fig)
-            
-            # Gráficas específicas de PuLP
-            if pulp_metrics and pulp_assignments:
-                pulp_maps = generate_all_heatmaps(
-                    demand_matrix,
-                    pulp_metrics.get("total_coverage"),
-                    pulp_metrics.get("diff_matrix"),
-                )
-                for key, fig in pulp_maps.items():
-                    if key != "demand":  # Excluir demanda ya que es común
-                        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                        fig.savefig(tmp.name, format="png", bbox_inches="tight")
-                        tmp.flush()
-                        tmp.close()
-                        filename = os.path.basename(tmp.name)
-                        pulp_heatmaps[key] = f"/heatmap/{filename}"
-                    plt.close(fig)
-            
-            # Gráficas específicas de Greedy
-            if greedy_metrics and greedy_assignments:
-                greedy_maps = generate_all_heatmaps(
-                    demand_matrix,
-                    greedy_metrics.get("total_coverage"),
-                    greedy_metrics.get("diff_matrix"),
-                )
-                for key, fig in greedy_maps.items():
-                    if key != "demand":  # Excluir demanda ya que es común
-                        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                        fig.savefig(tmp.name, format="png", bbox_inches="tight")
-                        tmp.flush()
-                        tmp.close()
-                        filename = os.path.basename(tmp.name)
-                        greedy_heatmaps[key] = f"/heatmap/{filename}"
-                    plt.close(fig)
-            
-            plt.close("all")
-        print(f"[MEM] Después de exportar resultados: {monitor_memory_usage():.1f}%")
-        
-        # Actualizar progreso
-        if job_id:
-            update_progress(job_id, {"stage": "Resultados preparados"}, None)
+    if return_payload:
+        D, H = demand_matrix.shape
+        day_labels = [f"Día {i+1}" for i in range(D)]
+        hour_labels = list(range(H))
+        payload = _build_sync_payload(
+            assignments=pulp_assignments or {},
+            patterns=patterns,
+            demand_matrix=demand_matrix,
+            day_labels=day_labels,
+            hour_labels=hour_labels,
+            meta={"status": pulp_status},
+        )
+        payload["status"] = pulp_status
+        payload["config"] = cfg
+        return payload
 
-        print("[SCHEDULER] Preparando resultados con análisis completo del legacy...")
+    return result
 
-        def _convert(obj):
-            """Recursively convert numpy arrays within ``obj`` to Python lists."""
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            if isinstance(obj, dict):
-                return {k: _convert(v) for k, v in obj.items()}
-            if isinstance(obj, list):
-                return [_convert(v) for v in obj]
-            return obj
 
-        result = {
-            "analysis": _convert(analysis),
-            "assignments": assignments,
-            "metrics": _convert(metrics),
-            "heatmaps": heatmaps,
-            "status": status,
-            "pulp_results": {
-                "assignments": pulp_assignments,
-                "metrics": _convert(pulp_metrics),
-                "status": pulp_status,
-                "heatmaps": pulp_heatmaps
-            },
-            "greedy_results": {
-                "assignments": greedy_assignments,
-                "metrics": _convert(greedy_metrics),
-                "status": greedy_status,
-                "heatmaps": greedy_heatmaps
-            }
-        }
-        if warning_msg:
-            result["message"] = warning_msg
-        result["effective_config"] = _convert(cfg)
-        print("[SCHEDULER] Resultados preparados con todas las funciones del legacy - RETORNANDO")
-        # ---------- MODO SÍNCRONO TIPO STREAMLIT ----------
-        if return_payload:
-            D, H = demand_matrix.shape
-            day_labels = [f"Día {i+1}" for i in range(D)]
-            hour_labels = list(range(H))
-            payload = _build_sync_payload(
-                assignments=pulp_assignments or {},
-                patterns=patterns,
-                demand_matrix=demand_matrix,
-                day_labels=day_labels,
-                hour_labels=hour_labels,
-                meta={"status": pulp_status},
-            )
-            payload["status"] = pulp_status
-            payload["config"] = _convert(cfg)
-            return payload
-
-        # Actualizar progreso final
-        if job_id:
-            update_progress(job_id, {"stage": "Resultados listos", "final_coverage": metrics.get("coverage_percentage", 0) if metrics else 0}, None)
-
-        # Publicar resultados en el store inmediatamente para que la UI los vea
-        try:
-            if job_id is not None:
-                mark_finished(job_id, result, excel_bytes, csv_bytes, None)
-                # Persistir respaldo en disco para que la vista pueda leerlo
-                try:
-                    path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
-                    with open(path, "w", encoding="utf-8") as fh:
-                        json.dump(result, fh, ensure_ascii=False)
-                        fh.flush()
-                        os.fsync(fh.fileno())
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        return result, excel_bytes, csv_bytes
-
-    except Exception as e:
-        print(f"[SCHEDULER] ERROR CRÍTICO: {str(e)}")
-        import traceback
-        print(f"[SCHEDULER] Traceback: {traceback.format_exc()}")
-        return {"error": str(e)}, None, None
-    finally:
-        if job_id:
-            active_jobs.pop(job_id, None)
-
-# Compatibility aliases
 run_optimization = run_complete_optimization
 
-# Compatibility wrapper: expose a top-k pattern generator with expected signature
-def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
-    """Return top-k simple candidate patterns scored vs demand_matrix.
 
-    - Builds daily blocks for active demand days at multiple start-hours/durations.
-    - Returns list of (score, name, pattern) sorted by score desc.
-    """
+def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
     import numpy as _np
 
     dm = _np.asarray(demand_matrix)
@@ -3640,15 +2677,12 @@ def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
     if not active_days:
         return []
 
-    # Choose durations guided by cfg: if FT enabled, include 8h; always include 4h as well
     durations = []
     if not cfg or cfg.get("use_ft", True):
         durations.append(8)
-    # add a shorter duration to produce candidates even with sparse demand
     durations.append(4)
     durations = sorted(set(durations))
 
-    # Empaquetar demanda por compatibilidad con score_pattern en tests
     try:
         dm_scoring = _np.packbits(dm > 0, axis=1).astype(_np.uint8)
     except Exception:
@@ -3682,7 +2716,7 @@ def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
     best = [it for it in items if it[0] == max_score]
     if len(best) >= k:
         return best[:k]
-    # Garantizar al menos k elementos con score mximo duplicando el mejor
+ximo duplicando el mejor
     out = list(best)
     while len(out) < k:
         s, name, pat = best[0]
