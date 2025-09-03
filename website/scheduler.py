@@ -18,6 +18,7 @@ import pandas as pd
 import math
 from collections import defaultdict
 import re
+import base64
 
 try:
     import matplotlib
@@ -2403,6 +2404,124 @@ def _compact_patterns_for(assignments, patterns, D, H):
     return small
 
 
+# ------------------------------------------------------------
+# Utilidades para "modo Streamlit": todo en RAM, sin snapshots
+# ------------------------------------------------------------
+
+def _pattern_matrix(pattern):
+    """Devuelve la matriz D x H (lista de listas o np.array) de un patrón."""
+    if pattern is None:
+        return None
+    if isinstance(pattern, dict) and "matrix" in pattern:
+        return np.asarray(pattern["matrix"])
+    return np.asarray(pattern)  # fallback: ya es la matriz
+
+
+def _assigned_matrix_from(assignments, patterns, D, H):
+    """Suma las matrices de los patrones asignados → cobertura por (día, hora)."""
+    cov = np.zeros((D, H), dtype=int)
+    if not assignments:
+        return cov
+    for v in assignments.values():
+        pid = v.get("pattern") if isinstance(v, dict) else v
+        p = patterns.get(pid)
+        if p is None:
+            continue
+        mat = _pattern_matrix(p).reshape(D, H)
+        cov += mat
+    return cov
+
+
+def _fig_to_b64(fig):
+    buf = BytesIO()
+    fig.tight_layout()
+    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _heatmap(matrix, title, day_labels=None, hour_labels=None, annotate=True, cmap="RdYlBu_r"):
+    M = np.asarray(matrix)
+    D, H = M.shape
+    fig, ax = plt.subplots(figsize=(min(1.0 * H, 20), min(0.7 * D + 2, 10)))
+    im = ax.imshow(M, cmap=cmap, aspect="auto")
+    if hour_labels is None:
+        hour_labels = [f"{h:02d}" for h in range(H)]
+    if day_labels is None:
+        day_labels = [f"Día {i+1}" for i in range(D)]
+    ax.set_xticks(range(H))
+    ax.set_xticklabels(hour_labels, fontsize=8, rotation=0)
+    ax.set_yticks(range(D))
+    ax.set_yticklabels(day_labels, fontsize=9)
+    ax.set_title(title)
+    ax.set_xlabel("Hora del día")
+    ax.set_ylabel("Día")
+    if annotate and H <= 30 and D <= 14:
+        for i in range(D):
+            for j in range(H):
+                ax.text(j, i, f"{int(M[i, j])}", ha="center", va="center", fontsize=7, color="black")
+    fig.colorbar(im, ax=ax, shrink=0.95)
+    return fig
+
+
+def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None, hour_labels=None, meta=None):
+    """Construye matrices, métricas y gráficos (base64) en RAM."""
+    D, H = demand_matrix.shape
+    cov = _assigned_matrix_from(assignments, patterns, D, H)
+    dem = np.asarray(demand_matrix, dtype=int)
+    diff = cov - dem
+
+    total_dem = int(dem.sum())
+    total_cov = int(cov.sum())
+    deficit = int(np.clip(dem - cov, 0, None).sum())
+    excess = int(np.clip(cov - dem, 0, None).sum())
+    coverage_pct = (total_cov / total_dem * 100.0) if total_dem > 0 else 0.0
+
+    # Gráficos
+    fig_dem = _heatmap(dem, "Demanda (agentes-hora)", day_labels, hour_labels, annotate=True, cmap="Reds")
+    fig_cov = _heatmap(
+        cov,
+        "Cobertura Asignada (agentes-hora)",
+        day_labels,
+        hour_labels,
+        annotate=True,
+        cmap="Blues",
+    )
+    fig_diff = _heatmap(
+        diff,
+        "Cobertura - Demanda (positivo = exceso / negativo = déficit)",
+        day_labels,
+        hour_labels,
+        annotate=True,
+        cmap="RdBu_r",
+    )
+
+    payload = {
+        "metrics": {
+            "total_demand": total_dem,
+            "total_coverage": total_cov,
+            "coverage_percentage": round(coverage_pct, 1),
+            "deficit": deficit,
+            "excess": excess,
+            "agents": len(assignments or {}),
+        },
+        "matrices": {
+            "demand": dem.tolist(),
+            "coverage": cov.tolist(),
+            "diff": diff.tolist(),
+            "day_labels": day_labels or [f"Día {i+1}" for i in range(D)],
+            "hour_labels": hour_labels or list(range(H)),
+        },
+        "figures": {
+            "demand_png": _fig_to_b64(fig_dem),
+            "coverage_png": _fig_to_b64(fig_cov),
+            "diff_png": _fig_to_b64(fig_diff),
+        },
+        "meta": meta or {},
+    }
+    return payload
+
+
 def create_heatmap(matrix, title, cmap='RdYlBu_r'):
     """Crea un heatmap de la matriz"""
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -2942,7 +3061,7 @@ def apply_configuration(cfg=None):
 # Función principal de optimización completa EXACTA del legacy
 # ——————————————————————————————————————————————————————————————
 
-def run_complete_optimization(file_stream, config=None, generate_charts=False, job_id=None):
+def run_complete_optimization(file_stream, config=None, generate_charts=False, job_id=None, return_payload=False):
     """Run the full optimization pipeline matching legacy behavior EXACTLY."""
     print("[SCHEDULER] Iniciando run_complete_optimization LEGACY")
     print(f"[SCHEDULER] Config recibido: {config}")
@@ -3453,7 +3572,23 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
             result["message"] = warning_msg
         result["effective_config"] = _convert(cfg)
         print("[SCHEDULER] Resultados preparados con todas las funciones del legacy - RETORNANDO")
-        
+        # ---------- MODO SÍNCRONO TIPO STREAMLIT ----------
+        if return_payload:
+            D, H = demand_matrix.shape
+            day_labels = [f"Día {i+1}" for i in range(D)]
+            hour_labels = list(range(H))
+            payload = _build_sync_payload(
+                assignments=pulp_assignments or {},
+                patterns=patterns,
+                demand_matrix=demand_matrix,
+                day_labels=day_labels,
+                hour_labels=hour_labels,
+                meta={"status": pulp_status},
+            )
+            payload["status"] = pulp_status
+            payload["config"] = _convert(cfg)
+            return payload
+
         # Actualizar progreso final
         if job_id:
             update_progress(job_id, {"stage": "Resultados listos", "final_coverage": metrics.get("coverage_percentage", 0) if metrics else 0}, None)
