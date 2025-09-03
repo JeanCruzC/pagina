@@ -169,29 +169,6 @@ def logout():
 def register():
     return redirect(url_for("core.login"))
 
-
-
-
-@bp.route("/heatmap/<job_id>/<path:filename>")
-@login_required
-def heatmap(job_id, filename):
-    path = os.path.join(temp_dir, job_id, filename)
-    if not os.path.exists(path):
-        abort(404)
-
-    @after_this_request
-    def cleanup(response):
-        try:
-            os.remove(path)
-            os.rmdir(os.path.join(temp_dir, job_id))
-        except OSError:
-            pass
-        return response
-
-    return send_file(path, mimetype="image/png")
-
-
-
 @bp.route("/configuracion")
 @login_required
 def configuracion():
