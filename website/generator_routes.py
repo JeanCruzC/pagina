@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, request, current_app, jsonify
+from flask_wtf.csrf import generate_csrf
 from . import scheduler
 
 bp = Blueprint("generator", __name__)
@@ -34,7 +35,10 @@ def _cfg_from_request(form):
 def generador():
     if request.method == "GET":
         # Muestra formulario simple de carga (sin JS, sin polling)
-        return render_template("generador.html", mode="sync")
+        # Genera token CSRF y pásalo al template
+        return render_template(
+            "generador.html", mode="sync", csrf_token=generate_csrf()
+        )
 
     # POST: ejecutar TODO en la MISMA request (modo Streamlit)
     xls = request.files.get("file") or request.files.get("excel")
