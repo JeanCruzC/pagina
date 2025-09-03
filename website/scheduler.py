@@ -1961,7 +1961,7 @@ def optimize_jean_search(
                 _write_partial_result(
                     job_id,
                     None,
-                    shifts_coverage,
+                    None,
                     demand_matrix,
                     meta={"iteration": iteration + 1, "factor": factor},
                 )
@@ -1985,12 +1985,19 @@ def optimize_jean_search(
         # Publicar snapshot parcial de esta iteración para que la UI siempre muestre progreso
         try:
             if job_id is not None:
+                D, H = demand_matrix.shape
+                pat_small = _compact_patterns_for(assignments or {}, shifts_coverage, D, H)
                 _write_partial_result(
                     job_id,
                     assignments or {},
-                    shifts_coverage,
+                    pat_small,
                     demand_matrix,
-                    meta={"iteration": iteration + 1, "factor": factor},
+                    meta={
+                        "iteration": iteration + 1,
+                        "factor": factor,
+                        "day_labels": [f"Día {i+1}" for i in range(D)],
+                        "hour_labels": list(range(H)),
+                    },
                 )
                 update_progress(
                     job_id,
@@ -2369,6 +2376,22 @@ def _write_partial_result(job_id, assignments, patterns, demand_matrix, *, meta=
         print(f"[PARTIAL] {path} escrito (PuLP) — assignments={pr.get('assignments_count', 0)}, wrote_new={wrote_new}")
     except Exception:
         pass
+
+
+def _compact_patterns_for(assignments, patterns, D, H):
+    used = set()
+    for v in assignments.values():
+        pid = v.get("pattern") if isinstance(v, dict) else v
+        used.add(pid)
+    small = {}
+    for pid in used:
+        p = patterns.get(pid)
+        if p is None:
+            continue
+        mat = p.get("matrix", p)
+        arr = np.asarray(mat, dtype=int).reshape(D, H).tolist()
+        small[pid] = {"matrix": arr}
+    return small
 
 
 def create_heatmap(matrix, title, cmap='RdYlBu_r'):
@@ -3072,7 +3095,18 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
             )
             if job_id:
                 try:
-                    _write_partial_result(job_id, assignments, patterns, demand_matrix)
+                    D, H = demand_matrix.shape
+                    pat_small = _compact_patterns_for(assignments, patterns, D, H)
+                    _write_partial_result(
+                        job_id,
+                        assignments=assignments,
+                        patterns=pat_small,
+                        demand_matrix=demand_matrix,
+                        meta={
+                            "day_labels": [f"Día {i+1}" for i in range(D)],
+                            "hour_labels": list(range(H)),
+                        },
+                    )
                 except Exception:
                     pass
             results = analyze_results(assignments, patterns, demand_matrix)
@@ -3174,7 +3208,18 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         # Guardar snapshot parcial para que la UI pueda refrescar
         if job_id:
             try:
-                _write_partial_result(job_id, assignments, patterns, demand_matrix)
+                D, H = demand_matrix.shape
+                pat_small = _compact_patterns_for(assignments, patterns, D, H)
+                _write_partial_result(
+                    job_id,
+                    assignments=assignments,
+                    patterns=pat_small,
+                    demand_matrix=demand_matrix,
+                    meta={
+                        "day_labels": [f"Día {i+1}" for i in range(D)],
+                        "hour_labels": list(range(H)),
+                    },
+                )
             except Exception:
                 pass
 
