@@ -1,5 +1,39 @@
 {% extends 'base.html' %}
 {% block content %}
+{% if payload %}
+  <div class="card" style="margin-top: 12px;">
+    <div class="card-body">
+      <h5 class="card-title">Resultado Principal (Modo Síncrono)</h5>
+      <p class="card-text">
+        {{ payload.metrics.agents }} agentes |
+        {{ payload.metrics.coverage_percentage }}% cobertura |
+        {{ payload.metrics.deficit }} déficit |
+        {{ payload.metrics.excess }} exceso
+      </p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 12px;">
+    <div class="card-body">
+      <h6 class="card-title">Demanda (agentes-hora)</h6>
+      <img style="max-width:100%;" src="data:image/png;base64,{{ payload.figures.demand_png }}" />
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 12px;">
+    <div class="card-body">
+      <h6 class="card-title">Cobertura Asignada (agentes-hora)</h6>
+      <img style="max-width:100%;" src="data:image/png;base64,{{ payload.figures.coverage_png }}" />
+    </div>
+  </div>
+
+  <div class="card" style="margin-top: 12px;">
+    <div class="card-body">
+      <h6 class="card-title">Cobertura - Demanda</h6>
+      <img style="max-width:100%;" src="data:image/png;base64,{{ payload.figures.diff_png }}" />
+    </div>
+  </div>
+{% else %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <div class="d-flex align-items-center justify-content-between mb-3">
@@ -730,4 +764,5 @@
   </div>
   {% endif %}
 
+{% endif %}
 {% endblock %}
