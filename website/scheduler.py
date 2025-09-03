@@ -1941,6 +1941,7 @@ def optimize_jean_search(
     iteration = 0
     while iteration < max_iterations and factor >= 1:
 
+        print(f"[JEAN] iter={iteration + 1}, factor={factor}, job={job_id}")
         try:
             if job_id is not None:
                 update_progress(
@@ -2250,9 +2251,15 @@ def _write_partial_result(job_id, assignments, shifts_coverage, demand_matrix, *
                 existing = {}
 
         existing.setdefault("pulp_results", {}).update(payload)
-
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(existing, fh, ensure_ascii=False)
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            assigns = sum(assignments.values()) if assignments else 0
+        except Exception:
+            assigns = 0
+        print(f"[PARTIAL] {path} escrito (PuLP) — assigns={assigns}")
     except Exception as e:  # pragma: no cover - best effort logging
         print(f"[SCHEDULER] Error writing partial result: {e}")
 
@@ -2812,6 +2819,9 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         solver_time = cfg.get("TIME_SOLVER", cfg.get("solver_time"))
         if solver_time is not None:
             current_app.config["TIME_SOLVER"] = solver_time
+
+        # Limitar tiempo de cada iteración JEAN para pruebas rápidas
+        current_app.config["JEAN_ITER_TIME_LIMIT"] = 20
         
         # Extraer parámetros de configuración EXACTOS del legacy
         use_ft = cfg.get("use_ft", True)
@@ -2944,7 +2954,7 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
         
         # LÓGICA EXACTA DEL LEGACY STREAMLIT con todas las funciones implementadas
         assignments, status = {}, "NO_METHOD"
-        if use_ft and use_pt and cfg.get("ft_first_pt_last", False):
+        if use_ft and use_pt and cfg.get("ft_first_pt_last", True):
             print("[SCHEDULER] Estrategia FT→PT activada")
             assignments, status = optimize_ft_then_pt_strategy(
                 patterns, demand_matrix,
@@ -2952,6 +2962,31 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
                 excess_penalty=excess_penalty,
                 TIME_SOLVER=current_app.config.get("TIME_SOLVER"),
             )
+            if job_id:
+                try:
+                    _write_partial_result(job_id, assignments, patterns, demand_matrix)
+                except Exception:
+                    pass
+            results = analyze_results(assignments, patterns, demand_matrix)
+            if results:
+                coverage = results["coverage_percentage"]
+                score = results["overstaffing"] + results["understaffing"]
+                if coverage < TARGET_COVERAGE or score > 0:
+                    print("[SCHEDULER] Refinando con JEAN tras FT→PT")
+                    refined_assignments, status = optimize_jean_search(
+                        patterns,
+                        demand_matrix,
+                        target_coverage=TARGET_COVERAGE,
+                        verbose=VERBOSE,
+                        agent_limit_factor=agent_limit_factor,
+                        excess_penalty=excess_penalty,
+                        peak_bonus=peak_bonus,
+                        critical_bonus=critical_bonus,
+                        iteration_time_limit=current_app.config.get("TIME_SOLVER"),
+                        job_id=job_id,
+                    )
+                    if refined_assignments:
+                        assignments = refined_assignments
         elif optimization_profile == "JEAN":
             print("[SCHEDULER] Ejecutando búsqueda JEAN con reducción progresiva del factor")
             assignments, status = optimize_jean_search(
@@ -3270,6 +3305,8 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
                     path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
                     with open(path, "w", encoding="utf-8") as fh:
                         json.dump(result, fh, ensure_ascii=False)
+                        fh.flush()
+                        os.fsync(fh.fileno())
                 except Exception:
                     pass
         except Exception:

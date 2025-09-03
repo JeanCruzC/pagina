@@ -256,7 +256,16 @@ def resultados(job_id):
         status = st.get("status")
         if status in {"running", "pending", "queued"}:
             print(f"[RESULTADOS] Job {job_id} running - placeholder")
-            return render_template("resultados.html", resultado=None)
+            return render_template(
+                "resultados.html",
+                job_id=job_id,
+                running=True,
+                has_pulp=False,
+                has_greedy=False,
+                pulp_assignments=0,
+                greedy_assignments=0,
+                resultado=None,
+            ), 200
         if status in {"error", "cancelled", "unknown"}:
             print(f"[RESULTADOS] No hay datos para {job_id} - 500")
             return render_template("500.html", message="Resultado no disponible"), 500
