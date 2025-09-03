@@ -53,11 +53,11 @@ document.addEventListener('DOMContentLoaded', () => {
     },
     'JEAN': {
       agent_limit_factor: 30, excess_penalty: 5.0, peak_bonus: 2.0, critical_bonus: 2.5,
-      solver_time: 240, coverage: 98, iterations: 30
+      solver_time: 120, coverage: 98, iterations: 6, ft_first_pt_last: true
     },
     'JEAN Personalizado': {
       agent_limit_factor: 30, excess_penalty: 5.0, peak_bonus: 2.0, critical_bonus: 2.5,
-      solver_time: 240, coverage: 98, iterations: 30
+      solver_time: 120, coverage: 98, iterations: 6, ft_first_pt_last: true
     },
     'Personalizado': {
       agent_limit_factor: 25, excess_penalty: 0.5, peak_bonus: 1.5, critical_bonus: 2.0,
@@ -168,6 +168,10 @@ document.addEventListener('DOMContentLoaded', () => {
     data.append('generate_charts', generateCharts ? 'true' : 'false');
     data.append('export_files', exportFiles ? 'true' : 'false');
     data.append('job_id', job_id);
+    const profileCfg = profileConfigs[profileSelect.value];
+    if (profileCfg && profileCfg.ft_first_pt_last) {
+      data.append('ft_first_pt_last', 'true');
+    }
     controller = new AbortController();
 
     try {
