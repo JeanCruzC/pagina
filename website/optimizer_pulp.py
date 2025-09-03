@@ -17,7 +17,7 @@ except Exception:
 from .scheduler_core import merge_config, analyze_results
 
 try:
-    from .scheduler import _write_partial_result
+from .scheduler import _write_partial_result, _compact_patterns_for
 except Exception:  # pragma: no cover - fallback if scheduler not available
     def _write_partial_result(*args, **kwargs):
         pass
@@ -327,12 +327,19 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_cov
         # Snapshot inicial antes de resolver la iteración
         try:
             if job_id is not None:
+                D, H = demand_matrix.shape
+                pat_small = _compact_patterns_for({}, shifts_coverage, D, H)
                 _write_partial_result(
                     job_id,
                     {},
-                    shifts_coverage,
+                    pat_small,
                     demand_matrix,
-                    meta={"iteration": iteration + 1, "factor": factor},
+                    meta={
+                        "iteration": iteration + 1,
+                        "factor": factor,
+                        "day_labels": [f"Día {i+1}" for i in range(D)],
+                        "hour_labels": list(range(H)),
+                    },
                 )
         except Exception:
             pass
@@ -349,12 +356,19 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None, target_cov
             # Guardar snapshot con resultados si existen
             try:
                 if job_id is not None:
+                    D, H = demand_matrix.shape
+                    pat_small = _compact_patterns_for(assignments if results else {}, shifts_coverage, D, H)
                     _write_partial_result(
                         job_id,
                         assignments if results else {},
-                        shifts_coverage,
+                        pat_small,
                         demand_matrix,
-                        meta={"iteration": iteration + 1, "factor": factor},
+                        meta={
+                            "iteration": iteration + 1,
+                            "factor": factor,
+                            "day_labels": [f"Día {i+1}" for i in range(D)],
+                            "hour_labels": list(range(H)),
+                        },
                     )
             except Exception:
                 pass

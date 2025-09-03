@@ -1958,12 +1958,19 @@ def optimize_jean_search(
                     },
                 )
                 # Snapshot ligero que no toca assignments
+                D, H = demand_matrix.shape
+                pat_small = _compact_patterns_for({}, shifts_coverage, D, H)
                 _write_partial_result(
                     job_id,
                     None,
-                    None,
+                    pat_small,
                     demand_matrix,
-                    meta={"iteration": iteration + 1, "factor": factor},
+                    meta={
+                        "iteration": iteration + 1,
+                        "factor": factor,
+                        "day_labels": [f"Día {i+1}" for i in range(D)],
+                        "hour_labels": list(range(H)),
+                    },
                 )
         except Exception:
             pass
@@ -2278,83 +2285,84 @@ def _write_partial_result(job_id, assignments, patterns, demand_matrix, *, meta=
             pr["status"] = "PARTIAL"
             wrote_new = True
 
-    # ---------- métricas y charts ligeros ----------
-    # Si tenemos todo, computamos series; si falta algo, dejamos lo previo.
-    if np is not None and demand_matrix is not None and patterns is not None and pr.get("assignments"):
+    # ---------- métricas mínimas y heatmaps ----------
+    if (
+        np is not None
+        and demand_matrix is not None
+        and patterns is not None
+        and pr.get("assignments")
+    ):
         try:
-            dm = np.array(demand_matrix, dtype=int)
-            if dm.ndim != 2:
-                raise ValueError("demand_matrix debe ser 2D [dias x horas]")
-            D, H = dm.shape
-            cov = np.zeros_like(dm, dtype=int)
+            D, H = demand_matrix.shape
+            # reconstruir cobertura desde patrones compactos
+            total_cov = np.zeros((D, H), dtype=int)
+            for a in pr["assignments"].values():
+                pid = a.get("pattern") if isinstance(a, dict) else a
+                if pid in patterns:
+                    mat = np.asarray(patterns[pid]["matrix"], dtype=int).reshape(D, H)
+                    total_cov += mat
 
-            # normaliza patterns -> devuelve matriz [D,H] para cada patrón
-            def pat_matrix(p):
-                if isinstance(p, dict):
-                    for k in ("matrix", "mat", "cover", "grid", "m"):
-                        if k in p:
-                            arr = np.array(p[k], dtype=int)
-                            break
-                    else:
-                        # si viniera plano, tratamos de reshapar
-                        arr = np.array(list(p.values())[0], dtype=int)
-                else:
-                    arr = np.array(p, dtype=int)
-                if arr.ndim == 1:
-                    arr = arr.reshape(D, H)
-                return arr
+            demand = np.asarray(demand_matrix, dtype=int)
+            diff = total_cov - demand
 
-            # map de patrón -> cantidad
-            counts = defaultdict(int)
-            sample = next(iter(pr["assignments"].values()))
-            # caso {agente: patron}
-            if isinstance(sample, (str, int, tuple)) or (isinstance(sample, dict) and "pattern" in sample):
-                for v in pr["assignments"].values():
-                    pat_id = v["pattern"] if isinstance(v, dict) else v
-                    counts[pat_id] += 1
-            else:
-                # caso {patron: cantidad}
-                for pat_id, c in pr["assignments"].items():
-                    try:
-                        counts[pat_id] += int(c)
-                    except Exception:
-                        pass
+            cov_curve = total_cov.sum(axis=0).tolist()
+            dem_curve = demand.sum(axis=0).tolist()
+            diff_curve = diff.sum(axis=0)
 
-            for pat_id, c in counts.items():
-                p_raw = patterns.get(pat_id)
-                if p_raw is None:
-                    continue
-                cov += int(c) * pat_matrix(p_raw)
+            deficit_curve = np.clip(-diff_curve, 0, None).tolist()
+            excess_curve = np.clip(diff_curve, 0, None).tolist()
 
-            deficit = np.maximum(dm - cov, 0)
-            excess  = np.maximum(cov - dm, 0)
-            served  = np.minimum(cov, dm)
-
-            required = int(dm.sum())
-            covered  = int(served.sum())
-            under    = int(deficit.sum())
-            over     = int(excess.sum())
+            demand_total = int(demand.sum())
+            covered_total = int(np.minimum(total_cov, demand).sum())
+            coverage_pct = (
+                covered_total / demand_total * 100.0
+            ) if demand_total > 0 else 0.0
 
             pr["metrics"] = {
-                "coverage_percentage": round(100.0 * covered / required, 1) if required else 100.0,
-                "understaffing": under,
-                "overstaffing": over,
+                "total_coverage": total_cov.tolist(),
+                "diff_matrix": diff.tolist(),
+                "coverage_curve": cov_curve,
+                "demand_curve": dem_curve,
+                "deficit_curve": deficit_curve,
+                "excess_curve": excess_curve,
+                "coverage_percentage": coverage_pct,
             }
 
-            # etiquetas simples si no vienen en meta
-            day_labels   = meta.get("day_labels") or [f"Día {i+1}" for i in range(D)]
-            hour_labels  = meta.get("hour_labels") or list(range(H))
+            # Etiquetas livianas para frontend
+            pr.setdefault("day_labels", [f"Día {i+1}" for i in range(D)])
+            pr.setdefault("hour_labels", list(range(H)))
 
-            pr["charts"] = {
-                "labels": {"days": day_labels, "hours": hour_labels},
-                "demand": dm.tolist(),
-                "coverage": cov.tolist(),
-                "deficit": deficit.tolist(),
-                "excess": excess.tolist(),
-            }
         except Exception as e:
-            # no rompemos: dejamos parciales previos
-            pr.setdefault("errors", []).append(f"charts_failed: {type(e).__name__}: {e}")
+            pr.setdefault("errors", []).append(f"metrics_failed: {e}")
+
+    pr.setdefault("heatmaps", {})
+    try:
+        # DEMAND
+        fig = create_heatmap(np.asarray(demand_matrix), "Demanda", cmap="RdYlBu_r")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        fig.savefig(tmp.name, format="png", bbox_inches="tight")
+        plt.close(fig)
+        pr["heatmaps"]["demand"] = f"/heatmap/{os.path.basename(tmp.name)}"
+    except Exception as e:
+        pr.setdefault("errors", []).append(f"heatmap_demand_failed: {e}")
+
+    try:
+        if pr.get("metrics"):
+            cov = np.asarray(pr["metrics"]["total_coverage"])
+            fig = create_heatmap(cov, "Cobertura (PuLP)", cmap="RdYlBu_r")
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            fig.savefig(tmp.name, format="png", bbox_inches="tight")
+            plt.close(fig)
+            pr["heatmaps"]["coverage"] = f"/heatmap/{os.path.basename(tmp.name)}"
+
+            diff = np.asarray(pr["metrics"]["diff_matrix"])
+            fig = create_heatmap(diff, "Cobertura - Demanda (PuLP)", cmap="RdYlBu_r")
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            fig.savefig(tmp.name, format="png", bbox_inches="tight")
+            plt.close(fig)
+            pr["heatmaps"]["difference"] = f"/heatmap/{os.path.basename(tmp.name)}"
+    except Exception as e:
+        pr.setdefault("errors", []).append(f"heatmap_pulp_failed: {e}")
 
     # meta liviana (sin campos pesados)
     if meta:
@@ -2380,9 +2388,10 @@ def _write_partial_result(job_id, assignments, patterns, demand_matrix, *, meta=
 
 def _compact_patterns_for(assignments, patterns, D, H):
     used = set()
-    for v in assignments.values():
+    for v in (assignments or {}).values():
         pid = v.get("pattern") if isinstance(v, dict) else v
-        used.add(pid)
+        if pid is not None:
+            used.add(pid)
     small = {}
     for pid in used:
         p = patterns.get(pid)

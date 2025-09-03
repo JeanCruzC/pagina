@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <div class="d-flex align-items-center justify-content-between mb-3">
     <h2 class="mb-0 fw-bold">Resultados <small class="text-muted">{{ moment().format('HH:mm:ss') if moment else '' }}</small></h2>
@@ -134,7 +135,13 @@
       <div class="card">
         <div class="card-header bg-primary text-white">
           <h5 class="mb-0">🧠 Algoritmo PuLP (JEAN)</h5>
-          <small>Status: {{ resultado.pulp_results.status }}</small>
+          <small>
+            {% if resultado.pulp_results.status == 'PARTIAL' %}
+              <span class="badge bg-warning text-dark">Procesando… (parcial)</span>
+            {% else %}
+              Status: {{ resultado.pulp_results.status }}
+            {% endif %}
+          </small>
         </div>
         <div class="card-body">
           {% if resultado.pulp_results.metrics %}
@@ -221,14 +228,57 @@
   <!-- Gráficas PuLP dinámicas -->
   <div class="row g-4 mb-4">
     <div class="col-12">
-      <div id="pulp-charts" class="card">
+      <div id="charts-pulp" class="card">
         <div class="card-body">
           <h5 class="card-title">Cobertura vs. Demanda (PuLP)</h5>
-          <canvas id="chartCoverage"></canvas>
-          <h6 class="mt-4">Déficit</h6>
-          <canvas id="chartDeficit"></canvas>
-          <h6 class="mt-4">Exceso</h6>
-          <canvas id="chartExcess"></canvas>
+          {% set hm = resultado.pulp_results.heatmaps if resultado and resultado.pulp_results else {} %}
+          {% if hm and hm.coverage and hm.difference %}
+            <div class="grid">
+              <img src="{{ hm.coverage }}" alt="Cobertura (PuLP)">
+              <img src="{{ hm.difference }}" alt="Cobertura - Demanda (PuLP)">
+            </div>
+          {% elif resultado.pulp_results and resultado.pulp_results.metrics %}
+            <canvas id="chart-coverage" height="140"></canvas>
+            <canvas id="chart-deficit-excess" height="120" class="mt-4"></canvas>
+            <script>
+              (function(){
+                const m = {{ resultado.pulp_results.metrics|tojson }};
+                const hours = {{ resultado.pulp_results.hour_labels|default([])|tojson }};
+                const cov = m.coverage_curve || [];
+                const dem = m.demand_curve || [];
+                const def = m.deficit_curve || [];
+                const exc = m.excess_curve || [];
+
+                // Cobertura vs Demanda
+                new Chart(document.getElementById('chart-coverage'), {
+                  type: 'line',
+                  data: {
+                    labels: hours,
+                    datasets: [
+                      { label: 'Demanda', data: dem },
+                      { label: 'Cobertura', data: cov }
+                    ]
+                  },
+                  options: { responsive: true, maintainAspectRatio: false }
+                });
+
+                // Déficit y Exceso
+                new Chart(document.getElementById('chart-deficit-excess'), {
+                  type: 'bar',
+                  data: {
+                    labels: hours,
+                    datasets: [
+                      { label: 'Déficit', data: def },
+                      { label: 'Exceso', data: exc }
+                    ]
+                  },
+                  options: { responsive: true, maintainAspectRatio: false, stacked: true }
+                });
+              })();
+            </script>
+          {% else %}
+            <p class="text-muted">Sin datos todavía. Esperando resultados parciales…</p>
+          {% endif %}
         </div>
       </div>
     </div>
