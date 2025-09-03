@@ -1963,8 +1963,7 @@ def optimize_jean_search(
                     None,
                     shifts_coverage,
                     demand_matrix,
-                    iteration=iteration + 1,
-                    factor=factor,
+                    meta={"iteration": iteration + 1, "factor": factor},
                 )
         except Exception:
             pass
@@ -1991,8 +1990,7 @@ def optimize_jean_search(
                     assignments or {},
                     shifts_coverage,
                     demand_matrix,
-                    iteration=iteration + 1,
-                    factor=factor,
+                    meta={"iteration": iteration + 1, "factor": factor},
                 )
                 update_progress(
                     job_id,
@@ -2209,12 +2207,26 @@ def analyze_results(assignments, shifts_coverage, demand_matrix):
         'understaffing': understaffing,
         'diff_matrix': diff_matrix
     }
-def _safe_sum(d):
-    return sum(d.values()) if isinstance(d, dict) else 0
 
 
-def _write_partial_result(job_id, assignments, patterns, demand_matrix, **meta):
+def _write_partial_result(job_id, assignments, patterns, demand_matrix, *, meta=None):
+    """
+    Graba un snapshot ligero en: %TEMP%/scheduler_result_{job_id}.json
+
+    - No sobreescribe assignments válidos con None.
+    - Calcula y persiste 'charts' (demand, coverage, deficit, excess) si tiene
+      assignments + patterns + demand_matrix.
+    """
+    import os, json, time, tempfile
+    from collections import defaultdict
+    try:
+        import numpy as np
+    except Exception:
+        np = None  # evitamos fallo por import
+
     path = os.path.join(tempfile.gettempdir(), f"scheduler_result_{job_id}.json")
+
+    # lee previo
     try:
         with open(path, "r", encoding="utf-8") as fh:
             existing = json.load(fh)
@@ -2222,38 +2234,141 @@ def _write_partial_result(job_id, assignments, patterns, demand_matrix, **meta):
         existing = {}
 
     pr = existing.setdefault("pulp_results", {})
+    meta = (meta or {})
 
-    # >>>>> PARCHE: NO tocar assignments si assignments es None
+    # ---------- anti-borrado ----------
+    wrote_new = False
     if assignments is None:
-        new_cnt = None
-        prev_cnt = _safe_sum(pr.get("assignments", {}))
-        wrote_new = False
+        # no tocar assignments previos
+        pass
     else:
-        new_cnt = _safe_sum(assignments)
-        prev_cnt = _safe_sum(pr.get("assignments", {}))
-        # Solo aceptar reemplazo si el nuevo tiene contenido (>0) o si nunca hubo nada
-        if new_cnt > 0 or prev_cnt == 0:
+        # contamos "cuánto" nuevo hay. Soportamos dos formas:
+        # a) assignments = {agente: patron}
+        # b) assignments = {patron: cantidad}
+        def _safe_sum(d):
+            try:
+                return sum(int(v) for v in d.values())
+            except Exception:
+                return 0
+
+        prev_cnt = int(pr.get("assignments_count", 0))
+        # intentamos deducir el tipo
+        new_cnt = 0
+        try:
+            vals = list(assignments.values())
+            if vals and isinstance(vals[0], (str, int, tuple, dict)):
+                # tipo a) probablemente {agente: patron} o similar
+                new_cnt = len(assignments)
+            else:
+                new_cnt = _safe_sum(assignments)
+        except Exception:
+            new_cnt = _safe_sum(assignments)
+
+        # solo aceptamos algo si trae contenido y no es "menos" que lo previo
+        if new_cnt > 0 and new_cnt >= prev_cnt:
             pr["assignments"] = assignments
+            pr["assignments_count"] = int(new_cnt)
+            pr["status"] = "PARTIAL"
             wrote_new = True
-        else:
-            wrote_new = False
-    # <<<<< FIN PARCHE
 
-    # Actualiza meta sin campos pesados
-    pr.update({k: v for k, v in meta.items() if k not in ("patterns", "demand_matrix")})
+    # ---------- métricas y charts ligeros ----------
+    # Si tenemos todo, computamos series; si falta algo, dejamos lo previo.
+    if np is not None and demand_matrix is not None and patterns is not None and pr.get("assignments"):
+        try:
+            dm = np.array(demand_matrix, dtype=int)
+            if dm.ndim != 2:
+                raise ValueError("demand_matrix debe ser 2D [dias x horas]")
+            D, H = dm.shape
+            cov = np.zeros_like(dm, dtype=int)
+
+            # normaliza patterns -> devuelve matriz [D,H] para cada patrón
+            def pat_matrix(p):
+                if isinstance(p, dict):
+                    for k in ("matrix", "mat", "cover", "grid", "m"):
+                        if k in p:
+                            arr = np.array(p[k], dtype=int)
+                            break
+                    else:
+                        # si viniera plano, tratamos de reshapar
+                        arr = np.array(list(p.values())[0], dtype=int)
+                else:
+                    arr = np.array(p, dtype=int)
+                if arr.ndim == 1:
+                    arr = arr.reshape(D, H)
+                return arr
+
+            # map de patrón -> cantidad
+            counts = defaultdict(int)
+            sample = next(iter(pr["assignments"].values()))
+            # caso {agente: patron}
+            if isinstance(sample, (str, int, tuple)) or (isinstance(sample, dict) and "pattern" in sample):
+                for v in pr["assignments"].values():
+                    pat_id = v["pattern"] if isinstance(v, dict) else v
+                    counts[pat_id] += 1
+            else:
+                # caso {patron: cantidad}
+                for pat_id, c in pr["assignments"].items():
+                    try:
+                        counts[pat_id] += int(c)
+                    except Exception:
+                        pass
+
+            for pat_id, c in counts.items():
+                p_raw = patterns.get(pat_id)
+                if p_raw is None:
+                    continue
+                cov += int(c) * pat_matrix(p_raw)
+
+            deficit = np.maximum(dm - cov, 0)
+            excess  = np.maximum(cov - dm, 0)
+            served  = np.minimum(cov, dm)
+
+            required = int(dm.sum())
+            covered  = int(served.sum())
+            under    = int(deficit.sum())
+            over     = int(excess.sum())
+
+            pr["metrics"] = {
+                "coverage_percentage": round(100.0 * covered / required, 1) if required else 100.0,
+                "understaffing": under,
+                "overstaffing": over,
+            }
+
+            # etiquetas simples si no vienen en meta
+            day_labels   = meta.get("day_labels") or [f"Día {i+1}" for i in range(D)]
+            hour_labels  = meta.get("hour_labels") or list(range(H))
+
+            pr["charts"] = {
+                "labels": {"days": day_labels, "hours": hour_labels},
+                "demand": dm.tolist(),
+                "coverage": cov.tolist(),
+                "deficit": deficit.tolist(),
+                "excess": excess.tolist(),
+            }
+        except Exception as e:
+            # no rompemos: dejamos parciales previos
+            pr.setdefault("errors", []).append(f"charts_failed: {type(e).__name__}: {e}")
+
+    # meta liviana (sin campos pesados)
+    if meta:
+        for k, v in meta.items():
+            if k not in ("patterns", "demand_matrix"):
+                pr[k] = v
+
+    # persistimos
     existing["pulp_results"] = pr
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(existing, fh, ensure_ascii=False)
+            fh.flush(); os.fsync(fh.fileno())
+    except Exception:
+        pass
 
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(existing, fh, ensure_ascii=False)
-        fh.flush()
-        os.fsync(fh.fileno())
-
-    # Log claro para verificar el comportamiento
-    print(
-        f"[PARTIAL] {path} escrito (PuLP) — "
-        f"new={new_cnt if new_cnt is not None else 'None'}, "
-        f"prev={prev_cnt}, wrote_new={wrote_new}"
-    )
+    # log corto opcional
+    try:
+        print(f"[PARTIAL] {path} escrito (PuLP) — assignments={pr.get('assignments_count', 0)}, wrote_new={wrote_new}")
+    except Exception:
+        pass
 
 
 def create_heatmap(matrix, title, cmap='RdYlBu_r'):
