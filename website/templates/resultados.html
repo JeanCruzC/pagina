@@ -1,49 +1,50 @@
-{% if payload %}
-<div class="container py-4">
-  <div class="row">
-    <div class="col-12">
-      <div class="card shadow-sm mb-3">
-        <div class="card-body">
-          <h5 class="card-title">Resultado</h5>
-          <p class="card-text mb-0">
-            <strong>{{ payload.metrics.agents }}</strong> agentes •
-            cobertura <strong>{{ payload.metrics.coverage_percentage }}%</strong> •
-            déficit <strong>{{ payload.metrics.deficit }}</strong> •
-            exceso <strong>{{ payload.metrics.excess }}</strong>
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <title>Resultados</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body{background:#0e1117;color:#e6e6e6}
+    .card{background:#161a23;border:1px solid #2b2f3a}
+    img{max-width:100%}
+  </style>
+</head>
+<body>
+<div class="container-fluid py-3">
   <div class="row g-3">
-    <div class="col-12 col-lg-4">
-      <div class="card shadow-sm">
-        <div class="card-body">
-          <h6 class="card-title">Demanda</h6>
-          <img class="img-fluid" src="data:image/png;base64,{{ payload.figures.demand_png }}" />
+    <div class="col-12">
+      <div class="card"><div class="card-body">
+        <div class="row text-center">
+          <div class="col"><h6>👥 Total Agentes</h6><div class="fs-4">{{ payload.metrics.total_agents }}</div></div>
+          <div class="col"><h6>📊 Cobertura Real</h6><div class="fs-4">{{ payload.metrics.coverage_real }}%</div></div>
+          <div class="col"><h6>✅ Cobertura Pura</h6><div class="fs-4">{{ payload.metrics.coverage_pure }}%</div></div>
+          <div class="col"><h6>⬆️ Exceso</h6><div class="fs-4">{{ payload.metrics.excess }}</div></div>
+          <div class="col"><h6>⬇️ Déficit</h6><div class="fs-4">{{ payload.metrics.deficit }}</div></div>
         </div>
-      </div>
+      </div></div>
     </div>
-    <div class="col-12 col-lg-4">
-      <div class="card shadow-sm">
-        <div class="card-body">
-          <h6 class="card-title">Cobertura</h6>
-          <img class="img-fluid" src="data:image/png;base64,{{ payload.figures.coverage_png }}" />
+
+    <div class="col-12">
+      <ul class="nav nav-tabs" id="tabs" role="tablist">
+        <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#t1" type="button">Demanda vs Cobertura</button></li>
+        <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t2" type="button">Diferencias</button></li>
+      </ul>
+      <div class="tab-content p-3 card">
+        <div class="tab-pane fade show active" id="t1">
+          <div class="row">
+            <div class="col-md-6"><h6>Demanda Requerida</h6><img src="data:image/png;base64,{{ payload.figures.demand_png }}"></div>
+            <div class="col-md-6"><h6>Cobertura Asignada</h6><img src="data:image/png;base64,{{ payload.figures.coverage_png }}"></div>
+          </div>
         </div>
-      </div>
-    </div>
-    <div class="col-12 col-lg-4">
-      <div class="card shadow-sm">
-        <div class="card-body">
-          <h6 class="card-title">Exceso / Déficit</h6>
-          <img class="img-fluid" src="data:image/png;base64,{{ payload.figures.diff_png }}" />
+        <div class="tab-pane fade" id="t2">
+          <h6>Cobertura - Demanda (exceso/deficit)</h6>
+          <img src="data:image/png;base64,{{ payload.figures.diff_png }}">
         </div>
       </div>
     </div>
   </div>
 </div>
-{% else %}
-<div class="container py-4">
-  <div class="alert alert-warning">No hay resultados para mostrar.</div>
-</div>
-{% endif %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
