@@ -100,7 +100,6 @@ def optimize_minimum_cost(shifts_coverage, demand_matrix, *, cfg=None):
         solver = pl.PULP_CBC_CMD(
             msg=cfg.get("solver_msg", 0),
             timeLimit=cfg.get("solver_time", 200),
-            threads=cfg["solver_threads"]
         )
         
         prob.solve(solver)
@@ -210,7 +209,6 @@ def optimize_maximum_coverage(shifts_coverage, demand_matrix, *, cfg=None):
         solver = pl.PULP_CBC_CMD(
             msg=cfg.get("solver_msg", 0),
             timeLimit=cfg.get("solver_time", 400),
-            threads=cfg["solver_threads"]
         )
         
         prob.solve(solver)
@@ -300,7 +298,6 @@ def optimize_conservative(shifts_coverage, demand_matrix, *, cfg=None):
         solver = pl.PULP_CBC_CMD(
             msg=cfg.get("solver_msg", 0),
             timeLimit=cfg.get("solver_time", 240),
-            threads=cfg["solver_threads"]
         )
         
         prob.solve(solver)
@@ -393,7 +390,6 @@ def optimize_aggressive(shifts_coverage, demand_matrix, *, cfg=None):
         solver = pl.PULP_CBC_CMD(
             msg=cfg.get("solver_msg", 0),
             timeLimit=cfg.get("solver_time", 180),
-            threads=cfg["solver_threads"],
             gapRel=0.05  # Gap más amplio para velocidad
         )
         
@@ -499,7 +495,6 @@ def optimize_perfect_coverage(shifts_coverage, demand_matrix, *, cfg=None):
         solver = pl.PULP_CBC_CMD(
             msg=cfg.get("solver_msg", 0),
             timeLimit=solver_time,
-            threads=cfg["solver_threads"],
             gapRel=0.001 if profile == "100% Exacto" else 0.01
         )
         

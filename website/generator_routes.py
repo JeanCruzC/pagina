@@ -11,7 +11,6 @@ def _cfg_from_request():
         "iterations":           int(request.form.get("iterations", 30)),
         "solver_time":          int(request.form.get("solver_time", current_app.config.get("TIME_SOLVER", 240))),
         "solver_msg":           request.form.get("solver_msg", "1") == "1",
-        "threads":              int(request.form.get("threads", 1)),
         "coverage":             float(request.form.get("coverage", 98)),
         "use_ft":               _bool("use_ft"),
         "use_pt":               _bool("use_pt"),
