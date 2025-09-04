@@ -1,18 +1,39 @@
-<div class="card mt-3">
-  <div class="card-body">
-    <h5>Ejecutar (modo Streamlit, síncrono)</h5>
-    <form action="/generador" method="POST" enctype="multipart/form-data">
-      <!-- Token CSRF obligatorio para Flask-WTF -->
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div class="mb-2">
-        <input type="file" name="file" accept=".xlsx,.xls" required />
+<div class="container py-4">
+  <div class="row justify-content-center">
+    <div class="col-lg-8">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title mb-3">Optimización (modo Streamlit)</h5>
+          <form action="/generador" method="POST" enctype="multipart/form-data">
+            <!-- Si usas CSRFProtect y tienes el helper, inclúyelo -->
+            {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+            <div class="mb-3">
+              <label class="form-label">Archivo de demanda (.xlsx)</label>
+              <input class="form-control" type="file" name="file" accept=".xlsx,.xls" required />
+            </div>
+            <div class="row g-2">
+              <div class="col">
+                <label class="form-label">Cobertura objetivo %</label>
+                <input class="form-control" type="number" name="coverage" value="98" />
+              </div>
+              <div class="col">
+                <label class="form-label">Tiempo solver (s)</label>
+                <input class="form-control" type="number" name="solver_time" value="15" />
+              </div>
+              <div class="col">
+                <label class="form-label">Iteraciones JEAN</label>
+                <input class="form-control" type="number" name="iterations" value="2" />
+              </div>
+            </div>
+            <input type="hidden" name="profile" value="JEAN"/>
+            <input type="hidden" name="use_ft" value="true"/>
+            <input type="hidden" name="use_pt" value="true"/>
+            <div class="mt-3">
+              <button class="btn btn-primary" type="submit">Optimizar</button>
+            </div>
+          </form>
+        </div>
       </div>
-      <!-- Config mínima; puedes añadir más inputs si lo deseas -->
-      <input type="hidden" name="profile" value="JEAN"/>
-      <input type="hidden" name="use_ft" value="true"/>
-      <input type="hidden" name="use_pt" value="true"/>
-      <input type="hidden" name="coverage" value="98"/>
-      <button class="btn btn-primary" type="submit">Optimizar</button>
-    </form>
+    </div>
   </div>
 </div>

@@ -7,7 +7,10 @@ import importlib
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 STORE = {"results": {}}
-sys.modules['website.scheduler'] = types.SimpleNamespace(_store=lambda app=None: STORE)
+sys.modules['website.scheduler'] = types.SimpleNamespace(
+    _store=lambda app=None: STORE,
+    run_complete_optimization=lambda *a, **k: None,
+)
 
 from website import create_app
 from website.blueprints import core as core_module

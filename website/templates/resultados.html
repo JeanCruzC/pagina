@@ -1,30 +1,49 @@
 {% if payload %}
-  <div class="card mt-3">
-    <div class="card-body">
-      <h5 class="card-title">Resultado</h5>
-      <p class="card-text">
-        {{ payload.metrics.agents }} agentes •
-        {{ payload.metrics.coverage_percentage }}% cobertura •
-        déficit {{ payload.metrics.deficit }} •
-        exceso {{ payload.metrics.excess }}
-      </p>
+<div class="container py-4">
+  <div class="row">
+    <div class="col-12">
+      <div class="card shadow-sm mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Resultado</h5>
+          <p class="card-text mb-0">
+            <strong>{{ payload.metrics.agents }}</strong> agentes •
+            cobertura <strong>{{ payload.metrics.coverage_percentage }}%</strong> •
+            déficit <strong>{{ payload.metrics.deficit }}</strong> •
+            exceso <strong>{{ payload.metrics.excess }}</strong>
+          </p>
+        </div>
+      </div>
     </div>
   </div>
-
-  <div class="card mt-3"><div class="card-body">
-    <h6 class="card-title">Demanda (agentes-hora)</h6>
-    <img style="max-width:100%" src="data:image/png;base64,{{ payload.figures.demand_png }}" />
-  </div></div>
-
-  <div class="card mt-3"><div class="card-body">
-    <h6 class="card-title">Cobertura Asignada (agentes-hora)</h6>
-    <img style="max-width:100%" src="data:image/png;base64,{{ payload.figures.coverage_png }}" />
-  </div></div>
-
-  <div class="card mt-3"><div class="card-body">
-    <h6 class="card-title">Cobertura - Demanda (exceso/deficit)</h6>
-    <img style="max-width:100%" src="data:image/png;base64,{{ payload.figures.diff_png }}" />
-  </div></div>
+  <div class="row g-3">
+    <div class="col-12 col-lg-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h6 class="card-title">Demanda</h6>
+          <img class="img-fluid" src="data:image/png;base64,{{ payload.figures.demand_png }}" />
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h6 class="card-title">Cobertura</h6>
+          <img class="img-fluid" src="data:image/png;base64,{{ payload.figures.coverage_png }}" />
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h6 class="card-title">Exceso / Déficit</h6>
+          <img class="img-fluid" src="data:image/png;base64,{{ payload.figures.diff_png }}" />
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 {% else %}
-  <div class="alert alert-warning mt-3">No hay resultados para mostrar.</div>
+<div class="container py-4">
+  <div class="alert alert-warning">No hay resultados para mostrar.</div>
+</div>
 {% endif %}
