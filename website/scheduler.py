@@ -72,7 +72,8 @@ def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
             continue
         mat[d_idx, h] = v
 
-    return mat
+    # Igual al parser de Streamlit: redondeo y casting a int
+    return np.rint(mat).astype(int)
 
 
 def generate_weekly_pattern_simple(start_hour, duration, working_days):
@@ -276,11 +277,14 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
 def optimize_with_precision_targeting(
     shifts_coverage,
     demand_matrix,
+    *,
+    cfg=None,
     iteration_time_limit=None,
     agent_limit_factor=30,
 ):
     if not PULP_AVAILABLE:
         return {}, "NO_PULP"
+    cfg = cfg or {}
     shifts_list = list(shifts_coverage.keys())
     prob = pulp.LpProblem("PrecisionTargeting", pulp.LpMinimize)
     max_per_shift = max(5, int(demand_matrix.sum() / max(agent_limit_factor, 1)))
@@ -316,7 +320,13 @@ def optimize_with_precision_targeting(
             )
             prob += cov + deficit_vars[(d, h)] - excess_vars[(d, h)] == int(demand_matrix[d, h])
 
-    solver = pulp.PULP_CBC_CMD(msg=False, timeLimit=iteration_time_limit)
+    time_limit = iteration_time_limit if iteration_time_limit is not None else cfg.get("solver_time", 240)
+    solver = pulp.PULP_CBC_CMD(
+        msg=cfg.get("solver_msg", True),
+        timeLimit=int(time_limit) if time_limit else None,
+        threads=1,
+        randomSeed=42,
+    )
     prob.solve(solver)
 
     assignments = {}
@@ -356,12 +366,13 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None):
         assignments, _ = optimize_with_precision_targeting(
             shifts_coverage,
             demand_matrix,
+            cfg=temp_cfg,
             iteration_time_limit=TIME_SOLVER,
             agent_limit_factor=factor,
         )
         results = analyze_results(assignments, shifts_coverage, demand_matrix)
         if results:
-            score = results["overstaffing"] + results["understaffing"]
+            score = results["understaffing"] + results["overstaffing"] * 0.3
             if score < best_score or not best_assignments:
                 best_score = score
                 best_assignments = assignments
@@ -538,18 +549,16 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
     dem = np.asarray(demand_matrix, dtype=int)
     D, H = dem.shape
     cov = _assigned_matrix_from(assignments, patterns, D, H)
-    clipped = np.minimum(cov, dem)
     diff = cov - dem
 
     total_dem = int(dem.sum())
     total_cov = int(cov.sum())
-    total_clip = int(clipped.sum())
+    cap = np.minimum(cov, dem).sum()
+    coverage_pure = (cap / total_dem * 100.0) if total_dem > 0 else 0.0
+    coverage_real = (total_cov / total_dem * 100.0) if total_dem > 0 else 0.0
 
     deficit = int(np.clip(dem - cov, 0, None).sum())
     excess = int(np.clip(cov - dem, 0, None).sum())
-
-    cov_real = (total_cov / total_dem * 100.0) if total_dem > 0 else 0.0
-    cov_pure = (total_clip / total_dem * 100.0) if total_dem > 0 else 0.0
 
     fig_dem = _heatmap(dem, "Demanda por Hora y Día", day_labels, hour_labels, annotate=True, cmap="Reds")
     fig_cov = _heatmap(cov, "Cobertura por Hora y Día", day_labels, hour_labels, annotate=True, cmap="Blues")
@@ -559,12 +568,12 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
         "metrics": {
             "total_demand": total_dem,
             "total_coverage": total_cov,
-            "coverage_real": round(cov_real, 1),
-            "coverage_pure": round(cov_pure, 1),
-            "coverage_percentage": round(cov_pure, 1),
+            "coverage_percentage": round(coverage_pure, 1),
+            "coverage_pure": round(coverage_pure, 1),
+            "coverage_real": round(coverage_real, 1),
             "deficit": deficit,
             "excess": excess,
-            "agents": int(sum(assignments.values())) if assignments else 0,
+            "agents": len(assignments or {}),
         },
         "figures": {
             "demand_png": _fig_to_b64(fig_dem),
@@ -583,6 +592,7 @@ def run_complete_optimization(
     return_payload=False,
 ):
     cfg = config or {}
+    start_total = time.time()
     TIME_SOLVER = cfg.get("solver_time", 120) or None
     MAX_ITERS = int(cfg.get("iterations", 3))
     df = pd.read_excel(file_stream)
@@ -607,6 +617,7 @@ def run_complete_optimization(
         demand_matrix,
         cfg={**cfg, "solver_time": TIME_SOLVER, "iterations": MAX_ITERS},
     )
+    total_elapsed = time.time() - start_total
     if return_payload:
         D, H = demand_matrix.shape
         day_labels = [f"Día {i+1}" for i in range(D)]
@@ -617,7 +628,7 @@ def run_complete_optimization(
             demand_matrix=demand_matrix,
             day_labels=day_labels,
             hour_labels=hour_labels,
-            meta={"status": status},
+            meta={"status": status, "elapsed": round(total_elapsed, 1)},
         )
         payload["status"] = status
         payload["config"] = cfg
