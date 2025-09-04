@@ -1,79 +1,163 @@
-<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Generador de Turnos v6.2 — Sistema Corregido</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
-  </head>
-  <body>
-    <div class="container" style="max-width:1400px; margin:32px auto;">
-      <div class="titlebar">
-        <h1>Generador de Turnos v6.2 — Sistema Corregido</h1>
-      </div>
-      <div class="spacer"></div>
-      <div class="row">
-        <!-- Sidebar Config -->
-        <div class="card">
-          <div class="section-title">• Configuración</div>
-          <form action="/generador" method="POST" enctype="multipart/form-data" id="cfgForm">
-            <div class="group">
-              <label>Iteraciones JEAN</label>
-              <input type="number" name="iterations" value="3" min="1">
+{% extends "base.html" %}
+{% block title %}Generador de Turnos v6.2 — Sistema Corregido{% endblock %}
+
+{% block content %}
+  <h1 class="mb-4">Generador de Turnos v6.2 — Sistema Corregido</h1>
+
+  <div class="row g-4">
+    <!-- SIDEBAR -->
+    <div class="col-12 col-xl-4 col-lg-5">
+      <div class="card sidebar">
+        <div class="card-body">
+          <h5 class="mb-3">⚙️ Configuración</h5>
+
+          <form id="form-generador" action="/generador" method="POST" enctype="multipart/form-data">
+            <!-- Iteraciones / tiempo / solver -->
+            <div class="mb-3">
+              <label class="form-label">Iteraciones máximas</label>
+              <input class="form-control" type="number" name="max_iter" value="30" min="1" />
             </div>
-            <div class="group">
-              <label>Tiempo solver (s)</label>
-              <input type="number" name="solver_time" value="120" min="0">
-              <div class="small muted">0 = sin límite (no recomendado en modo síncrono)</div>
+            <div class="mb-3">
+              <label class="form-label">Tiempo solver (s)</label>
+              <input class="form-control" type="number" name="time_solver" value="240" min="0" />
+              <div class="form-text text-muted">0 = sin límite (no recomendado en modo síncrono)</div>
             </div>
-            <div class="group">
-              <label>Cobertura objetivo (%)</label>
-              <input type="number" name="coverage" value="98" min="80" max="100">
-            </div>
-            <div class="split">
-              <div class="group">
-                <label>Break desde inicio (horas)</label>
-                <input type="number" step="0.5" name="break_from_start" value="2">
-              </div>
-              <div class="group">
-                <label>Break antes del fin (horas)</label>
-                <input type="number" step="0.5" name="break_from_end" value="2">
-              </div>
-            </div>
-            <div class="divider"></div>
-            <div class="group">
-              <label>Tipos de Contrato</label><br>
-              <input type="checkbox" name="use_ft" checked> <span class="muted">Full Time (48h)</span><br>
-              <input type="checkbox" name="use_pt" checked> <span class="muted">Part Time (24h)</span>
-            </div>
-            <div class="divider"></div>
-            <div class="group">
-              <label>Perfil de Optimización</label>
-              <select name="optimization_profile">
-                <option value="JEAN" selected>JEAN</option>
-                <option value="Estandar">Estándar</option>
-                <option value="Aprendizaje Adaptativo">Aprendizaje Adaptativo</option>
+            <div class="mb-3">
+              <label class="form-label">Mostrar progreso solver</label>
+              <select class="form-select" name="solver_msg">
+                <option value="1" selected>1</option>
+                <option value="0">0</option>
               </select>
             </div>
-            <div class="divider"></div>
-            <div class="group">
-              <label>Archivo de demanda (.xlsx)</label>
-              <input type="file" name="file" accept=".xlsx,.xls" required>
+            <div class="mb-3">
+              <label class="form-label">Threads solver (PuLP)</label>
+              <input class="form-control" type="number" name="solver_threads" value="1" min="1" />
             </div>
-            <button class="btn" type="submit">🚀 Ejecutar Optimización</button>
+            <div class="mb-3">
+              <label class="form-label">Cobertura objetivo (%)</label>
+              <input class="form-control" type="number" name="target_coverage" value="98" min="95" max="100" />
+            </div>
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" name="verbose" id="verbose">
+              <label class="form-check-label" for="verbose">Modo verbose/debug</label>
+            </div>
+
+            <!-- Tipos de contrato -->
+            <h6 class="mt-4 mb-2">📋 Tipos de Contrato</h6>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="use_ft" id="use_ft" checked>
+              <label class="form-check-label" for="use_ft">Full Time (48h)</label>
+            </div>
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" name="use_pt" id="use_pt" checked>
+              <label class="form-check-label" for="use_pt">Part Time (24h)</label>
+            </div>
+
+            <!-- Turnos FT -->
+            <div id="ft_block">
+              <h6 class="mt-3 mb-2">⏰ Turnos FT Permitidos</h6>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="allow_8h" id="allow_8h" checked>
+                <label class="form-check-label" for="allow_8h">8 horas (6 días)</label>
+              </div>
+              <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" name="allow_10h8" id="allow_10h8">
+                <label class="form-check-label" for="allow_10h8">10h + día de 8h (5 días)</label>
+              </div>
+            </div>
+
+            <!-- Breaks -->
+            <h6 class="mt-3 mb-2">☕ Configuración de Breaks</h6>
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label">Break desde inicio (horas)</label>
+                <input class="form-control" type="number" step="0.5" name="break_from_start" value="2.5" min="1" max="5">
+              </div>
+              <div class="col-6">
+                <label class="form-label">Break antes del fin (horas)</label>
+                <input class="form-control" type="number" step="0.5" name="break_from_end" value="2.5" min="1" max="5">
+              </div>
+            </div>
+
+            <!-- Turnos PT -->
+            <div id="pt_block">
+              <h6 class="mt-3 mb-2">⏰ Turnos PT Permitidos</h6>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="allow_pt_4h" id="allow_pt_4h" checked>
+                <label class="form-check-label" for="allow_pt_4h">4 horas (6 días)</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="allow_pt_6h" id="allow_pt_6h" checked>
+                <label class="form-check-label" for="allow_pt_6h">6 horas (4 días)</label>
+              </div>
+              <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" name="allow_pt_5h" id="allow_pt_5h">
+                <label class="form-check-label" for="allow_pt_5h">5 horas (5 días)</label>
+              </div>
+            </div>
+
+            <!-- Perfil de optimización (el “selector de horarios” que te falta) -->
+            <h6 class="mt-4 mb-2">🎯 Perfil de Optimización</h6>
+            <select class="form-select" name="optimization_profile">
+              {% for opt in profile_options %}
+                <option value="{{opt}}" {% if opt=='JEAN' %}selected{% endif %}>{{opt}}</option>
+              {% endfor %}
+            </select>
+            {% if pulp_available %}
+              <div class="alert alert-success mt-3 py-2 mb-2">
+                🧠 <strong>Solver Inteligente Disponible</strong><br>Programación Lineal (PuLP)
+              </div>
+            {% else %}
+              <div class="alert alert-warning mt-3 py-2 mb-2">
+                🔄 <strong>Solver Básico Activo</strong><br>Instala <code>pip install pulp</code>
+              </div>
+            {% endif %}
+
+            <!-- Uploader y botón -->
+            <div class="mt-4">
+              <label class="form-label">Archivo de demanda (.xlsx)</label><br>
+              <input class="form-control" type="file" name="file" accept=".xlsx" required>
+            </div>
+
+            <button class="btn btn-primary w-100 mt-3" type="submit">
+              🚀 Ejecutar Optimización
+            </button>
           </form>
         </div>
+      </div>
+    </div>
 
-        <!-- Panel derecho -->
-        <div>
-          <div class="card">
-            <span class="pill">Modo Streamlit (síncrono)</span>
-            <div class="spacer"></div>
-            <div class="muted">Sube tu Excel y se calculará todo en esta misma página (sin jobs ni polling).</div>
+    <!-- ÁREA PRINCIPAL: chip “Modo Streamlit (síncrono)” y ayuda -->
+    <div class="col-12 col-xl-8 col-lg-7">
+      <div class="card">
+        <div class="card-body">
+          <span class="chip">Modo Streamlit (síncrono)</span>
+          <p class="mt-3 mb-0 text-muted">
+            Sube tu Excel y se calculará todo en esta misma página (sin jobs ni polling).
+          </p>
+          <div class="dropzone mt-3">
+            <strong>Tip:</strong> también puedes arrastrar el archivo al campo de la izquierda y presionar
+            <em>“🚀 Ejecutar Optimización”</em>.
           </div>
         </div>
       </div>
     </div>
-  </body>
-</html>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const ft = document.getElementById('use_ft');
+  const pt = document.getElementById('use_pt');
+  const ftBlock = document.getElementById('ft_block');
+  const ptBlock = document.getElementById('pt_block');
+  function refreshBlocks(){
+    ftBlock.style.display = ft.checked ? '' : 'none';
+    ptBlock.style.display = pt.checked ? '' : 'none';
+  }
+  ft?.addEventListener('change', refreshBlocks);
+  pt?.addEventListener('change', refreshBlocks);
+  refreshBlocks();
+</script>
+{% endblock %}
 
