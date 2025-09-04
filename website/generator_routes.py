@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, current_app, jsonify
 from flask_wtf.csrf import generate_csrf
-from . import scheduler
+from .scheduler import run_complete_optimization as run_opt
 
 bp = Blueprint("generator", __name__)
 
@@ -46,7 +46,7 @@ def generador():
         return jsonify({"error": "Falta el archivo Excel"}), 400
 
     cfg = _cfg_from_request(request.form)
-    payload = scheduler.run_complete_optimization(
+    payload = run_opt(
         xls,
         config=cfg,
         generate_charts=True,
