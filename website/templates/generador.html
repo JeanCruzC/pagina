@@ -1,163 +1,171 @@
 {% extends "base.html" %}
 {% block title %}Generador de Turnos v6.2 — Sistema Corregido{% endblock %}
+{% block body %}
 
-{% block content %}
-  <h1 class="mb-4">Generador de Turnos v6.2 — Sistema Corregido</h1>
+<h1 class="section-title">Generador de Turnos v6.2 — Sistema Corregido</h1>
 
-  <div class="row g-4">
-    <!-- SIDEBAR -->
-    <div class="col-12 col-xl-4 col-lg-5">
-      <div class="card sidebar">
-        <div class="card-body">
-          <h5 class="mb-3">⚙️ Configuración</h5>
+<div class="row g-3">
+  <!-- SIDEBAR -->
+  <div class="col-12 col-lg-3">
+    <div class="card sidebar">
+      <div class="card-header">
+        <strong>⚙️ Configuración</strong>
+      </div>
+      <div class="card-body">
+        <form action="/generador" method="POST" enctype="multipart/form-data">
+          <!-- Iteraciones máximas -->
+          <label class="form-label">Iteraciones máximas</label>
+          <input class="form-control" type="number" name="iterations" value="30" min="1" />
 
-          <form id="form-generador" action="/generador" method="POST" enctype="multipart/form-data">
-            <!-- Iteraciones / tiempo / solver -->
-            <div class="mb-3">
-              <label class="form-label">Iteraciones máximas</label>
-              <input class="form-control" type="number" name="max_iter" value="30" min="1" />
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Tiempo solver (s)</label>
-              <input class="form-control" type="number" name="time_solver" value="240" min="0" />
-              <div class="form-text text-muted">0 = sin límite (no recomendado en modo síncrono)</div>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Mostrar progreso solver</label>
-              <select class="form-select" name="solver_msg">
-                <option value="1" selected>1</option>
-                <option value="0">0</option>
-              </select>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Threads solver (PuLP)</label>
-              <input class="form-control" type="number" name="solver_threads" value="1" min="1" />
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Cobertura objetivo (%)</label>
-              <input class="form-control" type="number" name="target_coverage" value="98" min="95" max="100" />
-            </div>
-            <div class="form-check mb-3">
-              <input class="form-check-input" type="checkbox" name="verbose" id="verbose">
-              <label class="form-check-label" for="verbose">Modo verbose/debug</label>
-            </div>
+          <!-- Tiempo solver -->
+          <div class="mt-3">
+            <label class="form-label">Tiempo solver (s)</label>
+            <input class="form-control" type="number" name="solver_time" value="240" min="0" />
+            <div class="form-text text-muted">0 = sin límite (no recomendado en modo síncrono)</div>
+          </div>
 
-            <!-- Tipos de contrato -->
-            <h6 class="mt-4 mb-2">📋 Tipos de Contrato</h6>
+          <!-- Mostrar progreso solver -->
+          <div class="mt-3">
+            <label class="form-label">Mostrar progreso solver</label>
+            <select class="form-select" name="solver_msg">
+              <option value="1" selected>1</option>
+              <option value="0">0</option>
+            </select>
+          </div>
+
+          <!-- Threads solver (PuLP) -->
+          <div class="mt-3">
+            <label class="form-label">Threads solver (PuLP)</label>
+            <input class="form-control" type="number" name="threads" value="1" min="1" />
+          </div>
+
+          <!-- Cobertura objetivo -->
+          <div class="mt-3">
+            <label class="form-label">Cobertura objetivo (%)</label>
+            <input class="form-control" type="number" name="coverage" value="98" min="80" max="110" />
+          </div>
+
+          <!-- Verbose -->
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" id="verbose" name="verbose" checked>
+            <label class="form-check-label" for="verbose">Modo verbose/debug</label>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Tipos de contrato -->
+          <div class="mt-1">
+            <strong>📑 Tipos de Contrato</strong>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="ft48" name="use_ft" checked>
+              <label class="form-check-label" for="ft48">Full Time (48h)</label>
+            </div>
             <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="use_ft" id="use_ft" checked>
-              <label class="form-check-label" for="use_ft">Full Time (48h)</label>
+              <input class="form-check-input" type="checkbox" id="pt24" name="use_pt" checked>
+              <label class="form-check-label" for="pt24">Part Time (24h)</label>
             </div>
-            <div class="form-check mb-3">
-              <input class="form-check-input" type="checkbox" name="use_pt" id="use_pt" checked>
-              <label class="form-check-label" for="use_pt">Part Time (24h)</label>
-            </div>
+          </div>
 
-            <!-- Turnos FT -->
-            <div id="ft_block">
-              <h6 class="mt-3 mb-2">⏰ Turnos FT Permitidos</h6>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="allow_8h" id="allow_8h" checked>
-                <label class="form-check-label" for="allow_8h">8 horas (6 días)</label>
-              </div>
-              <div class="form-check mb-3">
-                <input class="form-check-input" type="checkbox" name="allow_10h8" id="allow_10h8">
-                <label class="form-check-label" for="allow_10h8">10h + día de 8h (5 días)</label>
-              </div>
-            </div>
+          <div class="divider"></div>
 
-            <!-- Breaks -->
-            <h6 class="mt-3 mb-2">☕ Configuración de Breaks</h6>
-            <div class="row g-2">
+          <!-- Turnos FT permitidos -->
+          <div>
+            <strong>👥 Turnos FT Permitidos</strong>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="allow8" name="allow_8h" checked>
+              <label class="form-check-label" for="allow8">8 horas (6 días)</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="allow10_8" name="allow_10h8" checked>
+              <label class="form-check-label" for="allow10_8">10h + día de 8h (5 días)</label>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Breaks -->
+          <div>
+            <strong>🧩 Configuración de Breaks</strong>
+            <div class="row g-2 mt-2">
               <div class="col-6">
                 <label class="form-label">Break desde inicio (horas)</label>
-                <input class="form-control" type="number" step="0.5" name="break_from_start" value="2.5" min="1" max="5">
+                <input class="form-control" type="number" step="0.5" name="break_from_start" value="2.0">
               </div>
               <div class="col-6">
                 <label class="form-label">Break antes del fin (horas)</label>
-                <input class="form-control" type="number" step="0.5" name="break_from_end" value="2.5" min="1" max="5">
+                <input class="form-control" type="number" step="0.5" name="break_from_end" value="2.0">
               </div>
             </div>
-
-            <!-- Turnos PT -->
-            <div id="pt_block">
-              <h6 class="mt-3 mb-2">⏰ Turnos PT Permitidos</h6>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="allow_pt_4h" id="allow_pt_4h" checked>
-                <label class="form-check-label" for="allow_pt_4h">4 horas (6 días)</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="allow_pt_6h" id="allow_pt_6h" checked>
-                <label class="form-check-label" for="allow_pt_6h">6 horas (4 días)</label>
-              </div>
-              <div class="form-check mb-3">
-                <input class="form-check-input" type="checkbox" name="allow_pt_5h" id="allow_pt_5h">
-                <label class="form-check-label" for="allow_pt_5h">5 horas (5 días)</label>
-              </div>
-            </div>
-
-            <!-- Perfil de optimización (el “selector de horarios” que te falta) -->
-            <h6 class="mt-4 mb-2">🎯 Perfil de Optimización</h6>
-            <select class="form-select" name="optimization_profile">
-              {% for opt in profile_options %}
-                <option value="{{opt}}" {% if opt=='JEAN' %}selected{% endif %}>{{opt}}</option>
-              {% endfor %}
-            </select>
-            {% if pulp_available %}
-              <div class="alert alert-success mt-3 py-2 mb-2">
-                🧠 <strong>Solver Inteligente Disponible</strong><br>Programación Lineal (PuLP)
-              </div>
-            {% else %}
-              <div class="alert alert-warning mt-3 py-2 mb-2">
-                🔄 <strong>Solver Básico Activo</strong><br>Instala <code>pip install pulp</code>
-              </div>
-            {% endif %}
-
-            <!-- Uploader y botón -->
-            <div class="mt-4">
-              <label class="form-label">Archivo de demanda (.xlsx)</label><br>
-              <input class="form-control" type="file" name="file" accept=".xlsx" required>
-            </div>
-
-            <button class="btn btn-primary w-100 mt-3" type="submit">
-              🚀 Ejecutar Optimización
-            </button>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <!-- ÁREA PRINCIPAL: chip “Modo Streamlit (síncrono)” y ayuda -->
-    <div class="col-12 col-xl-8 col-lg-7">
-      <div class="card">
-        <div class="card-body">
-          <span class="chip">Modo Streamlit (síncrono)</span>
-          <p class="mt-3 mb-0 text-muted">
-            Sube tu Excel y se calculará todo en esta misma página (sin jobs ni polling).
-          </p>
-          <div class="dropzone mt-3">
-            <strong>Tip:</strong> también puedes arrastrar el archivo al campo de la izquierda y presionar
-            <em>“🚀 Ejecutar Optimización”</em>.
           </div>
-        </div>
+
+          <div class="divider"></div>
+
+          <!-- Turnos PT permitidos -->
+          <div>
+            <strong>👤 Turnos PT Permitidos</strong>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="pt4_6" name="allow_pt_4h" checked>
+              <label class="form-check-label" for="pt4_6">4 horas (6 días)</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="pt6_4" name="allow_pt_6h" checked>
+              <label class="form-check-label" for="pt6_4">6 horas (4 días)</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="pt5_5" name="allow_pt_5h">
+              <label class="form-check-label" for="pt5_5">5 horas (5 días)</label>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Perfil de optimización (selector “de horarios”) -->
+          <div>
+            <strong>🎯 Perfil de Optimización</strong>
+            <select class="form-select mt-2" name="optimization_profile">
+              <option selected>JEAN</option>
+              <option>Estándar</option>
+              <option>Aprendizaje Adaptativo</option>
+              <option>Greedy</option>
+            </select>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Archivo -->
+          <div>
+            <label class="form-label">Archivo de demanda (.xlsx)</label>
+            <div class="d-flex gap-2">
+              <input class="form-control" type="file" name="file" accept=".xlsx,.xls" required>
+            </div>
+          </div>
+
+          <button class="btn btn-execute mt-3" type="submit">
+            <i class="bi bi-rocket-takeoff"></i> Ejecutar Optimización
+          </button>
+        </form>
       </div>
     </div>
   </div>
-{% endblock %}
 
-{% block scripts %}
-<script>
-  const ft = document.getElementById('use_ft');
-  const pt = document.getElementById('use_pt');
-  const ftBlock = document.getElementById('ft_block');
-  const ptBlock = document.getElementById('pt_block');
-  function refreshBlocks(){
-    ftBlock.style.display = ft.checked ? '' : 'none';
-    ptBlock.style.display = pt.checked ? '' : 'none';
-  }
-  ft?.addEventListener('change', refreshBlocks);
-  pt?.addEventListener('change', refreshBlocks);
-  refreshBlocks();
-</script>
-{% endblock %}
+  <!-- PANEL DERECHO (info/tip, resultados se pintan en resultados.html) -->
+  <div class="col-12 col-lg-9">
+    <div class="card">
+      <div class="card-header">
+        <span class="badge text-bg-secondary">Modo Streamlit (síncrono)</span>
+      </div>
+      <div class="card-body">
+        <p class="text-muted mb-0">
+          Sube tu Excel y se calculará todo en esta misma página (sin jobs ni polling).
+          <br><span class="text-info">Tip:</span> también puedes arrastrar el archivo y presionar
+          <i class="bi bi-rocket-takeoff"></i> <em>“Ejecutar Optimización”</em>.
+        </p>
+      </div>
+    </div>
 
+    {% if payload %}
+      {% include "resultados.html" %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
