@@ -20,6 +20,7 @@ import math
 from collections import defaultdict
 import re
 import base64
+import logging
 
 try:
     import matplotlib
@@ -37,13 +38,15 @@ except Exception:  # pragma: no cover - optional dependency
 
 from typing import Dict, List, Iterable, Union
 
+logger = logging.getLogger(__name__)
+
 try:
     import pulp
     PULP_AVAILABLE = True
 except ImportError:
     PULP_AVAILABLE = False
 
-print(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
+logger.info(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
 
 from threading import RLock, current_thread
 from functools import wraps
