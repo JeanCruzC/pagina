@@ -1,5 +1,4 @@
 import io, base64, time, gc, hashlib
-import inspect
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -14,28 +13,34 @@ except Exception:
     PULP_AVAILABLE = False
 
 
-def _cbc_solver(cfg, time_limit, threads, seed=42):
-    """Construye PULP_CBC_CMD compatible con varias versiones de PuLP."""
-    sig = inspect.signature(pulp.PULP_CBC_CMD.__init__)
-    kw = dict(msg=cfg.get("solver_msg", True))
+def _build_cbc_solver(cfg):
+    """
+    Construye un PULP_CBC_CMD compatible con PuLP>=2.7/2.8.
+    - timeLimit: respeta cfg['solver_time'] (0 => sin límite -> None)
+    - msg: respeta cfg['solver_msg']
+    - options: pasa 'randomSeed 42', 'threads N' como CADENAS
+    """
+    time_limit = int(cfg.get("solver_time", 120))
+    msg = bool(cfg.get("solver_msg", True))
 
-    # time limit cambió de nombre en algunas versiones
-    if "timeLimit" in sig.parameters:
-        kw["timeLimit"] = time_limit
-    elif "maxSeconds" in sig.parameters:
-        kw["maxSeconds"] = time_limit
+    # Opcional: si manejas hilos desde config; si no, se ignora.
+    threads = int(cfg.get("solver_threads", 1))
 
-    if "threads" in sig.parameters:
-        kw["threads"] = threads
+    # Semilla determinística (misma que usabas): 42 por defecto
+    seed = int(cfg.get("random_seed", 42))
 
-    # semilla: si el parámetro no existe, pásala como opción de CBC
-    if "randomSeed" in sig.parameters:
-        kw["randomSeed"] = seed
-    else:
-        # PuLP acepta options como lista de tuplas ("param", value)
-        kw["options"] = kw.get("options", []) + [("randomSeed", seed)]
+    opts = []
+    # IMPORTANTE: options deben ser strings tipo "clave valor"
+    if seed is not None:
+        opts.append(f"randomSeed {seed}")
+    if threads and threads > 1:
+        opts.append(f"threads {threads}")
 
-    return pulp.PULP_CBC_CMD(**kw)
+    return pulp.PULP_CBC_CMD(
+        msg=msg,
+        timeLimit=(time_limit if time_limit > 0 else None),
+        options=opts,
+    )
 
 
 def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
@@ -347,7 +352,7 @@ def optimize_with_precision_targeting(
             prob += cov + deficit_vars[(d, h)] - excess_vars[(d, h)] == int(demand_matrix[d, h])
 
     time_limit = iteration_time_limit if iteration_time_limit is not None else cfg.get("solver_time", 240)
-    solver = _cbc_solver(cfg, int(time_limit) if time_limit else None, 1, seed=42)
+    solver = _build_cbc_solver({**cfg, "solver_time": time_limit})
     prob.solve(solver)
 
     assignments = {}
