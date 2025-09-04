@@ -20,6 +20,7 @@ import math
 from collections import defaultdict
 import re
 import base64
+import logging
 
 try:
     import matplotlib
@@ -43,13 +44,15 @@ except Exception:  # pragma: no cover - allow script execution
     sys.path.append(os.path.dirname(__file__))
     from scheduler_core import load_demand_matrix_from_df, analyze_demand_matrix
 
+logger = logging.getLogger(__name__)
+
 try:
     import pulp
     PULP_AVAILABLE = True
 except ImportError:
     PULP_AVAILABLE = False
 
-print(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
+logger.info(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
 
 from threading import RLock, current_thread
 from functools import wraps
