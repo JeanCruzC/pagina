@@ -1,4 +1,5 @@
 import io, base64, time, gc, hashlib
+import inspect
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -9,7 +10,32 @@ try:
     import pulp
     PULP_AVAILABLE = True
 except Exception:
+    pulp = None
     PULP_AVAILABLE = False
+
+
+def _cbc_solver(cfg, time_limit, threads, seed=42):
+    """Construye PULP_CBC_CMD compatible con varias versiones de PuLP."""
+    sig = inspect.signature(pulp.PULP_CBC_CMD.__init__)
+    kw = dict(msg=cfg.get("solver_msg", True))
+
+    # time limit cambió de nombre en algunas versiones
+    if "timeLimit" in sig.parameters:
+        kw["timeLimit"] = time_limit
+    elif "maxSeconds" in sig.parameters:
+        kw["maxSeconds"] = time_limit
+
+    if "threads" in sig.parameters:
+        kw["threads"] = threads
+
+    # semilla: si el parámetro no existe, pásala como opción de CBC
+    if "randomSeed" in sig.parameters:
+        kw["randomSeed"] = seed
+    else:
+        # PuLP acepta options como lista de tuplas ("param", value)
+        kw["options"] = kw.get("options", []) + [("randomSeed", seed)]
+
+    return pulp.PULP_CBC_CMD(**kw)
 
 
 def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
@@ -321,12 +347,7 @@ def optimize_with_precision_targeting(
             prob += cov + deficit_vars[(d, h)] - excess_vars[(d, h)] == int(demand_matrix[d, h])
 
     time_limit = iteration_time_limit if iteration_time_limit is not None else cfg.get("solver_time", 240)
-    solver = pulp.PULP_CBC_CMD(
-        msg=cfg.get("solver_msg", True),
-        timeLimit=int(time_limit) if time_limit else None,
-        threads=1,
-        randomSeed=42,
-    )
+    solver = _cbc_solver(cfg, int(time_limit) if time_limit else None, 1, seed=42)
     prob.solve(solver)
 
     assignments = {}
