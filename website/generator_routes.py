@@ -16,7 +16,7 @@ def _cfg_from_request(form):
         "allow_pt_6h": True,
         "break_from_start": float(form.get("break_from_start", 2)),
         "break_from_end": float(form.get("break_from_end", 2)),
-        "solver_time": int(form.get("solver_time", current_app.config.get("TIME_SOLVER", 120))),
+        "solver_time": int(form.get("solver_time", current_app.config.get("TIME_SOLVER", 60))),
         "solver_msg": True,
         "coverage": float(form.get("coverage", 98)),
         "agent_limit_factor": int(form.get("agent_limit_factor", 30)),

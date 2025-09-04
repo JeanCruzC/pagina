@@ -1587,14 +1587,11 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix, agent_limi
                 prob += day_coverage <= day_demand * 1.15  # Máximo 15% exceso por día
                 prob += day_coverage >= day_demand * 0.85  # Mínimo 85% cobertura por día
         
-        # Solver con configuración más flexible
+        # Solver con límite de tiempo estricto
         solver = pulp.PULP_CBC_CMD(
-            msg=0, 
-            timeLimit=TIME_SOLVER,
-            gapRel=0.02,   # 2% gap de optimalidad (más flexible)
-            threads=4,
-            presolve=1,
-            cuts=1
+            msg=False,
+            timeLimit=int(TIME_SOLVER or 10),
+            threads=max(1, (os.cpu_count() or 2) - 1),
         )
         prob.solve(solver)
 
@@ -1921,14 +1918,15 @@ def optimize_jean_search(
     shifts_coverage,
     demand_matrix,
     target_coverage=98.0,
-    max_iterations=5,
-    verbose=False,
+    verbose=True,
     agent_limit_factor=30,
     excess_penalty=5.0,
     peak_bonus=2.0,
     critical_bonus=2.5,
-    iteration_time_limit=None,
+    iteration_time_limit=60,
+    max_iterations=6,
     job_id=None,
+    min_iters_before_stop=3,
 ):
     """Búsqueda iterativa EXACTA del legacy para el perfil JEAN minimizando exceso y déficit."""
     try:
@@ -1936,22 +1934,23 @@ def optimize_jean_search(
     except Exception:
         cfg = {}
     if iteration_time_limit is None:
-        iteration_time_limit = cfg.get("TIME_SOLVER", 45)
-    # Limitar el tiempo de cada iteración para evitar que la interfaz quede congelada
-    iteration_time_limit = min(
-        iteration_time_limit, cfg.get("JEAN_ITER_TIME_LIMIT", 25)
-    )
+        iteration_time_limit = cfg.get("TIME_SOLVER", 60)
 
     best_assignments = {}
     best_method = ""
     best_score = float("inf")
     best_coverage = 0
 
-    factor = agent_limit_factor
+    factor = int(agent_limit_factor) if agent_limit_factor else 30
+    max_iterations = int(max_iterations or 6)
+    # reparte el tiempo TOTAL entre las iteraciones (p. ej. 60s / 6 = 10s por iter)
+    per_iter_time = max(5, int(iteration_time_limit // max(1, max_iterations)))
+    per_iter_time = min(per_iter_time, 15)  # no más de 15s por iter
+
     iteration = 0
     while iteration < max_iterations and factor >= 1:
-
-        print(f"[JEAN] iter={iteration + 1}, factor={factor}, job={job_id}")
+        if verbose:
+            print(f"[JEAN] iter={iteration + 1}/{max_iterations}  factor={factor}  t={per_iter_time}s  job={job_id}")
         try:
             if job_id is not None:
                 update_progress(
@@ -1991,7 +1990,7 @@ def optimize_jean_search(
             excess_penalty=excess_penalty,
             peak_bonus=peak_bonus,
             critical_bonus=critical_bonus,
-            TIME_SOLVER=iteration_time_limit,
+            TIME_SOLVER=per_iter_time,  # <- límite real por iteración
         )
         results = analyze_results(assignments, shifts_coverage, demand_matrix)
         iter_elapsed = time.time() - iter_start
@@ -2024,38 +2023,26 @@ def optimize_jean_search(
         except Exception:
             pass
         if results:
-            cov = results["coverage_percentage"]
-            score = results["overstaffing"] + results["understaffing"]
+            cov = float(results["coverage_percentage"])
+            score = int(results["overstaffing"]) + int(results["understaffing"])
             if verbose:
-                print(
-                    f"Iteración {iteration + 1}: factor {factor}, cobertura {cov:.1f}%, score {score:.1f}"
-                )
+                print(f"[JEAN] fin iter {iteration + 1}: cobertura={cov:.1f}%  score={score}  t={iter_elapsed:.1f}s")
 
-            # Priorizar cobertura objetivo; terminar si se alcanza
-            if cov >= target_coverage:
+            # guarda el mejor siempre
+            if (cov > best_coverage) or (cov == best_coverage and score < best_score):
                 best_assignments, best_method = assignments, method
-                best_score = score
-                best_coverage = cov
-                if verbose:
-                    print(
-                        f"✅ Cobertura objetivo alcanzada: {cov:.1f}% cobertura, score {score:.1f}"
-                    )
+                best_score, best_coverage = score, cov
+
+            # no cortar antes de min_iters; luego puedes cortar si ya llegaste a la meta
+            if iteration + 1 >= min_iters_before_stop and cov >= target_coverage:
                 break
-            elif cov > best_coverage and not best_assignments:
-                # Solo guardar si no tenemos nada mejor aún
-                best_assignments, best_method, best_coverage = assignments, method, cov
-                if verbose:
-                    print(f"📊 Solución parcial guardada: {cov:.1f}% cobertura")
 
-        factor = max(1, int(factor * 0.9))
+        # siguiente iteración
         iteration += 1
+        # reduce el factor para explorar (como el legacy)
+        factor = max(1, int(round(factor * 0.6)))
 
-    if verbose:
-        print(
-            f"🏁 JEAN completado: mejor cobertura {best_coverage:.1f}%, score {best_score:.1f}"
-        )
-
-    return best_assignments, best_method
+    return (best_assignments or assignments or {}), (best_method or "JEAN")
 
 
 def optimize_schedule_iterative(shifts_coverage, demand_matrix, optimization_profile="Equilibrado", 
@@ -2621,12 +2608,15 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
                     patterns,
                     demand_matrix,
                     target_coverage=TARGET_COVERAGE,
-                    verbose=VERBOSE,
+                    verbose=True,
                     agent_limit_factor=agent_limit_factor,
                     excess_penalty=excess_penalty,
                     peak_bonus=peak_bonus,
                     critical_bonus=critical_bonus,
-                    iteration_time_limit=current_app.config.get("TIME_SOLVER"),
+                    iteration_time_limit=int(cfg.get("solver_time", current_app.config.get("TIME_SOLVER", 60))),
+                    max_iterations=int(cfg.get("iterations", 6)),
+                    min_iters_before_stop=3,
+                    job_id=job_id,
                 )
                 if refined:
                     assignments = refined
@@ -2635,12 +2625,15 @@ def run_complete_optimization(file_stream, config=None, generate_charts=False, j
             patterns,
             demand_matrix,
             target_coverage=TARGET_COVERAGE,
-            verbose=VERBOSE,
+            verbose=True,
             agent_limit_factor=agent_limit_factor,
             excess_penalty=excess_penalty,
             peak_bonus=peak_bonus,
             critical_bonus=critical_bonus,
-            iteration_time_limit=current_app.config.get("TIME_SOLVER"),
+            iteration_time_limit=int(cfg.get("solver_time", current_app.config.get("TIME_SOLVER", 60))),
+            max_iterations=int(cfg.get("iterations", 6)),
+            min_iters_before_stop=3,
+            job_id=job_id,
         )
     else:
         assignments = solve_in_chunks_optimized(

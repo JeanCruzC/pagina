@@ -6,6 +6,7 @@ import time
 import numpy as np
 from threading import RLock
 from functools import wraps
+import os
 
 try:
     import pulp as pl
@@ -17,7 +18,7 @@ except Exception:
 from .scheduler_core import merge_config, analyze_results
 
 try:
-from .scheduler import _write_partial_result, _compact_patterns_for
+    from .scheduler import _write_partial_result, _compact_patterns_for
 except Exception:  # pragma: no cover - fallback if scheduler not available
     def _write_partial_result(*args, **kwargs):
         pass
@@ -195,9 +196,9 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
             
             # Solver con límites muy agresivos para terminar rápido
             solver = pl.PULP_CBC_CMD(
-                msg=True,
-                timeLimit=solver_time,
-                threads=0,
+                msg=False,
+                timeLimit=int(solver_time or 10),
+                threads=max(1, (os.cpu_count() or 2) - 1),
             )
             try:
                 status = prob.solve(solver)
@@ -208,7 +209,11 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
                 # Fallback a solver simple con timeout muy corto
                 try:
                     print(f"[PULP] Intentando solver simple")
-                    simple_solver = pl.PULP_CBC_CMD(timeLimit=solver_time, msg=True, threads=0)
+                    simple_solver = pl.PULP_CBC_CMD(
+                        timeLimit=int(solver_time or 10),
+                        msg=False,
+                        threads=max(1, (os.cpu_count() or 2) - 1),
+                    )
                     status = prob.solve(simple_solver)
                     print(f"[PULP] Solver simple status: {status}")
                 except Exception as e2:
