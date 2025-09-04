@@ -48,7 +48,6 @@ DEFAULT_CONFIG = {
     "peak_bonus": 1.5,
     "critical_bonus": 2.0,
     "iterations": 30,
-    "solver_threads": os.cpu_count() or 1,
     "use_ft": True,
     "use_pt": True,
     "allow_8h": True,

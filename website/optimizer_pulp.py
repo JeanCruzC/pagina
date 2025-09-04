@@ -198,7 +198,6 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
             solver = pl.PULP_CBC_CMD(
                 msg=False,
                 timeLimit=int(solver_time or 10),
-                threads=max(1, (os.cpu_count() or 2) - 1),
             )
             try:
                 status = prob.solve(solver)
@@ -212,7 +211,6 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
                     simple_solver = pl.PULP_CBC_CMD(
                         timeLimit=int(solver_time or 10),
                         msg=False,
-                        threads=max(1, (os.cpu_count() or 2) - 1),
                     )
                     status = prob.solve(simple_solver)
                     print(f"[PULP] Solver simple status: {status}")
