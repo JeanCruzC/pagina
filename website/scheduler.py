@@ -366,95 +366,96 @@ def analyze_results(assignments, shifts_coverage, demand_matrix):
     }
 
 
+def _pattern_matrix(pattern):
+    if pattern is None:
+        return None
+    if isinstance(pattern, dict) and "matrix" in pattern:
+        return np.asarray(pattern["matrix"])
+    return np.asarray(pattern)
+
+
+def _assigned_matrix_from(assignments, patterns, D, H):
+    cov = np.zeros((D, H), dtype=int)
+    if not assignments:
+        return cov
+    for pid, count in assignments.items():
+        p = patterns.get(pid)
+        if p is None:
+            continue
+        mat = _pattern_matrix(p).reshape(D, H)
+        cov += mat * int(count)
+    return cov
+
+
 def _fig_to_b64(fig):
     buf = io.BytesIO()
-    # Fondo transparente para que se vea bien en tema oscuro
-    fig.patch.set_alpha(0)
-    for ax in fig.get_axes():
-        ax.set_facecolor((0, 0, 0, 0))
-    # DPI alto = texto nítido
-    fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
+    fig.tight_layout()
+    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight")
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def _heatmap(matrix, title, day_labels=None, hour_labels=None,
-             annotate=True, cmap="RdYlBu_r"):
+def _heatmap(matrix, title, day_labels=None, hour_labels=None, annotate=True, cmap="RdYlBu_r"):
     M = np.asarray(matrix)
     D, H = M.shape
-
-    # Escala de fuente automática tipo Streamlit
-    base = 12 if H <= 24 else 10
-    tick_fs = base
-    ann_fs = max(8, base - 2)
-    title_fs = base + 4
-
-    fig_w = min(1.0 * H, 22)      # ancho máximo ~22in
-    fig_h = min(0.65 * D + 2, 12) # alto máximo ~12in
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-
-    im = ax.imshow(M, cmap=cmap, aspect="auto", interpolation="nearest")
-
+    fig, ax = plt.subplots(figsize=(min(1.0 * H, 20), min(0.7 * D + 2, 10)))
+    im = ax.imshow(M, cmap=cmap, aspect="auto")
     if hour_labels is None:
         hour_labels = [f"{h:02d}" for h in range(H)]
     if day_labels is None:
         day_labels = [f"Día {i+1}" for i in range(D)]
-
     ax.set_xticks(range(H))
-    ax.set_xticklabels(hour_labels, fontsize=tick_fs)
+    ax.set_xticklabels(hour_labels, fontsize=8)
     ax.set_yticks(range(D))
-    ax.set_yticklabels(day_labels, fontsize=tick_fs)
-
-    # Estilo legible en fondo oscuro
-    ax.tick_params(colors="#E6E6E6")
-    for spine in ax.spines.values():
-        spine.set_color("#AAAAAA")
-        spine.set_linewidth(0.6)
-
-    ax.set_title(title, fontsize=title_fs, color="#FFFFFF", pad=10)
-    ax.set_xlabel("Hora del día", fontsize=tick_fs, color="#E6E6E6")
-    ax.set_ylabel("Día de la semana", fontsize=tick_fs, color="#E6E6E6")
-
-    # Barra de color con etiquetas grandes
-    cbar = fig.colorbar(im, ax=ax, shrink=0.95, pad=0.015)
-    cbar.ax.tick_params(labelsize=tick_fs, colors="#E6E6E6")
-    cbar.outline.set_edgecolor("#AAAAAA")
-
-    # Anotaciones (números) con color dinámico de contraste
+    ax.set_yticklabels(day_labels, fontsize=9)
+    ax.set_title(title)
+    ax.set_xlabel("Hora del día")
+    ax.set_ylabel("Día")
     if annotate and H <= 30 and D <= 14:
-        vmax = np.nanmax(M) if M.size else 0
-        thr = 0.5 * vmax
         for i in range(D):
             for j in range(H):
-                v = M[i, j]
-                txt_color = "#111111" if v >= thr else "#FFFFFF"
-                ax.text(j, i, f"{int(v)}",
-                        ha="center", va="center",
-                        fontsize=ann_fs, color=txt_color)
-
-    fig.tight_layout()
+                ax.text(j, i, f"{int(M[i, j])}", ha="center", va="center", fontsize=7, color="black")
+    fig.colorbar(im, ax=ax, shrink=0.95)
     return fig
 
 
-def _build_sync_payload(assignments, shifts_coverage, demand_matrix):
-    res = analyze_results(assignments, shifts_coverage, demand_matrix)
-    cov = res["total_coverage"]
-    diff = cov - demand_matrix
-    fig_dem = _heatmap(demand_matrix, "Demanda por Hora y Día", cmap="Reds")
-    fig_cov = _heatmap(cov, "Cobertura por Hora y Día", cmap="Blues")
-    fig_diff = _heatmap(diff, "Cobertura - Demanda (exceso/déficit)", cmap="RdBu_r")
+def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None, hour_labels=None, meta=None):
+    dem = np.asarray(demand_matrix, dtype=int)
+    D, H = dem.shape
+    cov = _assigned_matrix_from(assignments, patterns, D, H)
+    clipped = np.minimum(cov, dem)
+    diff = cov - dem
+
+    total_dem = int(dem.sum())
+    total_cov = int(cov.sum())
+    total_clip = int(clipped.sum())
+
+    deficit = int(np.clip(dem - cov, 0, None).sum())
+    excess = int(np.clip(cov - dem, 0, None).sum())
+
+    cov_real = (total_cov / total_dem * 100.0) if total_dem > 0 else 0.0
+    cov_pure = (total_clip / total_dem * 100.0) if total_dem > 0 else 0.0
+
+    fig_dem = _heatmap(dem, "Demanda por Hora y Día", day_labels, hour_labels, annotate=True, cmap="Reds")
+    fig_cov = _heatmap(cov, "Cobertura por Hora y Día", day_labels, hour_labels, annotate=True, cmap="Blues")
+    fig_diff = _heatmap(diff, "Cobertura - Demanda (exceso/deficit)", day_labels, hour_labels, annotate=True, cmap="RdBu_r")
+
     return {
         "metrics": {
-            "agents": res["total_agents"],
-            "coverage_percentage": round(res["coverage_percentage"], 1),
-            "excess": res["overstaffing"],
-            "deficit": res["understaffing"],
+            "total_demand": total_dem,
+            "total_coverage": total_cov,
+            "coverage_real": round(cov_real, 1),
+            "coverage_pure": round(cov_pure, 1),
+            "deficit": deficit,
+            "excess": excess,
+            "agents": int(sum(assignments.values())) if assignments else 0,
         },
         "figures": {
             "demand_png": _fig_to_b64(fig_dem),
             "coverage_png": _fig_to_b64(fig_cov),
             "diff_png": _fig_to_b64(fig_diff),
         },
+        "meta": meta or {},
     }
 
 
@@ -484,12 +485,24 @@ def run_complete_optimization(
     ):
         patterns.update(batch)
 
-    assignments, _ = optimize_jean_search(
+    assignments, status = optimize_jean_search(
         patterns,
         demand_matrix,
         cfg={**cfg, "solver_time": TIME_SOLVER, "iterations": MAX_ITERS},
     )
     if return_payload:
-        payload = _build_sync_payload(assignments, patterns, demand_matrix)
+        D, H = demand_matrix.shape
+        day_labels = [f"Día {i+1}" for i in range(D)]
+        hour_labels = list(range(H))
+        payload = _build_sync_payload(
+            assignments=assignments or {},
+            patterns=patterns,
+            demand_matrix=demand_matrix,
+            day_labels=day_labels,
+            hour_labels=hour_labels,
+            meta={"status": status},
+        )
+        payload["status"] = status
+        payload["config"] = cfg
         return payload
     return {"assignments": assignments}

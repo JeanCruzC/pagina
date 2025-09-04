@@ -1,68 +1,45 @@
-from flask import Blueprint, render_template, request
+from flask import Blueprint, render_template, request, current_app, jsonify
 from .scheduler import run_complete_optimization as run_opt
 
 bp = Blueprint("generator", __name__)
 
 
-# helpers
-def _bool(name: str) -> bool:
-    v = request.form.get(name)
-    return v in ("1", "true", "on", "yes")
+def _b(v):
+    return str(v).lower() in ("true", "1", "on", "yes", "si", "sí")
 
 
-def _cfg_from_form():
+def _cfg_from_request(form):
     return {
-        # === idéntico a Streamlit ===
-        "iterations": int(request.form.get("iterations", 3)),  # JEAN (sidebar)
-        "solver_time": int(request.form.get("solver_time", 120)),  # Tiempo solver (s)
-        "coverage": float(request.form.get("coverage", 98)),  # Cobertura objetivo (%)
-        "break_from_start": float(request.form.get("break_from_start", 2)),
-        "break_from_end": float(request.form.get("break_from_end", 2)),
-        "use_ft": _bool("use_ft"),  # Full Time (48h)
-        "use_pt": _bool("use_pt"),  # Part Time (24h)
-
-        # Tipos PT habilitados (idéntico a app1.py)
-        "allow_pt_4h": True,
-        "allow_pt_5h": True,
-        "allow_pt_6h": True,
-
-        # FT permitidos (idéntico a app1.py)
-        "allow_8h": True,
-        "allow_10h8": True,
-
-        # Solver avanzado
-        "solver_msg": True,  # mostrar progreso
-        "agent_limit_factor": int(request.form.get("agent_limit_factor", 30)),
-        "excess_penalty": float(request.form.get("excess_penalty", 5)),
-        "peak_bonus": float(request.form.get("peak_bonus", 2)),
-        "critical_bonus": float(request.form.get("critical_bonus", 2.5)),
-
-        # Perfil
-        "optimization_profile": request.form.get("profile", "JEAN"),
-        "profile": request.form.get("profile", "JEAN"),
-
-        # Forzamos uso de PuLP + Greedy (como el streamlit)
+        "optimization_profile": form.get("optimization_profile", "JEAN"),
+        "use_ft": _b(form.get("use_ft", "on")),
+        "use_pt": _b(form.get("use_pt", "on")),
+        "break_from_start": float(form.get("break_from_start", 2)),
+        "break_from_end": float(form.get("break_from_end", 2)),
+        "solver_time": int(form.get("solver_time", current_app.config.get("TIME_SOLVER", 120))),
+        "coverage": float(form.get("coverage", 98)),
+        "iterations": int(form.get("iterations", 3)),
+        # constantes JEAN por defecto (idénticas a tu perfil)
+        "agent_limit_factor": int(form.get("agent_limit_factor", 30)),
+        "excess_penalty": float(form.get("excess_penalty", 5)),
+        "peak_bonus": float(form.get("peak_bonus", 2)),
+        "critical_bonus": float(form.get("critical_bonus", 2.5)),
         "use_pulp": True,
         "use_greedy": True,
-
-        # Ejecutamos todo en el mismo request
-        "ft_first_pt_last": True,
         "export_files": False,
+        "ft_first_pt_last": True,
     }
 
 
 @bp.route("/generador", methods=["GET", "POST"])
 def generador():
     if request.method == "GET":
-        # UI estilo Streamlit (idéntica estructura y textos)
-        return render_template("generador.html")
+        return render_template("generador.html", mode="sync")
 
-    # POST síncrono (modo Streamlit)
-    xls = request.files.get("file")
+    xls = request.files.get("file") or request.files.get("excel")
     if not xls:
-        return render_template("generador.html", error="Falta el archivo Excel")
+        return jsonify({"error": "Falta el archivo Excel"}), 400
 
-    cfg = _cfg_from_form()
+    cfg = _cfg_from_request(request.form)
     payload = run_opt(
         xls,
         config=cfg,
@@ -70,6 +47,5 @@ def generador():
         job_id=None,
         return_payload=True,
     )
-    # Mostramos resultados con la misma estética/densidad visual de tu app
-    return render_template("resultados.html", payload=payload, cfg=cfg)
+    return render_template("resultados.html", payload=payload, mode="sync")
 
