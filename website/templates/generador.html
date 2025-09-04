@@ -1,106 +1,80 @@
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8"/>
-  <title>Generador de Turnos v6.2 - Sistema Corregido</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    body{background:#0e1117;color:#e6e6e6}
-    .card{background:#161a23;border:1px solid #2b2f3a}
-    .form-label{font-weight:600}
-    .sidebar{min-width:290px}
-    input[type="number"], input[type="text"], input[type="file"], select{background:#0e1117;color:#e6e6e6;border:1px solid #2b2f3a}
-    .btn-primary{background:#1565c0;border:none}
-  </style>
-</head>
-<body>
-<div class="container-fluid py-3">
-  <h3 class="mb-3">Generador de Turnos v6.2 - Sistema Corregido</h3>
+{% extends "base.html" %}
+{% block title %}Generador de Turnos — Modo Streamlit{% endblock %}
 
-  <form action="/generador" method="POST" enctype="multipart/form-data">
-    <div class="row g-3">
-      <!-- izquierda: configuración (equivalente al sidebar de Streamlit) -->
-      <div class="col-12 col-md-3">
-        <div class="card sidebar">
-          <div class="card-body">
-            <h5 class="card-title">⚙️ Configuración</h5>
+{% block body %}
+<h3 class="mb-3">Generador de Turnos v6.2 — Sistema Corregido</h3>
 
-            <label class="form-label mt-2">Iteraciones máximas</label>
-            <input type="number" name="max_iter" value="30" min="1" max="100" class="form-control">
+<div class="d-flex gap-3">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="card mb-3">
+      <div class="card-body">
+        <h5 class="card-title mb-3">⚙️ Configuración</h5>
 
-            <label class="form-label mt-2">Tiempo solver (s)</label>
-            <input type="number" name="time_solver" value="0" min="0" max="600" class="form-control">
+        <form action="/generador" method="POST" enctype="multipart/form-data" id="form-opt">
 
-            <label class="form-label mt-2">Mostrar progreso solver</label>
-            <select name="solver_msg" class="form-select">
-              <option value="1" selected>1</option>
-              <option value="0">0</option>
-            </select>
+          <div class="mb-3">
+            <label class="form-label">Iteraciones JEAN</label>
+            <input class="form-control" type="number" name="iterations" value="3" min="1" max="10"/>
+          </div>
 
-            <label class="form-label mt-2">Threads solver (PuLP)</label>
-            <input type="number" name="solver_threads" value="1" min="1" class="form-control">
+          <div class="mb-3">
+            <label class="form-label">Tiempo solver (s)</label>
+            <input class="form-control" type="number" name="solver_time" value="120" min="5" step="5"/>
+          </div>
 
-            <label class="form-label mt-2">Cobertura objetivo (%)</label>
-            <input type="number" name="coverage" value="98" min="95" max="100" class="form-control">
+          <div class="mb-3">
+            <label class="form-label">Cobertura objetivo (%)</label>
+            <input class="form-control" type="number" name="coverage" value="98" min="80" max="100"/>
+          </div>
 
-            <div class="form-check mt-2">
-              <input class="form-check-input" type="checkbox" name="verbose" value="1" id="v1">
-              <label class="form-check-label" for="v1">Modo verbose/debug</label>
-            </div>
-
-            <hr>
-            <h6>📋 Tipos de Contrato</h6>
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="use_ft" value="1" id="ft1" checked>
-              <label class="form-check-label" for="ft1">Full Time (48h)</label>
-            </div>
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="use_pt" value="1" id="pt1" checked>
-              <label class="form-check-label" for="pt1">Part Time (24h)</label>
-            </div>
-
-            <div id="ftcfg" class="mt-2">
-              <h6>⏰ Turnos FT Permitidos</h6>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="allow_8h" value="1" id="a8" checked>
-                <label class="form-check-label" for="a8">8 horas (6 días)</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="allow_10h8" value="1" id="a108">
-                <label class="form-check-label" for="a108">10h + día de 8h (5 días)</label>
-              </div>
-            </div>
-
-            <h6 class="mt-2">🧰 Configuración de Breaks</h6>
+          <div class="mb-3">
             <label class="form-label">Break desde inicio (horas)</label>
-            <input type="number" step="0.5" name="break_from_start" value="2" class="form-control">
-            <label class="form-label mt-2">Break antes del fin (horas)</label>
-            <input type="number" step="0.5" name="break_from_end" value="2" class="form-control">
-
-            <h6 class="mt-2">⏳ Turnos PT Permitidos</h6>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="allow_pt_4h" value="1" id="p4" checked><label class="form-check-label" for="p4">4 horas (6 días)</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="allow_pt_5h" value="1" id="p5" checked><label class="form-check-label" for="p5">5 horas (6 días)</label></div>
-            <div class="form-check"><input class="form-check-input" type="checkbox" name="allow_pt_6h" value="1" id="p6"><label class="form-check-label" for="p6">6 horas (4 días)</label></div>
+            <input class="form-control" type="number" step="0.5" name="break_from_start" value="2"/>
           </div>
-        </div>
-      </div>
 
-      <!-- derecha: carga y botón -->
-      <div class="col-12 col-md-9">
-        <div class="card">
-          <div class="card-body">
-            <h5>Optimización</h5>
-            <label class="form-label">Sube tu Excel de demanda (Requerido.xlsx)</label>
-            <input class="form-control" type="file" name="file" accept=".xlsx,.xls" required>
-            <div class="mt-3">
-              <button class="btn btn-primary btn-lg" type="submit">🚀 Ejecutar Optimización</button>
-            </div>
+          <div class="mb-3">
+            <label class="form-label">Break antes del fin (horas)</label>
+            <input class="form-control" type="number" step="0.5" name="break_from_end" value="2"/>
           </div>
-        </div>
-      </div>
 
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="ft" name="use_ft" value="true" checked>
+            <label class="form-check-label" for="ft">Full Time (48h)</label>
+          </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="pt" name="use_pt" value="true" checked>
+            <label class="form-check-label" for="pt">Part Time (24h)</label>
+          </div>
+
+          <!-- ocultos fijos para igualar a tu perfil JEAN -->
+          <input type="hidden" name="profile" value="JEAN"/>
+          <input type="hidden" name="agent_limit_factor" value="30"/>
+          <input type="hidden" name="excess_penalty" value="5"/>
+          <input type="hidden" name="peak_bonus" value="2"/>
+          <input type="hidden" name="critical_bonus" value="2.5"/>
+          <input type="hidden" name="optimization_profile" value="JEAN"/>
+
+          <hr class="my-3" />
+          <div class="mb-3">
+            <label class="form-label">Archivo de demanda (.xlsx)</label>
+            <input class="form-control" type="file" name="file" accept=".xlsx,.xls" required/>
+          </div>
+
+          <button class="btn btn-primary w-100" type="submit">🚀 Ejecutar Optimización</button>
+        </form>
+      </div>
     </div>
-  </form>
+  </div>
+
+  <!-- Contenido principal -->
+  <div class="content">
+    <div class="card">
+      <div class="card-body">
+        <div class="badge badge-soft">Modo Streamlit (síncrono)</div>
+        <div class="mt-2 text-muted">Sube tu Excel y se calculará todo en esta misma página.</div>
+      </div>
+    </div>
+  </div>
 </div>
-</body>
-</html>
+{% endblock %}

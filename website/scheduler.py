@@ -335,34 +335,71 @@ def analyze_results(assignments, shifts_coverage, demand_matrix):
 
 def _fig_to_b64(fig):
     buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight")
+    # Fondo transparente para que se vea bien en tema oscuro
+    fig.patch.set_alpha(0)
+    for ax in fig.get_axes():
+        ax.set_facecolor((0, 0, 0, 0))
+    # DPI alto = texto nítido
+    fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
     plt.close(fig)
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def create_heatmap(matrix, title, cmap="RdYlBu_r"):
-    fig, ax = plt.subplots(figsize=(14, 6))
-    im = ax.imshow(matrix, cmap=cmap, aspect="auto")
-    ax.set_xticks(range(24))
-    ax.set_xticklabels([f"{h:02d}" for h in range(24)])
-    ax.set_yticks(range(7))
-    ax.set_yticklabels([
-        "Lunes",
-        "Martes",
-        "Miércoles",
-        "Jueves",
-        "Viernes",
-        "Sábado",
-        "Domingo",
-    ])
-    for i in range(7):
-        for j in range(matrix.shape[1]):
-            ax.text(j, i, f"{int(matrix[i, j])}", ha="center", va="center", fontsize=7, color="black")
-    ax.set_title(title)
-    ax.set_xlabel("Hora del día")
-    ax.set_ylabel("Día de la semana")
-    fig.colorbar(im, ax=ax)
+def _heatmap(matrix, title, day_labels=None, hour_labels=None,
+             annotate=True, cmap="RdYlBu_r"):
+    M = np.asarray(matrix)
+    D, H = M.shape
+
+    # Escala de fuente automática tipo Streamlit
+    base = 12 if H <= 24 else 10
+    tick_fs = base
+    ann_fs = max(8, base - 2)
+    title_fs = base + 4
+
+    fig_w = min(1.0 * H, 22)      # ancho máximo ~22in
+    fig_h = min(0.65 * D + 2, 12) # alto máximo ~12in
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+
+    im = ax.imshow(M, cmap=cmap, aspect="auto", interpolation="nearest")
+
+    if hour_labels is None:
+        hour_labels = [f"{h:02d}" for h in range(H)]
+    if day_labels is None:
+        day_labels = [f"Día {i+1}" for i in range(D)]
+
+    ax.set_xticks(range(H))
+    ax.set_xticklabels(hour_labels, fontsize=tick_fs)
+    ax.set_yticks(range(D))
+    ax.set_yticklabels(day_labels, fontsize=tick_fs)
+
+    # Estilo legible en fondo oscuro
+    ax.tick_params(colors="#E6E6E6")
+    for spine in ax.spines.values():
+        spine.set_color("#AAAAAA")
+        spine.set_linewidth(0.6)
+
+    ax.set_title(title, fontsize=title_fs, color="#FFFFFF", pad=10)
+    ax.set_xlabel("Hora del día", fontsize=tick_fs, color="#E6E6E6")
+    ax.set_ylabel("Día de la semana", fontsize=tick_fs, color="#E6E6E6")
+
+    # Barra de color con etiquetas grandes
+    cbar = fig.colorbar(im, ax=ax, shrink=0.95, pad=0.015)
+    cbar.ax.tick_params(labelsize=tick_fs, colors="#E6E6E6")
+    cbar.outline.set_edgecolor("#AAAAAA")
+
+    # Anotaciones (números) con color dinámico de contraste
+    if annotate and H <= 30 and D <= 14:
+        vmax = np.nanmax(M) if M.size else 0
+        thr = 0.5 * vmax
+        for i in range(D):
+            for j in range(H):
+                v = M[i, j]
+                txt_color = "#111111" if v >= thr else "#FFFFFF"
+                ax.text(j, i, f"{int(v)}",
+                        ha="center", va="center",
+                        fontsize=ann_fs, color=txt_color)
+
+    fig.tight_layout()
     return fig
 
 
@@ -370,19 +407,13 @@ def _build_sync_payload(assignments, shifts_coverage, demand_matrix):
     res = analyze_results(assignments, shifts_coverage, demand_matrix)
     cov = res["total_coverage"]
     diff = cov - demand_matrix
-    fig_dem = create_heatmap(demand_matrix, "Demanda por Hora y Día", "Reds")
-    fig_cov = create_heatmap(cov, "Cobertura por Hora y Día", "Blues")
-    fig_diff = create_heatmap(diff, "Cobertura - Demanda", "RdBu_r")
-    total_demand = int(demand_matrix.sum())
-    final_coverage = (cov.sum() / total_demand * 100) if total_demand > 0 else 0
-    pure = (
-        min(100, (np.minimum(cov, demand_matrix).sum() / total_demand * 100) if total_demand > 0 else 0)
-    )
+    fig_dem = _heatmap(demand_matrix, "Demanda por Hora y Día", cmap="Reds")
+    fig_cov = _heatmap(cov, "Cobertura por Hora y Día", cmap="Blues")
+    fig_diff = _heatmap(diff, "Cobertura - Demanda (exceso/déficit)", cmap="RdBu_r")
     return {
         "metrics": {
-            "total_agents": res["total_agents"],
-            "coverage_real": round(final_coverage, 1),
-            "coverage_pure": round(pure, 1),
+            "agents": res["total_agents"],
+            "coverage_percentage": round(res["coverage_percentage"], 1),
             "excess": res["overstaffing"],
             "deficit": res["understaffing"],
         },
