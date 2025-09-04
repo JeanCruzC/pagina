@@ -36,6 +36,12 @@ except Exception:  # pragma: no cover - optional dependency
     psutil = None
 
 from typing import Dict, List, Iterable, Union
+try:
+    from .scheduler_core import load_demand_matrix_from_df, analyze_demand_matrix
+except Exception:  # pragma: no cover - allow script execution
+    import os, sys
+    sys.path.append(os.path.dirname(__file__))
+    from scheduler_core import load_demand_matrix_from_df, analyze_demand_matrix
 
 try:
     import pulp
