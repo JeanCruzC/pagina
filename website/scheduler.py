@@ -238,12 +238,17 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
     return assignments_total
 
 
-def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
+def optimize_with_precision_targeting(
+    shifts_coverage,
+    demand_matrix,
+    iteration_time_limit=None,
+    agent_limit_factor=30,
+):
     if not PULP_AVAILABLE:
         return {}, "NO_PULP"
     shifts_list = list(shifts_coverage.keys())
     prob = pulp.LpProblem("PrecisionTargeting", pulp.LpMinimize)
-    max_per_shift = max(5, int(demand_matrix.sum() / 30))
+    max_per_shift = max(5, int(demand_matrix.sum() / max(agent_limit_factor, 1)))
     shift_vars = {
         s: pulp.LpVariable(f"x_{i}", 0, max_per_shift, pulp.LpInteger)
         for i, s in enumerate(shifts_list)
@@ -276,7 +281,7 @@ def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
             )
             prob += cov + deficit_vars[(d, h)] - excess_vars[(d, h)] == int(demand_matrix[d, h])
 
-    solver = pulp.PULP_CBC_CMD(msg=False)
+    solver = pulp.PULP_CBC_CMD(msg=False, timeLimit=iteration_time_limit)
     prob.solve(solver)
 
     assignments = {}
@@ -300,6 +305,34 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix):
     remaining = np.maximum(0, demand_matrix - cov_ft)
     pt_ass, _ = optimize_with_precision_targeting(pt, remaining)
     return {**ft_ass, **pt_ass}, "FT_PT"
+
+
+def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None):
+    cfg = cfg or {}
+    TIME_SOLVER = cfg.get("solver_time", 120) or None
+    MAX_ITERS = int(cfg.get("iterations", 3))
+    factor = int(cfg.get("agent_limit_factor", 30))
+    best_assignments = {}
+    best_score = float("inf")
+    iteration = 0
+    while iteration < MAX_ITERS and factor >= 1:
+        temp_cfg = cfg.copy()
+        temp_cfg["agent_limit_factor"] = factor
+        assignments, _ = optimize_with_precision_targeting(
+            shifts_coverage,
+            demand_matrix,
+            iteration_time_limit=TIME_SOLVER,
+            agent_limit_factor=factor,
+        )
+        results = analyze_results(assignments, shifts_coverage, demand_matrix)
+        if results:
+            score = results["overstaffing"] + results["understaffing"]
+            if score < best_score or not best_assignments:
+                best_score = score
+                best_assignments = assignments
+        iteration += 1
+        factor = max(1, factor // (2 if iteration == 1 else 1))
+    return best_assignments, "JEAN"
 
 
 def analyze_results(assignments, shifts_coverage, demand_matrix):
@@ -433,6 +466,8 @@ def run_complete_optimization(
     return_payload=False,
 ):
     cfg = config or {}
+    TIME_SOLVER = cfg.get("solver_time", 120) or None
+    MAX_ITERS = int(cfg.get("iterations", 3))
     df = pd.read_excel(file_stream)
     demand_matrix = load_demand_matrix_from_df(df)
 
@@ -449,7 +484,11 @@ def run_complete_optimization(
     ):
         patterns.update(batch)
 
-    assignments = solve_in_chunks_optimized(patterns, demand_matrix)
+    assignments, _ = optimize_jean_search(
+        patterns,
+        demand_matrix,
+        cfg={**cfg, "solver_time": TIME_SOLVER, "iterations": MAX_ITERS},
+    )
     if return_payload:
         payload = _build_sync_payload(assignments, patterns, demand_matrix)
         return payload
