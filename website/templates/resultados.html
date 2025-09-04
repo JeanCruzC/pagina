@@ -1,75 +1,65 @@
 <!doctype html>
-<html lang="es" data-theme="dark">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Resultados — Generador de Turnos v6.2</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/streamlit-dark.css" rel="stylesheet">
-</head>
-<body class="bg-app">
-<div class="container-xxl py-4">
-  <h1 class="app-title">Generador de Turnos v6.2 — Sistema Corregido</h1>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Resultado — Generador de Turnos v6.2</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
+  </head>
+  <body>
+    <div class="container" style="max-width:1400px; margin:32px auto;">
+      <div class="titlebar">
+        <h1>Generador de Turnos v6.2 — Sistema Corregido</h1>
+      </div>
+      <div class="spacer"></div>
 
-  <!-- Banner de éxito estilo streamlit -->
-  <div class="st-card st-success d-flex align-items-center">
-    <div class="me-2">✅</div>
-    <div>
-      <strong>Optimización completada</strong>
-      <div class="small text-muted">Perfil: {{ cfg.profile }} &nbsp;•&nbsp; Cobertura objetivo: {{ cfg.coverage|int }}%</div>
-    </div>
-  </div>
+      {% if payload %}
+        <!-- KPIs -->
+        <div class="grid-2" style="grid-template-columns: repeat(5, 1fr); gap:14px;">
+          <div class="metric">
+            <div class="muted small">Total Agentes</div>
+            <div class="k">{{ payload.metrics.agents }}</div>
+          </div>
+          <div class="metric">
+            <div class="muted small">Cobertura Real</div>
+            <div class="k">{{ payload.metrics.coverage_real }}%</div>
+          </div>
+          <div class="metric">
+            <div class="muted small">Cobertura Pura</div>
+            <div class="k">{{ payload.metrics.coverage_pure }}%</div>
+          </div>
+          <div class="metric">
+            <div class="muted small">Exceso</div>
+            <div class="k">{{ payload.metrics.excess }}</div>
+          </div>
+          <div class="metric">
+            <div class="muted small">Déficit</div>
+            <div class="k">{{ payload.metrics.deficit }}</div>
+          </div>
+        </div>
 
-  <!-- Métricas -->
-  <div class="row g-3 mt-1">
-    <div class="col-6 col-md-3">
-      <div class="st-card st-metric">
-        <div class="metric-label">Total Agentes</div>
-        <div class="metric-value">{{ payload.metrics.agents }}</div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="st-card st-metric">
-        <div class="metric-label">Cobertura Real</div>
-        <div class="metric-value">{{ payload.metrics.coverage_percentage }}%</div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="st-card st-metric">
-        <div class="metric-label">Exceso</div>
-        <div class="metric-value">{{ payload.metrics.excess }}</div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="st-card st-metric">
-        <div class="metric-label">Déficit</div>
-        <div class="metric-value">{{ payload.metrics.deficit }}</div>
-      </div>
-    </div>
-  </div>
+        <div class="spacer"></div>
+        <h2>📊 Análisis Visual</h2>
+        <div class="grid-2">
+          <div class="imgbox">
+            <div class="muted small" style="margin-bottom:8px">Demanda Requerida</div>
+            <img src="data:image/png;base64,{{ payload.figures.demand_png }}" alt="Demanda">
+          </div>
+          <div class="imgbox">
+            <div class="muted small" style="margin-bottom:8px">Cobertura Asignada</div>
+            <img src="data:image/png;base64,{{ payload.figures.coverage_png }}" alt="Cobertura">
+          </div>
+        </div>
 
-  <!-- Gráficos (idéntico layout: Demanda, Cobertura, Diferencias) -->
-  <div class="row g-4 mt-1">
-    <div class="col-12">
-      <div class="st-card">
-        <h5 class="mb-3">Demanda Requerida</h5>
-        <img class="w-100 st-img" src="data:image/png;base64,{{ payload.figures.demand_png }}" alt="Demanda">
-      </div>
+        <div class="spacer"></div>
+        <div class="imgbox">
+          <div class="muted small" style="margin-bottom:8px">Diferencias (Cobertura - Demanda)</div>
+          <img src="data:image/png;base64,{{ payload.figures.diff_png }}" alt="Diferencias">
+        </div>
+      {% else %}
+        <div class="card">No hay resultados para mostrar.</div>
+      {% endif %}
     </div>
-    <div class="col-12">
-      <div class="st-card">
-        <h5 class="mb-3">Cobertura Asignada</h5>
-        <img class="w-100 st-img" src="data:image/png;base64,{{ payload.figures.coverage_png }}" alt="Cobertura">
-      </div>
-    </div>
-    <div class="col-12">
-      <div class="st-card">
-        <h5 class="mb-3">Cobertura - Demanda (Exceso / Déficit)</h5>
-        <img class="w-100 st-img" src="data:image/png;base64,{{ payload.figures.diff_png }}" alt="Diferencias">
-      </div>
-    </div>
-  </div>
-</div>
-</body>
+  </body>
 </html>
 

@@ -1,118 +1,79 @@
 <!doctype html>
-<html lang="es" data-theme="dark">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Generador de Turnos v6.2 - Sistema Corregido</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/css/streamlit-dark.css" rel="stylesheet">
-</head>
-<body class="bg-app">
-
-<div class="container-xxl py-4">
-  <h1 class="app-title">Generador de Turnos v6.2 — Sistema Corregido</h1>
-
-  <div class="row g-4 mt-1">
-    <!-- SIDEBAR (idéntico a streamlit) -->
-    <div class="col-12 col-lg-4">
-      <div class="st-card">
-        <div class="d-flex align-items-center mb-2">
-          <div class="badge-dot me-2"></div>
-          <h5 class="mb-0">Configuración</h5>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Generador de Turnos v6.2 — Sistema Corregido</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/custom.css') }}">
+  </head>
+  <body>
+    <div class="container" style="max-width:1400px; margin:32px auto;">
+      <div class="titlebar">
+        <h1>Generador de Turnos v6.2 — Sistema Corregido</h1>
+      </div>
+      <div class="spacer"></div>
+      <div class="row">
+        <!-- Sidebar Config -->
+        <div class="card">
+          <div class="section-title">• Configuración</div>
+          <form action="/generador" method="POST" enctype="multipart/form-data" id="cfgForm">
+            <div class="group">
+              <label>Iteraciones JEAN</label>
+              <input type="number" name="iterations" value="3" min="1">
+            </div>
+            <div class="group">
+              <label>Tiempo solver (s)</label>
+              <input type="number" name="solver_time" value="120" min="0">
+              <div class="small muted">0 = sin límite (no recomendado en modo síncrono)</div>
+            </div>
+            <div class="group">
+              <label>Cobertura objetivo (%)</label>
+              <input type="number" name="coverage" value="98" min="80" max="100">
+            </div>
+            <div class="split">
+              <div class="group">
+                <label>Break desde inicio (horas)</label>
+                <input type="number" step="0.5" name="break_from_start" value="2">
+              </div>
+              <div class="group">
+                <label>Break antes del fin (horas)</label>
+                <input type="number" step="0.5" name="break_from_end" value="2">
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="group">
+              <label>Tipos de Contrato</label><br>
+              <input type="checkbox" name="use_ft" checked> <span class="muted">Full Time (48h)</span><br>
+              <input type="checkbox" name="use_pt" checked> <span class="muted">Part Time (24h)</span>
+            </div>
+            <div class="divider"></div>
+            <div class="group">
+              <label>Perfil de Optimización</label>
+              <select name="optimization_profile">
+                <option value="JEAN" selected>JEAN</option>
+                <option value="Estandar">Estándar</option>
+                <option value="Aprendizaje Adaptativo">Aprendizaje Adaptativo</option>
+              </select>
+            </div>
+            <div class="divider"></div>
+            <div class="group">
+              <label>Archivo de demanda (.xlsx)</label>
+              <input type="file" name="file" accept=".xlsx,.xls" required>
+            </div>
+            <button class="btn" type="submit">🚀 Ejecutar Optimización</button>
+          </form>
         </div>
 
-        <form action="/generador" method="POST" enctype="multipart/form-data" id="form-sync">
-          <div class="mb-3">
-            <label class="form-label">Iteraciones JEAN</label>
-            <input type="number" min="1" max="30" step="1" name="iterations" value="3" class="form-control st-input">
+        <!-- Panel derecho -->
+        <div>
+          <div class="card">
+            <span class="pill">Modo Streamlit (síncrono)</span>
+            <div class="spacer"></div>
+            <div class="muted">Sube tu Excel y se calculará todo en esta misma página (sin jobs ni polling).</div>
           </div>
-
-          <div class="mb-3">
-            <label class="form-label">Tiempo solver (s)</label>
-            <input type="number" min="0" max="600" step="1" name="solver_time" value="120" class="form-control st-input">
-            <div class="form-text">0 = sin límite (no recomendado en modo síncrono)</div>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Cobertura objetivo (%)</label>
-            <input type="number" min="95" max="100" step="1" name="coverage" value="98" class="form-control st-input">
-          </div>
-
-          <div class="row">
-            <div class="col-6 mb-3">
-              <label class="form-label">Break desde inicio (horas)</label>
-              <input type="number" min="0" max="6" step="0.5" name="break_from_start" value="2" class="form-control st-input">
-            </div>
-            <div class="col-6 mb-3">
-              <label class="form-label">Break antes del fin (horas)</label>
-              <input type="number" min="0" max="6" step="0.5" name="break_from_end" value="2" class="form-control st-input">
-            </div>
-          </div>
-
-          <div class="st-divider"></div>
-
-          <div class="mb-2">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" id="use_ft" name="use_ft" checked>
-              <label class="form-check-label" for="use_ft">Full Time (48h)</label>
-            </div>
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" id="use_pt" name="use_pt" checked>
-              <label class="form-check-label" for="use_pt">Part Time (24h)</label>
-            </div>
-          </div>
-
-          <div class="st-divider"></div>
-
-          <div class="mb-3">
-            <label class="form-label">Perfil de Optimización</label>
-            <select class="form-select st-input" name="profile">
-              <option>Equilibrado (Recomendado)</option>
-              <option>Conservador</option>
-              <option>Agresivo</option>
-              <option>Máxima Cobertura</option>
-              <option>Mínimo Costo</option>
-              <option>100% Cobertura Eficiente</option>
-              <option>100% Cobertura Total</option>
-              <option>Cobertura Perfecta</option>
-              <option>100% Exacto</option>
-              <option selected>JEAN</option>
-              <option>JEAN Personalizado</option>
-              <option>Personalizado</option>
-              <option>Aprendizaje Adaptativo</option>
-            </select>
-          </div>
-
-          <div class="st-divider"></div>
-
-          <div class="mb-3">
-            <label class="form-label">Archivo de demanda (.xlsx)</label>
-            <input class="form-control st-input" type="file" name="file" accept=".xlsx,.xls" required>
-          </div>
-
-          {% if error %}
-          <div class="alert alert-danger py-2">{{ error }}</div>
-          {% endif %}
-
-          <button class="btn btn-primary w-100 st-primary" type="submit">
-            🚀 Ejecutar Optimización
-          </button>
-        </form>
+        </div>
       </div>
     </div>
-
-    <!-- PANEL DERECHO (solo texto informativo como en Streamlit) -->
-    <div class="col-12 col-lg-8">
-      <div class="st-card">
-        <span class="pill">Modo Streamlit (síncrono)</span>
-        <p class="text-muted mb-0 mt-2">
-          Sube tu Excel y se calculará todo en esta misma página (sin jobs ni polling).
-        </p>
-      </div>
-    </div>
-  </div>
-</div>
-
-</body>
+  </body>
 </html>
 
