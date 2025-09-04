@@ -14,29 +14,64 @@ except Exception:
 
 def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
     """
-    Espera columnas de tu Requerido.xlsx (día/hora/valor) y devuelve matriz DxH.
-    7x24 por defecto. Vacíos a 0.
+    Carga una matriz 7x24 desde un DataFrame con columnas de día y hora.
+    Acepta día como nombre (Lunes..Domingo) o número (1..7) y hora como 11 o '11:00'.
+    También intenta varios nombres de columna habituales.
     """
-    days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-    H = 24
-    mat = np.zeros((7, H), dtype=int)
+    import numpy as np
+    days_idx = {
+        "lunes": 0,
+        "martes": 1,
+        "miércoles": 2,
+        "miercoles": 2,
+        "jueves": 3,
+        "viernes": 4,
+        "sábado": 5,
+        "sabado": 5,
+        "domingo": 6,
+    }
+    mat = np.zeros((7, 24), dtype=float)
+
     cols = {c.lower(): c for c in df.columns}
-    day_col = cols.get("dia") or cols.get("día") or list(df.columns)[0]
-    hour_col = cols.get("hora") or cols.get("hour") or list(df.columns)[1]
+    day_col = cols.get("día") or cols.get("dia") or cols.get("day") or list(df.columns)[0]
+    time_col = cols.get("horario") or cols.get("hora") or cols.get("hour") or list(df.columns)[1]
     val_col = (
-        cols.get("agentes")
+        cols.get("suma de agentes requeridos erlang")
+        or cols.get("agentes")
         or cols.get("valor")
-        or cols.get("suma de agentes requeridos erlang")
         or list(df.columns)[-1]
     )
 
     for _, row in df.iterrows():
-        d = str(row[day_col]).strip()
-        if d not in days:
+        d_raw = row.get(day_col)
+        t_raw = row.get(time_col)
+        v_raw = row.get(val_col)
+        if pd.isna(d_raw) or pd.isna(t_raw) or pd.isna(v_raw):
             continue
-        h = int(row[hour_col])
-        v = int(row[val_col])
-        mat[days.index(d), h] = v
+
+        # Día -> índice 0..6
+        if isinstance(d_raw, (int, float)):
+            d_idx = int(d_raw) - 1
+        else:
+            d_idx = days_idx.get(str(d_raw).strip().lower())
+        if d_idx is None or not (0 <= d_idx <= 6):
+            continue
+
+        # Hora -> 0..23
+        s = str(t_raw).strip()
+        try:
+            h = int(s.split(":")[0]) if ":" in s else int(float(s))
+        except Exception:
+            continue
+        if not (0 <= h <= 23):
+            continue
+
+        try:
+            v = float(v_raw)
+        except Exception:
+            continue
+        mat[d_idx, h] = v
+
     return mat
 
 
