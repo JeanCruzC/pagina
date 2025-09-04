@@ -1,130 +1,96 @@
-import io
-import base64
-import os
-import sys
+import io, base64, time, gc, hashlib
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 try:
-    from .scheduler_core import (
-        load_demand_matrix_from_df,
-        analyze_demand_matrix,
+    import pulp
+    PULP_AVAILABLE = True
+except Exception:
+    PULP_AVAILABLE = False
+
+
+def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
+    """
+    Espera columnas de tu Requerido.xlsx (día/hora/valor) y devuelve matriz DxH.
+    7x24 por defecto. Vacíos a 0.
+    """
+    days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    H = 24
+    mat = np.zeros((7, H), dtype=int)
+    cols = {c.lower(): c for c in df.columns}
+    day_col = cols.get("dia") or cols.get("día") or list(df.columns)[0]
+    hour_col = cols.get("hora") or cols.get("hour") or list(df.columns)[1]
+    val_col = (
+        cols.get("agentes")
+        or cols.get("valor")
+        or cols.get("suma de agentes requeridos erlang")
+        or list(df.columns)[-1]
     )
-except Exception:  # pragma: no cover - allow direct script execution
-    sys.path.append(os.path.dirname(__file__))
-    from scheduler_core import (  # type: ignore
-        load_demand_matrix_from_df,
-        analyze_demand_matrix,
-    )
 
-
-# ===== Helpers “modo Streamlit” (figuras y payload) =====
-
-def _pattern_matrix(pattern):
-    if pattern is None:
-        return None
-    if isinstance(pattern, dict) and "matrix" in pattern:
-        return np.asarray(pattern["matrix"])
-    return np.asarray(pattern)
-
-
-def _assigned_matrix_from(assignments, patterns, D, H):
-    cov = np.zeros((D, H), dtype=int)
-    if not assignments:
-        return cov
-    for v in assignments.values():
-        pid = v.get("pattern") if isinstance(v, dict) else v
-        p = patterns.get(pid)
-        if p is None:
+    for _, row in df.iterrows():
+        d = str(row[day_col]).strip()
+        if d not in days:
             continue
-        mat = _pattern_matrix(p).reshape(D, H)
-        cov += mat
-    return cov
+        h = int(row[hour_col])
+        v = int(row[val_col])
+        mat[days.index(d), h] = v
+    return mat
 
 
-def _fig_to_b64(fig):
-    buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight")
-    plt.close(fig)
-    return base64.b64encode(buf.getvalue()).decode("ascii")
+def generate_weekly_pattern_simple(start_hour, duration, working_days):
+    pattern = np.zeros((7, 24), dtype=np.int8)
+    for day in working_days:
+        for h in range(duration):
+            t = start_hour + h
+            d_off, idx = divmod(int(t), 24)
+            pattern[(day + d_off) % 7, idx] = 1
+    return pattern.flatten()
 
 
-def _heatmap(matrix, title, day_labels=None, hour_labels=None, annotate=True, cmap="RdYlBu_r"):
-    M = np.asarray(matrix)
-    D, H = M.shape
-    fig, ax = plt.subplots(figsize=(min(1.0 * H, 20), min(0.7 * D + 2, 10)))
-    im = ax.imshow(M, cmap=cmap, aspect="auto")
-    if hour_labels is None:
-        hour_labels = [f"{h:02d}" for h in range(H)]
-    if day_labels is None:
-        day_labels = [f"Día {i+1}" for i in range(D)]
-    ax.set_xticks(range(H))
-    ax.set_xticklabels(hour_labels, fontsize=8)
-    ax.set_yticks(range(D))
-    ax.set_yticklabels(day_labels, fontsize=9)
-    ax.set_title(title)
-    ax.set_xlabel("Hora del día")
-    ax.set_ylabel("Día")
-    if annotate and H <= 30 and D <= 14:
-        for i in range(D):
-            for j in range(H):
-                ax.text(j, i, f"{int(M[i, j])}", ha="center", va="center", fontsize=7, color="black")
-    fig.colorbar(im, ax=ax, shrink=0.95)
-    return fig
+def generate_weekly_pattern_10h8(
+    start_hour,
+    working_days,
+    eight_hour_day,
+    break_from_start=2,
+    break_from_end=2,
+    break_len=1,
+):
+    pattern = np.zeros((7, 24), dtype=np.int8)
+    for day in working_days:
+        duration = 8 if day == eight_hour_day else 10
+        for h in range(duration):
+            t = start_hour + h
+            d_off, idx = divmod(int(t), 24)
+            pattern[(day + d_off) % 7, idx] = 1
+        b_start = start_hour + break_from_start
+        b_end = start_hour + duration - break_from_end
+        if int(b_start) < int(b_end):
+            b_hour = int(b_start) + (int(b_end) - int(b_start)) // 2
+        else:
+            b_hour = int(b_start)
+        for b in range(int(b_len := break_len)):
+            t = b_hour + b
+            d_off, idx = divmod(int(t), 24)
+            pattern[(day + d_off) % 7, idx] = 0
+    return pattern.flatten()
 
 
-def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None, hour_labels=None, meta=None):
-    dem = np.asarray(demand_matrix, dtype=int)
-    D, H = dem.shape
-    cov = _assigned_matrix_from(assignments, patterns, D, H)
-    diff = cov - dem
-    total_dem = int(dem.sum())
-    total_cov = int(cov.sum())
-    deficit = int(np.clip(dem - cov, 0, None).sum())
-    excess = int(np.clip(cov - dem, 0, None).sum())
-    coverage_pct = (total_cov / total_dem * 100.0) if total_dem > 0 else 0.0
-
-    fig_dem = _heatmap(dem, "Demanda (agentes-hora)", day_labels, hour_labels, annotate=True, cmap="Reds")
-    fig_cov = _heatmap(cov, "Cobertura (agentes-hora)", day_labels, hour_labels, annotate=True, cmap="Blues")
-    fig_diff = _heatmap(diff, "Cobertura - Demanda (exceso/deficit)", day_labels, hour_labels, annotate=True, cmap="RdBu_r")
-
-    return {
-        "metrics": {
-            "total_demand": total_dem,
-            "total_coverage": total_cov,
-            "coverage_percentage": round(coverage_pct, 1),
-            "deficit": deficit,
-            "excess": excess,
-            "agents": len(assignments or {}),
-        },
-        "matrices": {
-            "demand": dem.tolist(),
-            "coverage": cov.tolist(),
-            "diff": diff.tolist(),
-            "day_labels": day_labels or [f"Día {i+1}" for i in range(D)],
-            "hour_labels": hour_labels or list(range(H)),
-        },
-        "figures": {
-            "demand_png": _fig_to_b64(fig_dem),
-            "coverage_png": _fig_to_b64(fig_cov),
-            "diff_png": _fig_to_b64(fig_diff),
-        },
-        "meta": meta or {},
-    }
-
-
-# ----- Simplified scheduling algorithms -----
-
-def score_pattern(pattern, dm_packed):
-    """Return coverage score of ``pattern`` against packed demand matrix."""
-    pat = np.asarray(pattern, dtype=np.uint8)
-    return int(np.unpackbits(np.bitwise_and(pat, dm_packed)).sum())
+def score_pattern(pat, demand_matrix) -> int:
+    pat_arr = np.asarray(pat)
+    dm_arr = np.asarray(demand_matrix)
+    if pat_arr.ndim == 1:
+        slots = pat_arr.reshape(dm_arr.shape)
+        covered = np.minimum(slots, dm_arr).sum()
+        return int(covered)
+    pat_arr = pat_arr.astype(np.uint8)
+    dm_arr = dm_arr.astype(np.uint8)
+    return int(np.unpackbits(np.bitwise_and(pat_arr, dm_arr)).sum())
 
 
 def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
-    """Generate simple shift patterns and return top ``k`` by score."""
     cfg = cfg or {}
     active_days = cfg.get("ACTIVE_DAYS", range(demand_matrix.shape[0]))
     allow_8h = cfg.get("allow_8h", True)
@@ -135,7 +101,7 @@ def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
     for day in active_days:
         for start in range(H - shift_len + 1):
             mat = np.zeros_like(demand_matrix)
-            mat[day, start:start + shift_len] = 1
+            mat[day, start : start + shift_len] = 1
             packed = np.packbits(mat > 0, axis=1).astype(np.uint8)
             score = score_pattern(packed, dm_packed)
             pid = f"D{day}_H{start}"
@@ -144,25 +110,288 @@ def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
     return patterns[:top_k]
 
 
-def optimize_jean_search(
-    shifts_coverage,
+def generate_shifts_coverage_corrected(
+    *,
+    allow_8h=True,
+    allow_10h8=False,
+    allow_pt_4h=True,
+    allow_pt_5h=True,
+    allow_pt_6h=False,
+    break_from_start=2.0,
+    break_from_end=2.0,
+    batch_size=2000,
+):
+    days = list(range(7))
+    batch = {}
+
+    def flush():
+        nonlocal batch
+        if batch:
+            yield batch
+            batch = {}
+
+    if allow_8h:
+        for start in range(8, 21):
+            pat = generate_weekly_pattern_simple(start, 8, days[:-1])
+            batch[f"FT_8H_{start:02d}"] = pat
+            if len(batch) >= batch_size:
+                yield from flush()
+    if allow_10h8:
+        for start in range(8, 19):
+            pat = generate_weekly_pattern_10h8(
+                start,
+                days[:-2],
+                eight_hour_day=4,
+                break_from_start=break_from_start,
+                break_from_end=break_from_end,
+            )
+            batch[f"FT_10H8_{start:02d}"] = pat
+            if len(batch) >= batch_size:
+                yield from flush()
+    for dur, flag in [(4, allow_pt_4h), (5, allow_pt_5h), (6, allow_pt_6h)]:
+        if not flag:
+            continue
+        for start in range(8, 21 - dur + 1):
+            pat = generate_weekly_pattern_simple(start, dur, days[:-1])
+            batch[f"PT_{dur}H_{start:02d}"] = pat
+            if len(batch) >= batch_size:
+                yield from flush()
+    yield from flush()
+
+
+def generate_shifts_coverage_optimized(
     demand_matrix,
     *,
-    agent_limit_factor=30,
-    excess_penalty=5.0,
-    peak_bonus=2.0,
-    critical_bonus=2.5,
-    target_coverage=98.0,
-    max_iterations=6,
-    iteration_time_limit=60,
+    max_patterns=None,
+    quality_threshold=0,
+    allow_8h=True,
+    allow_10h8=False,
+    allow_pt_4h=True,
+    allow_pt_5h=True,
+    allow_pt_6h=False,
+    break_from_start=2.0,
+    break_from_end=2.0,
+    batch_size=2000,
 ):
-    """Placeholder optimization returning a trivial result.
+    selected = 0
+    seen = set()
+    for raw in generate_shifts_coverage_corrected(
+        allow_8h=allow_8h,
+        allow_10h8=allow_10h8,
+        allow_pt_4h=allow_pt_4h,
+        allow_pt_5h=allow_pt_5h,
+        allow_pt_6h=allow_pt_6h,
+        break_from_start=break_from_start,
+        break_from_end=break_from_end,
+        batch_size=batch_size,
+    ):
+        batch = {}
+        for name, pat in raw.items():
+            key = hashlib.md5(pat).digest()
+            if key in seen:
+                continue
+            seen.add(key)
+            if score_pattern(pat, demand_matrix) >= quality_threshold:
+                batch[name] = pat
+                selected += 1
+                if max_patterns and selected >= max_patterns:
+                    break
+        if batch:
+            yield batch
+        if max_patterns and selected >= max_patterns:
+            break
 
-    The full implementation is beyond the scope of these exercises.  This
-    function mirrors the API and returns deterministic output so unit tests can
-    verify wrapper equivalence.
-    """
-    return {}, "NOT_EXECUTED"
+
+def adaptive_chunk_size(base):
+    return base
+
+
+def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000):
+    scored = []
+    seen = set()
+    for name, pat in shifts_coverage.items():
+        key = hashlib.md5(pat).digest()
+        if key in seen:
+            continue
+        seen.add(key)
+        scored.append((name, pat, score_pattern(pat, demand_matrix)))
+    scored.sort(key=lambda x: x[2], reverse=True)
+
+    assignments_total = {}
+    coverage = np.zeros_like(demand_matrix)
+    idx = 0
+    while idx < len(scored):
+        chunk_size = adaptive_chunk_size(base_chunk_size)
+        chunk = {n: p for n, p, _ in scored[idx : idx + chunk_size]}
+        remaining = np.maximum(0, demand_matrix - coverage)
+        if not np.any(remaining):
+            break
+        assigns, _ = optimize_with_precision_targeting(chunk, remaining)
+        for n, v in assigns.items():
+            assignments_total[n] = assignments_total.get(n, 0) + v
+            slots = len(chunk[n]) // 7
+            coverage += chunk[n].reshape(7, slots) * v
+        idx += chunk_size
+        gc.collect()
+        if not np.any(np.maximum(0, demand_matrix - coverage)):
+            break
+    return assignments_total
+
+
+def optimize_with_precision_targeting(shifts_coverage, demand_matrix):
+    if not PULP_AVAILABLE:
+        return {}, "NO_PULP"
+    shifts_list = list(shifts_coverage.keys())
+    prob = pulp.LpProblem("PrecisionTargeting", pulp.LpMinimize)
+    max_per_shift = max(5, int(demand_matrix.sum() / 30))
+    shift_vars = {
+        s: pulp.LpVariable(f"x_{i}", 0, max_per_shift, pulp.LpInteger)
+        for i, s in enumerate(shifts_list)
+    }
+    hours = demand_matrix.shape[1]
+    deficit_vars = {
+        (d, h): pulp.LpVariable(f"def_{d}_{h}", 0, None)
+        for d in range(7)
+        for h in range(hours)
+    }
+    excess_vars = {
+        (d, h): pulp.LpVariable(f"exc_{d}_{h}", 0, None)
+        for d in range(7)
+        for h in range(hours)
+    }
+
+    total_def = pulp.lpSum(deficit_vars.values())
+    total_exc = pulp.lpSum(excess_vars.values())
+    total_agents = pulp.lpSum(shift_vars.values())
+    prob += total_def + 0.5 * total_exc + 0.001 * total_agents
+
+    for d in range(7):
+        for h in range(hours):
+            cov = pulp.lpSum(
+                [
+                    shift_vars[s]
+                    * np.array(shifts_coverage[s]).reshape(7, len(shifts_coverage[s]) // 7)[d, h]
+                    for s in shifts_list
+                ]
+            )
+            prob += cov + deficit_vars[(d, h)] - excess_vars[(d, h)] == int(demand_matrix[d, h])
+
+    solver = pulp.PULP_CBC_CMD(msg=False)
+    prob.solve(solver)
+
+    assignments = {}
+    if prob.status == pulp.LpStatusOptimal:
+        for s in shifts_list:
+            v = int(shift_vars[s].varValue or 0)
+            if v > 0:
+                assignments[s] = v
+        return assignments, "PRECISION_TARGETING"
+    return {}, f"STATUS_{prob.status}"
+
+
+def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix):
+    ft = {k: v for k, v in shifts_coverage.items() if k.startswith("FT")}
+    pt = {k: v for k, v in shifts_coverage.items() if k.startswith("PT")}
+    ft_ass, _ = optimize_with_precision_targeting(ft, demand_matrix)
+    cov_ft = np.zeros_like(demand_matrix)
+    for s, c in ft_ass.items():
+        slots = len(ft[s]) // 7
+        cov_ft += ft[s].reshape(7, slots) * c
+    remaining = np.maximum(0, demand_matrix - cov_ft)
+    pt_ass, _ = optimize_with_precision_targeting(pt, remaining)
+    return {**ft_ass, **pt_ass}, "FT_PT"
+
+
+def analyze_results(assignments, shifts_coverage, demand_matrix):
+    if not assignments:
+        return None
+    slots = len(next(iter(shifts_coverage.values()))) // 7
+    total_cov = np.zeros((7, slots), dtype=int)
+    total_agents, ft_agents, pt_agents = 0, 0, 0
+    for name, cnt in assignments.items():
+        pat = np.array(shifts_coverage[name]).reshape(7, slots)
+        total_cov += pat * cnt
+        total_agents += cnt
+        if name.startswith("FT"):
+            ft_agents += cnt
+        else:
+            pt_agents += cnt
+    total_demand = demand_matrix.sum()
+    total_covered = np.minimum(total_cov, demand_matrix).sum()
+    coverage_percentage = (total_covered / total_demand * 100) if total_demand > 0 else 0
+    diff = total_cov - demand_matrix
+    over = int(np.sum(diff[diff > 0]))
+    under = int(np.sum(np.abs(diff[diff < 0])))
+    return {
+        "total_coverage": total_cov,
+        "coverage_percentage": coverage_percentage,
+        "overstaffing": over,
+        "understaffing": under,
+        "total_agents": total_agents,
+        "ft_agents": ft_agents,
+        "pt_agents": pt_agents,
+    }
+
+
+def _fig_to_b64(fig):
+    buf = io.BytesIO()
+    fig.tight_layout()
+    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight")
+    plt.close(fig)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def create_heatmap(matrix, title, cmap="RdYlBu_r"):
+    fig, ax = plt.subplots(figsize=(14, 6))
+    im = ax.imshow(matrix, cmap=cmap, aspect="auto")
+    ax.set_xticks(range(24))
+    ax.set_xticklabels([f"{h:02d}" for h in range(24)])
+    ax.set_yticks(range(7))
+    ax.set_yticklabels([
+        "Lunes",
+        "Martes",
+        "Miércoles",
+        "Jueves",
+        "Viernes",
+        "Sábado",
+        "Domingo",
+    ])
+    for i in range(7):
+        for j in range(matrix.shape[1]):
+            ax.text(j, i, f"{int(matrix[i, j])}", ha="center", va="center", fontsize=7, color="black")
+    ax.set_title(title)
+    ax.set_xlabel("Hora del día")
+    ax.set_ylabel("Día de la semana")
+    fig.colorbar(im, ax=ax)
+    return fig
+
+
+def _build_sync_payload(assignments, shifts_coverage, demand_matrix):
+    res = analyze_results(assignments, shifts_coverage, demand_matrix)
+    cov = res["total_coverage"]
+    diff = cov - demand_matrix
+    fig_dem = create_heatmap(demand_matrix, "Demanda por Hora y Día", "Reds")
+    fig_cov = create_heatmap(cov, "Cobertura por Hora y Día", "Blues")
+    fig_diff = create_heatmap(diff, "Cobertura - Demanda", "RdBu_r")
+    total_demand = int(demand_matrix.sum())
+    final_coverage = (cov.sum() / total_demand * 100) if total_demand > 0 else 0
+    pure = (
+        min(100, (np.minimum(cov, demand_matrix).sum() / total_demand * 100) if total_demand > 0 else 0)
+    )
+    return {
+        "metrics": {
+            "total_agents": res["total_agents"],
+            "coverage_real": round(final_coverage, 1),
+            "coverage_pure": round(pure, 1),
+            "excess": res["overstaffing"],
+            "deficit": res["understaffing"],
+        },
+        "figures": {
+            "demand_png": _fig_to_b64(fig_dem),
+            "coverage_png": _fig_to_b64(fig_cov),
+            "diff_png": _fig_to_b64(fig_diff),
+        },
+    }
 
 
 def run_complete_optimization(
@@ -172,47 +401,25 @@ def run_complete_optimization(
     job_id=None,
     return_payload=False,
 ):
-    """Read an Excel file, perform a minimal optimization and optionally build
-    a payload with figures encoded as base64 strings."""
+    cfg = config or {}
     df = pd.read_excel(file_stream)
     demand_matrix = load_demand_matrix_from_df(df)
-    cfg = config or {}
 
-    # Minimal placeholder optimization: create one pattern that matches demand
-    pattern_id = "PATTERN_1"
-    patterns = {pattern_id: demand_matrix.copy() > 0}
-    assignments = {"agent_1": pattern_id}
-    analysis = analyze_demand_matrix(demand_matrix)
+    patterns = {}
+    for batch in generate_shifts_coverage_optimized(
+        demand_matrix,
+        allow_8h=cfg.get("allow_8h", True),
+        allow_10h8=cfg.get("allow_10h8", False),
+        allow_pt_4h=cfg.get("allow_pt_4h", True),
+        allow_pt_5h=cfg.get("allow_pt_5h", True),
+        allow_pt_6h=cfg.get("allow_pt_6h", False),
+        break_from_start=cfg.get("break_from_start", 2.0),
+        break_from_end=cfg.get("break_from_end", 2.0),
+    ):
+        patterns.update(batch)
 
-    result = {
-        "pulp": {
-            "assignments": assignments,
-            "metrics": {},
-            "status": "OK",
-        },
-        "greedy": {
-            "assignments": {},
-            "metrics": {},
-            "status": "NOT_RUN",
-        },
-        "analysis": analysis,
-        "config": cfg,
-    }
-
+    assignments = solve_in_chunks_optimized(patterns, demand_matrix)
     if return_payload:
-        D, H = demand_matrix.shape
-        day_labels = [f"Día {i+1}" for i in range(D)]
-        hour_labels = list(range(H))
-        payload = _build_sync_payload(
-            assignments=assignments,
-            patterns=patterns,
-            demand_matrix=demand_matrix,
-            day_labels=day_labels,
-            hour_labels=hour_labels,
-            meta={"status": "OK"},
-        )
-        payload["status"] = "OK"
-        payload["config"] = cfg
+        payload = _build_sync_payload(assignments, patterns, demand_matrix)
         return payload
-
-    return result
+    return {"assignments": assignments}
