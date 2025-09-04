@@ -5,7 +5,7 @@
 <!-- BANNER ÉXITO -->
 <div class="card mt-3">
   <div class="card-body d-flex align-items-center gap-3">
-    <span class="badge text-bg-success">Optimización completada</span>
+    <span class="badge text-bg-success">Optimización completada en {{ payload.meta.elapsed }}s</span>
     <span class="kpi-label">Perfil: <strong>{{ payload.config.optimization_profile }}</strong></span>
   </div>
 </div>
@@ -22,6 +22,12 @@
     <div class="card p-3">
       <div class="kpi">{{ m.coverage_percentage or 0 }}%</div>
       <div class="kpi-label">Cobertura Pura</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card p-3">
+      <div class="kpi">{{ m.coverage_real or 0 }}%</div>
+      <div class="kpi-label">Cobertura Real</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
