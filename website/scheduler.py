@@ -2716,7 +2716,7 @@ def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
     best = [it for it in items if it[0] == max_score]
     if len(best) >= k:
         return best[:k]
-ximo duplicando el mejor
+# ximo duplicando el mejor
     out = list(best)
     while len(out) < k:
         s, name, pat = best[0]
