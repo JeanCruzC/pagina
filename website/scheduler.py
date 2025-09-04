@@ -2498,6 +2498,39 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
     }
 
 
+# Configuration helper -----------------------------------------------------
+try:
+    from .scheduler_clean import merge_config as apply_configuration
+except Exception:  # pragma: no cover - fallback if clean module unavailable
+    DEFAULT_CONFIG = {
+        "solver_time": 300,
+        "solver_msg": 1,
+        "TARGET_COVERAGE": 98.0,
+        "agent_limit_factor": 12,
+        "excess_penalty": 2.0,
+        "peak_bonus": 1.5,
+        "critical_bonus": 2.0,
+        "iterations": 30,
+        "use_ft": True,
+        "use_pt": True,
+        "allow_8h": True,
+        "allow_10h8": False,
+        "allow_pt_4h": True,
+        "allow_pt_6h": True,
+        "allow_pt_5h": False,
+        "break_from_start": 2.5,
+        "break_from_end": 2.5,
+        "ACTIVE_DAYS": list(range(7)),
+    }
+
+    def apply_configuration(cfg=None):
+        """Merge provided configuration with defaults."""
+        merged = DEFAULT_CONFIG.copy()
+        if cfg:
+            merged.update({k: v for k, v in cfg.items() if v is not None})
+        return merged
+
+
 def run_complete_optimization(file_stream, config=None, generate_charts=False, job_id=None, return_payload=False):
     cfg = apply_configuration(config)
     solver_time = cfg.get("TIME_SOLVER", cfg.get("solver_time"))
