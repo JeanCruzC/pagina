@@ -1,84 +1,107 @@
-{% extends "base.html" %}
-{% block title %}Resultados — Generador v6.2{% endblock %}
+{% set m = payload.metrics or {} %}
+{% set figs = payload.figures or {} %}
+{% set insight = payload.insights or {} %}
 
-{% block content %}
-  <h1 class="mb-3">Generador de Turnos v6.2 — Sistema Corregido</h1>
-
-  <div class="alert alert-success">
-    ✅ Optimización completada{% if payload.elapsed %} en {{ "%.1f"|format(payload.elapsed) }}s{% endif %}.
+<!-- BANNER ÉXITO -->
+<div class="card mt-3">
+  <div class="card-body d-flex align-items-center gap-3">
+    <span class="badge text-bg-success">Optimización completada</span>
+    <span class="kpi-label">Perfil: <strong>{{ payload.config.optimization_profile }}</strong></span>
   </div>
+</div>
 
-  <!-- Métricas principales -->
-  <div class="row g-3">
-    <div class="col-md-3">
-      <div class="card h-100"><div class="card-body">
-        <div class="metric">{{ payload.metrics.agents or 0 }}</div>
-        <div class="metric-sublabel">Total Agentes</div>
-      </div></div>
-    </div>
-    <div class="col-md-3">
-      <div class="card h-100"><div class="card-body">
-        <div class="metric">{{ payload.metrics.coverage_percentage or 0 }}%</div>
-        <div class="metric-sublabel">Cobertura Pura</div>
-      </div></div>
-    </div>
-    <div class="col-md-3">
-      <div class="card h-100"><div class="card-body">
-        <div class="metric">{{ payload.metrics.excess or 0 }}</div>
-        <div class="metric-sublabel">Exceso</div>
-      </div></div>
-    </div>
-    <div class="col-md-3">
-      <div class="card h-100"><div class="card-body">
-        <div class="metric">{{ payload.metrics.deficit or 0 }}</div>
-        <div class="metric-sublabel">Déficit</div>
-      </div></div>
+<!-- KPIs -->
+<div class="row g-3 mt-1">
+  <div class="col-6 col-md-3">
+    <div class="card p-3">
+      <div class="kpi">{{ m.agents or 0 }}</div>
+      <div class="kpi-label">Total Agentes</div>
     </div>
   </div>
+  <div class="col-6 col-md-3">
+    <div class="card p-3">
+      <div class="kpi">{{ m.coverage_percentage or 0 }}%</div>
+      <div class="kpi-label">Cobertura Pura</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card p-3">
+      <div class="kpi">{{ m.excess or 0 }}</div>
+      <div class="kpi-label">Exceso</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card p-3">
+      <div class="kpi">{{ m.deficit or 0 }}</div>
+      <div class="kpi-label">Déficit</div>
+    </div>
+  </div>
+</div>
 
-  <!-- Tabs de análisis visual como en Streamlit -->
-  <div class="card mt-4">
-    <div class="card-body">
-      <h5 class="mb-3">📊 Análisis Visual</h5>
+<!-- TARJETAS DE ANÁLISIS (como en Streamlit) -->
+<div class="card mt-3">
+  <div class="card-header"><strong>📊 Análisis de demanda:</strong></div>
+  <div class="card-body">
+    <ul class="bullet">
+      {% for line in insight.demanda or [] %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+  </div>
+</div>
 
-      <ul class="nav nav-tabs" role="tablist">
-        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab1" role="tab">Demanda vs Cobertura</button></li>
-        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab2" role="tab">Diferencias</button></li>
-      </ul>
+<div class="card mt-3">
+  <div class="card-header"><strong>👤 Turnos PT habilitados:</strong></div>
+  <div class="card-body">
+    <ul class="bullet">
+      {% for line in insight.pt_habilitados or [] %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+  </div>
+</div>
 
-      <div class="tab-content pt-3">
-        <div class="tab-pane fade show active" id="tab1" role="tabpanel">
-          <div class="row g-3">
-            <div class="col-md-6">
-              <h6 class="mb-2">Demanda Requerida</h6>
-              <img class="img-fluid rounded" src="data:image/png;base64,{{ payload.figures.demand_png }}" alt="Demanda">
-            </div>
-            <div class="col-md-6">
-              <h6 class="mb-2">Cobertura Asignada</h6>
-              <img class="img-fluid rounded" src="data:image/png;base64,{{ payload.figures.coverage_png }}" alt="Cobertura">
-            </div>
-          </div>
+<div class="card mt-3">
+  <div class="card-header"><strong>📈 Análisis realista:</strong></div>
+  <div class="card-body">
+    <ul class="bullet">
+      {% for line in insight.realista or [] %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header"><strong>🧠 Análisis de patrones críticos:</strong></div>
+  <div class="card-body">
+    <ul class="bullet">
+      {% for line in insight.criticos or [] %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+  </div>
+</div>
+
+<!-- TABS: Demanda vs Cobertura, Diferencias -->
+<ul class="nav nav-tabs mt-3 tabbar" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab1" type="button" role="tab">Demanda vs Cobertura</button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab2" type="button" role="tab">Diferencias</button>
+  </li>
+</ul>
+<div class="tab-content">
+  <div class="tab-pane fade show active" id="tab1" role="tabpanel">
+    <div class="row g-3 mt-2">
+      <div class="col-12 col-xl-6">
+        <div class="card p-3"><h6 class="mb-2">Demanda por Hora y Día</h6>
+          <img class="heat" src="data:image/png;base64,{{ figs.demand_png }}" alt="Demanda" />
         </div>
-        <div class="tab-pane fade" id="tab2" role="tabpanel">
-          <h6 class="mb-2">Cobertura - Demanda (exceso/déficit)</h6>
-          <img class="img-fluid rounded" src="data:image/png;base64,{{ payload.figures.diff_png }}" alt="Diferencias">
+      </div>
+      <div class="col-12 col-xl-6">
+        <div class="card p-3"><h6 class="mb-2">Cobertura por Hora y Día</h6>
+          <img class="heat" src="data:image/png;base64,{{ figs.coverage_png }}" alt="Cobertura" />
         </div>
       </div>
     </div>
   </div>
-
-  <!-- Panel informativo tipo “análisis de demanda” -->
-  {% if payload.analysis and payload.analysis.summary %}
-    <div class="card mt-4">
-      <div class="card-body">
-        <h5 class="mb-3">🔎 Análisis de demanda</h5>
-        <ul class="list-unstyled list-dot">
-          {% for line in payload.analysis.summary %}
-            <li>• {{ line }}</li>
-          {% endfor %}
-        </ul>
-      </div>
+  <div class="tab-pane fade" id="tab2" role="tabpanel">
+    <div class="card p-3 mt-2"><h6 class="mb-2">Cobertura - Demanda (exceso/déficit)</h6>
+      <img class="heat" src="data:image/png;base64,{{ figs.diff_png }}" alt="Diferencias" />
     </div>
-  {% endif %}
-{% endblock %}
-
+  </div>
+</div>

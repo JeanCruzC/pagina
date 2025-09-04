@@ -419,6 +419,86 @@ def _heatmap(matrix, title, day_labels=None, hour_labels=None, annotate=True, cm
     return fig
 
 
+def _insights_from_analysis(analysis, cfg):
+    ins = {"demanda": [], "pt_habilitados": [], "realista": [], "criticos": []}
+    if not analysis:
+        return ins
+
+    dias = analysis.get("active_days", 6)
+    horas_ini = analysis.get("start_hour", 8)
+    horas_fin = analysis.get("end_hour", 20)
+    weekly = analysis.get("weekly_total", analysis.get("demand_total", 0))
+    avg = analysis.get("avg_per_active_day", analysis.get("avg", 0))
+    peak = analysis.get("peak", 0)
+    ins["demanda"] += [
+        f"Días activos: {analysis.get('days_names','Lunes, Martes, Miércoles, Jueves, Viernes, Sábado')} ({dias} días)",
+        f"Horario operativo: {horas_ini:02d}:00 - {horas_fin:02d}:00 ({horas_fin - horas_ini} horas)",
+        f"Demanda total semanal: {weekly} agentes-hora",
+        f"Demanda promedio (días activos): {avg} agentes-hora/día",
+        f"Pico de demanda: {peak} agentes simultáneos",
+        f"Break configurado: {cfg.get('break_from_start',2.0)}h desde inicio, {cfg.get('break_from_end',2.0)}h antes del fin",
+    ]
+
+    pt = []
+    if cfg.get("allow_pt_4h"):
+        pt.append("4h×6días")
+    if cfg.get("allow_pt_6h"):
+        pt.append("6h×4días")
+    if cfg.get("allow_pt_5h"):
+        pt.append("5h×5días")
+    ins["pt_habilitados"].append(" / ".join(pt) if pt else "—")
+
+    ins["realista"] += [
+        f"Agentes simultáneos máximos: {analysis.get('peak',0)}",
+        f"Total agentes estimados: ~{analysis.get('agents_estimate','?')} para {weekly} agentes-hora",
+        f"Ratio eficiencia: {analysis.get('efficiency_ratio','?')} horas productivas por agente",
+    ]
+
+    ins["criticos"] += [
+        f"Días críticos: {analysis.get('critical_days_label','Miércoles, Viernes')}",
+        f"Horas pico: {analysis.get('critical_hours_label','11:00 - 16:00')}",
+        f"Perfil seleccionado: {cfg.get('optimization_profile','JEAN')}",
+    ]
+    return ins
+
+
+def _analyze_demand(matrix):
+    days_names = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    daily = matrix.sum(axis=1)
+    hourly = matrix.sum(axis=0)
+    active_days_idx = [i for i, v in enumerate(daily) if v > 0]
+    active_hours = np.where(hourly > 0)[0]
+    start_hour = int(active_hours.min()) if active_hours.size else 8
+    end_hour = int(active_hours.max()) + 1 if active_hours.size else 20
+    weekly_total = int(matrix.sum())
+    avg_day = int(weekly_total / len(active_days_idx)) if active_days_idx else 0
+    peak = int(matrix.max()) if matrix.size else 0
+    days_label = ", ".join([days_names[i] for i in active_days_idx]) if active_days_idx else ""
+    crit_days_idx = (
+        np.argsort(daily)[-2:] if daily.size > 1 else ([int(np.argmax(daily))] if daily.size else [])
+    )
+    critical_days_label = ", ".join([days_names[i] for i in crit_days_idx]) if crit_days_idx.size else ""
+    if np.any(hourly > 0):
+        thresh = np.percentile(hourly[hourly > 0], 75)
+        peak_hours = np.where(hourly >= thresh)[0]
+        if peak_hours.size:
+            critical_hours_label = f"{int(peak_hours.min()):02d}:00 - {int(peak_hours.max()+1):02d}:00"
+        else:
+            critical_hours_label = ""
+    else:
+        critical_hours_label = ""
+    return {
+        "active_days": len(active_days_idx),
+        "start_hour": start_hour,
+        "end_hour": end_hour,
+        "weekly_total": weekly_total,
+        "avg_per_active_day": avg_day,
+        "peak": peak,
+        "days_names": days_label,
+        "critical_days_label": critical_days_label,
+        "critical_hours_label": critical_hours_label,
+    }
+
 def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None, hour_labels=None, meta=None):
     dem = np.asarray(demand_matrix, dtype=int)
     D, H = dem.shape
@@ -446,6 +526,7 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
             "total_coverage": total_cov,
             "coverage_real": round(cov_real, 1),
             "coverage_pure": round(cov_pure, 1),
+            "coverage_percentage": round(cov_pure, 1),
             "deficit": deficit,
             "excess": excess,
             "agents": int(sum(assignments.values())) if assignments else 0,
@@ -471,6 +552,7 @@ def run_complete_optimization(
     MAX_ITERS = int(cfg.get("iterations", 3))
     df = pd.read_excel(file_stream)
     demand_matrix = load_demand_matrix_from_df(df)
+    analysis = _analyze_demand(demand_matrix)
 
     patterns = {}
     for batch in generate_shifts_coverage_optimized(
@@ -504,5 +586,6 @@ def run_complete_optimization(
         )
         payload["status"] = status
         payload["config"] = cfg
+        payload["insights"] = _insights_from_analysis(analysis, cfg)
         return payload
     return {"assignments": assignments}
