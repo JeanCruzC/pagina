@@ -5,7 +5,6 @@ import time
 import os
 import gc
 import hashlib
-import signal
 import io
 from io import BytesIO, StringIO
 from itertools import combinations, permutations, product
@@ -56,12 +55,8 @@ logger.info(f"[OPTIMIZER] PuLP disponible: {PULP_AVAILABLE}")
 
 from threading import RLock, current_thread
 from functools import wraps
-import ctypes
 
 _MODEL_LOCK = RLock()
-
-# Registry of active optimization jobs
-active_jobs = {}
 
 # Bridge helpers to the shared store in website.extensions
 try:
