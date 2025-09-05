@@ -508,17 +508,17 @@ def _insights_from_analysis(analysis, cfg):
         f"Demanda total semanal: {weekly} agentes-hora",
         f"Demanda promedio (días activos): {avg} agentes-hora/día",
         f"Pico de demanda: {peak} agentes simultáneos",
-        f"Break configurado: {cfg.get('break_from_start',2.0)}h desde inicio, {cfg.get('break_from_end',2.0)}h antes del fin",
+        f"Break configurado: {cfg.get('break_start_from',2.0)}h desde inicio, {cfg.get('break_before_end',2.0)}h antes del fin",
     ]
 
     pt = []
-    if cfg.get("allow_pt_4h"):
+    if cfg.get("allow_pt", True) and cfg.get("pt_4h6d"):
         pt.append("4h×6días")
-    if cfg.get("allow_pt_6h"):
+    if cfg.get("allow_pt", True) and cfg.get("pt_6h4d"):
         pt.append("6h×4días")
-    if cfg.get("allow_pt_5h"):
+    if cfg.get("allow_pt", True) and cfg.get("pt_5h5d"):
         pt.append("5h×5días")
-    ins["pt_habilitados"].append(" / ".join(pt) if pt else "—")
+    ins["pt_habilitados"].append(", ".join(pt) if pt else "—")
 
     ins["realista"] += [
         f"Agentes simultáneos máximos: {analysis.get('peak',0)}",
@@ -610,6 +610,26 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
     }
 
 
+def _empty_result_with_insights(demand_matrix, cfg, *, reason, analysis=None):
+    analysis = analysis or _analyze_demand(demand_matrix)
+    D, H = demand_matrix.shape
+    day_labels = [f"Día {i+1}" for i in range(D)]
+    hour_labels = list(range(H))
+    payload = _build_sync_payload(
+        {},
+        {},
+        demand_matrix,
+        day_labels=day_labels,
+        hour_labels=hour_labels,
+        meta={"status": "NO_PATTERNS", "reason": reason},
+    )
+    payload["status"] = "NO_PATTERNS"
+    payload["config"] = cfg
+    payload["insights"] = _insights_from_analysis(analysis, cfg)
+    payload["reason"] = reason
+    return payload
+
+
 def run_complete_optimization(
     file_stream,
     config=None,
@@ -624,19 +644,34 @@ def run_complete_optimization(
     df = pd.read_excel(file_stream)
     demand_matrix = load_demand_matrix_from_df(df)
     analysis = _analyze_demand(demand_matrix)
-
     patterns = {}
+    allow_ft = cfg.get("allow_ft", True)
+    allow_pt = cfg.get("allow_pt", True)
     for batch in generate_shifts_coverage_optimized(
         demand_matrix,
-        allow_8h=cfg.get("allow_8h", True),
-        allow_10h8=cfg.get("allow_10h8", False),
-        allow_pt_4h=cfg.get("allow_pt_4h", True),
-        allow_pt_5h=cfg.get("allow_pt_5h", True),
-        allow_pt_6h=cfg.get("allow_pt_6h", False),
-        break_from_start=cfg.get("break_from_start", 2.0),
-        break_from_end=cfg.get("break_from_end", 2.0),
+        allow_8h=allow_ft and cfg.get("ft_8h", True),
+        allow_10h8=allow_ft and cfg.get("ft_10h5d", True),
+        allow_pt_4h=allow_pt and cfg.get("pt_4h6d", True),
+        allow_pt_5h=allow_pt and cfg.get("pt_5h5d", True),
+        allow_pt_6h=allow_pt and cfg.get("pt_6h4d", True),
+        break_from_start=cfg.get("break_start_from", 2.0),
+        break_from_end=cfg.get("break_before_end", 2.0),
     ):
         patterns.update(batch)
+
+    ft_count = sum(1 for k in patterns if k.startswith("FT"))
+    pt_count = sum(1 for k in patterns if k.startswith("PT"))
+    patterns_count = len(patterns)
+    print(f"[GEN] Patrones FT={ft_count} PT={pt_count} TOTAL={patterns_count}")
+    if patterns_count == 0:
+        if return_payload:
+            return _empty_result_with_insights(
+                demand_matrix,
+                cfg,
+                analysis=analysis,
+                reason="Sin patrones: revisa contratos/turnos permitidos.",
+            )
+        return {"assignments": {}}
 
     assignments, status = optimize_jean_search(
         patterns,
