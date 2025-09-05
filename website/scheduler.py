@@ -467,6 +467,35 @@ def _fig_to_b64(fig):
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def _count_contracts(assignments: dict):
+    ft = sum(v for k, v in assignments.items() if str(k).upper().startswith("FT"))
+    pt = sum(v for k, v in assignments.items() if str(k).upper().startswith("PT"))
+    return int(ft), int(pt), int(ft + pt)
+
+
+def _export_xlsx_b64(assignments: dict, metrics: dict):
+    rows = [{"turno": k, "agentes": int(v)} for k, v in sorted(assignments.items())]
+    df_asg = pd.DataFrame(rows)
+    df_sum = pd.DataFrame([
+        {
+            "total_agentes": metrics.get("agents_total", 0),
+            "ft": metrics.get("ft", 0),
+            "pt": metrics.get("pt", 0),
+            "cobertura_pura_%": metrics.get("coverage_pure", 0),
+            "cobertura_real_%": metrics.get("coverage_real", 0),
+            "exceso": metrics.get("excess", 0),
+            "deficit": metrics.get("deficit", 0),
+        }
+    ])
+
+    bio = io.BytesIO()
+    with pd.ExcelWriter(bio, engine="xlsxwriter") as xls:
+        df_sum.to_excel(xls, index=False, sheet_name="Resumen")
+        df_asg.to_excel(xls, index=False, sheet_name="Asignaciones")
+    bio.seek(0)
+    return base64.b64encode(bio.read()).decode("ascii")
+
+
 def _heatmap(matrix, title, day_labels=None, hour_labels=None, annotate=True, cmap="RdYlBu_r"):
     M = np.asarray(matrix)
     D, H = M.shape
@@ -678,6 +707,7 @@ def run_complete_optimization(
         demand_matrix,
         cfg={**cfg, "solver_time": TIME_SOLVER, "iterations": MAX_ITERS},
     )
+    ft, pt, total = _count_contracts(assignments or {})
     total_elapsed = time.time() - start_total
     if return_payload:
         D, H = demand_matrix.shape
@@ -691,6 +721,30 @@ def run_complete_optimization(
             hour_labels=hour_labels,
             meta={"status": status, "elapsed": round(total_elapsed, 1)},
         )
+        metrics = payload.get("metrics", {})
+        coverage_pure = metrics.get("coverage_pure", 0)
+        coverage_real = metrics.get("coverage_real", 0)
+        excess = metrics.get("excess", 0)
+        deficit = metrics.get("deficit", 0)
+        payload["contracts"] = {"ft": ft, "pt": pt}
+        payload["agents_total"] = total
+        payload["coverage_pure"] = coverage_pure
+        payload["coverage_real"] = coverage_real
+        payload["excess"] = excess
+        payload["deficit"] = deficit
+        payload["export_b64"] = _export_xlsx_b64(
+            assignments or {},
+            {
+                "agents_total": total,
+                "ft": ft,
+                "pt": pt,
+                "coverage_pure": coverage_pure,
+                "coverage_real": coverage_real,
+                "excess": excess,
+                "deficit": deficit,
+            },
+        )
+        metrics["agents"] = total
         payload["status"] = status
         payload["config"] = cfg
         payload["insights"] = _insights_from_analysis(analysis, cfg)
