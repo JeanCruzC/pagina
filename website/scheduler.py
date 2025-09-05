@@ -108,41 +108,46 @@ def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
 
 
 def generate_weekly_pattern_simple(start_hour, duration, working_days):
-    pattern = np.zeros((7, 24), dtype=np.int8)
-    for day in working_days:
+    pat = np.zeros((7, 24), dtype=np.int8)
+    for d in working_days:
         for h in range(duration):
             t = start_hour + h
             d_off, idx = divmod(int(t), 24)
-            pattern[(day + d_off) % 7, idx] = 1
-    return pattern.flatten()
+            pat[(d + d_off) % 7, idx] = 1
+    return pat.flatten()
 
 
-def generate_weekly_pattern_10h8(
-    start_hour,
-    working_days,
-    eight_hour_day,
-    break_from_start=2,
-    break_from_end=2,
-    break_len=1,
-):
-    pattern = np.zeros((7, 24), dtype=np.int8)
-    for day in working_days:
-        duration = 8 if day == eight_hour_day else 10
-        for h in range(duration):
+def generate_weekly_pattern_pt5(start_hour, working_days):
+    # 4 días de 5h + 1 día de 4h (24h/sem)
+    pat = np.zeros((7, 24), dtype=np.int8)
+    if not working_days:
+        return pat.flatten()
+    four_hour_day = working_days[-1]
+    for d in working_days:
+        dur = 4 if d == four_hour_day else 5
+        for h in range(dur):
             t = start_hour + h
             d_off, idx = divmod(int(t), 24)
-            pattern[(day + d_off) % 7, idx] = 1
-        b_start = start_hour + break_from_start
-        b_end = start_hour + duration - break_from_end
-        if int(b_start) < int(b_end):
-            b_hour = int(b_start) + (int(b_end) - int(b_start)) // 2
-        else:
-            b_hour = int(b_start)
-        for b in range(int(b_len := break_len)):
-            t = b_hour + b
+            pat[(d + d_off) % 7, idx] = 1
+    return pat.flatten()
+
+
+def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break_len=1, break_from_start=2.0, break_from_end=2.0):
+    pat = np.zeros((7, 24), dtype=np.int8)
+    for d in working_days:
+        dur = 8 if d == eight_hour_day else 10
+        for h in range(dur):
+            t = start_hour + h
             d_off, idx = divmod(int(t), 24)
-            pattern[(day + d_off) % 7, idx] = 0
-    return pattern.flatten()
+            pat[(d + d_off) % 7, idx] = 1
+        bs = start_hour + break_from_start
+        be = start_hour + dur - break_from_end
+        bh = int(bs) if int(bs) >= int(be) else int(bs) + (int(be) - int(bs)) // 2
+        for b in range(int(break_len)):
+            t = bh + b
+            d_off, idx = divmod(int(t), 24)
+            pat[(d + d_off) % 7, idx] = 0
+    return pat.flatten()
 
 
 def score_pattern(pat, demand_matrix) -> int:
@@ -177,53 +182,70 @@ def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
     return patterns[:top_k]
 
 
-def generate_shifts_coverage_corrected(
-    *,
-    allow_8h=True,
-    allow_10h8=False,
-    allow_pt_4h=True,
-    allow_pt_5h=True,
-    allow_pt_6h=False,
-    break_from_start=2.0,
-    break_from_end=2.0,
-    batch_size=2000,
-):
+def generate_shifts_coverage_corrected(demand_matrix=None, *, cfg=None):
+    cfg = cfg or {}
+    use_ft = cfg.get("use_ft", True)
+    use_pt = cfg.get("use_pt", True)
+    allow_8h = cfg.get("allow_8h", True)
+    allow_10h8 = cfg.get("allow_10h8", True)
+    allow_pt_4h = cfg.get("allow_pt_4h", True)
+    allow_pt_6h = cfg.get("allow_pt_6h", True)
+    allow_pt_5h = cfg.get("allow_pt_5h", False)
+
     days = list(range(7))
-    batch = {}
+    LUN_VIE = [0, 1, 2, 3, 4]
+    LUN_SAB = [0, 1, 2, 3, 4, 5]
+    LUN_JUE = [0, 1, 2, 3]
+
+    shifts = {}
+    batch, BATCH = {}, 5000
 
     def flush():
         nonlocal batch
-        if batch:
-            yield batch
-            batch = {}
+        tmp = batch
+        batch = {}
+        return tmp
 
-    if allow_8h:
+    if use_ft and allow_8h:
         for start in range(8, 21):
-            pat = generate_weekly_pattern_simple(start, 8, days[:-1])
-            batch[f"FT_8H_{start:02d}"] = pat
-            if len(batch) >= batch_size:
-                yield from flush()
-    if allow_10h8:
+            for dso in days:
+                wd = [d for d in days if d != dso][:6]
+                pat = generate_weekly_pattern_simple(start, 8, wd)
+                batch[f"FT_8H_{start:02d}_DSO{dso}"] = pat
+                if len(batch) >= BATCH:
+                    shifts.update(flush())
+
+    if use_ft and allow_10h8:
+        for start in range(8, 20):
+            for eight_day in LUN_VIE:
+                pat = generate_weekly_pattern_10h8(start, LUN_VIE, eight_day)
+                batch[f"FT_10H8_{start:02d}_8D{eight_day}"] = pat
+                if len(batch) >= BATCH:
+                    shifts.update(flush())
+
+    if use_pt and allow_pt_4h:
+        for start in range(8, 21):
+            pat = generate_weekly_pattern_simple(start, 4, LUN_SAB)
+            batch[f"PT_4H_{start:02d}"] = pat
+            if len(batch) >= BATCH:
+                shifts.update(flush())
+
+    if use_pt and allow_pt_6h:
         for start in range(8, 19):
-            pat = generate_weekly_pattern_10h8(
-                start,
-                days[:-2],
-                eight_hour_day=4,
-                break_from_start=break_from_start,
-                break_from_end=break_from_end,
-            )
-            batch[f"FT_10H8_{start:02d}"] = pat
-            if len(batch) >= batch_size:
-                yield from flush()
-    for dur, flag in [(4, allow_pt_4h), (5, allow_pt_5h), (6, allow_pt_6h)]:
-        if not flag:
-            continue
-        for start in range(8, 21 - dur + 1):
-            pat = generate_weekly_pattern_simple(start, dur, days[:-1])
-            batch[f"PT_{dur}H_{start:02d}"] = pat
-            if len(batch) >= batch_size:
-                yield from flush()
-    yield from flush()
+            pat = generate_weekly_pattern_simple(start, 6, LUN_JUE)
+            batch[f"PT_6H_{start:02d}"] = pat
+            if len(batch) >= BATCH:
+                shifts.update(flush())
+
+    if use_pt and allow_pt_5h:
+        for start in range(8, 20):
+            pat = generate_weekly_pattern_pt5(start, LUN_VIE)
+            batch[f"PT_5H_{start:02d}"] = pat
+            if len(batch) >= BATCH:
+                shifts.update(flush())
+
+    shifts.update(flush())
+    return shifts
 
 
 def generate_shifts_coverage_optimized(
@@ -236,37 +258,36 @@ def generate_shifts_coverage_optimized(
     allow_pt_4h=True,
     allow_pt_5h=True,
     allow_pt_6h=False,
-    break_from_start=2.0,
-    break_from_end=2.0,
     batch_size=2000,
 ):
+    cfg = {
+        "use_ft": allow_8h or allow_10h8,
+        "use_pt": allow_pt_4h or allow_pt_5h or allow_pt_6h,
+        "allow_8h": allow_8h,
+        "allow_10h8": allow_10h8,
+        "allow_pt_4h": allow_pt_4h,
+        "allow_pt_5h": allow_pt_5h,
+        "allow_pt_6h": allow_pt_6h,
+    }
+    raw = generate_shifts_coverage_corrected(demand_matrix, cfg=cfg)
     selected = 0
     seen = set()
-    for raw in generate_shifts_coverage_corrected(
-        allow_8h=allow_8h,
-        allow_10h8=allow_10h8,
-        allow_pt_4h=allow_pt_4h,
-        allow_pt_5h=allow_pt_5h,
-        allow_pt_6h=allow_pt_6h,
-        break_from_start=break_from_start,
-        break_from_end=break_from_end,
-        batch_size=batch_size,
-    ):
-        batch = {}
-        for name, pat in raw.items():
-            key = hashlib.md5(pat).digest()
-            if key in seen:
-                continue
-            seen.add(key)
-            if score_pattern(pat, demand_matrix) >= quality_threshold:
-                batch[name] = pat
-                selected += 1
-                if max_patterns and selected >= max_patterns:
-                    break
-        if batch:
-            yield batch
-        if max_patterns and selected >= max_patterns:
-            break
+    batch = {}
+    for name, pat in raw.items():
+        key = hashlib.md5(pat).digest()
+        if key in seen:
+            continue
+        seen.add(key)
+        if score_pattern(pat, demand_matrix) >= quality_threshold:
+            batch[name] = pat
+            selected += 1
+            if len(batch) >= batch_size:
+                yield batch
+                batch = {}
+            if max_patterns and selected >= max_patterns:
+                break
+    if batch:
+        yield batch
 
 
 def adaptive_chunk_size(base):
@@ -683,8 +704,6 @@ def run_complete_optimization(
         allow_pt_4h=allow_pt and cfg.get("pt_4h6d", True),
         allow_pt_5h=allow_pt and cfg.get("pt_5h5d", True),
         allow_pt_6h=allow_pt and cfg.get("pt_6h4d", True),
-        break_from_start=cfg.get("break_start_from", 2.0),
-        break_from_end=cfg.get("break_before_end", 2.0),
     ):
         patterns.update(batch)
 
