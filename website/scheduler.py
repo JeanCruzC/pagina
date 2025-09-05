@@ -711,8 +711,15 @@ def run_complete_optimization(
     generate_charts=False,
     job_id=None,
     return_payload=False,
-):
+): 
     cfg = config or {}
+    # --- respeta el perfil si vino desde el front ---
+    if cfg.get("optimization_profile"):
+        pass  # ya viene bien
+    elif cfg.get("profile"):
+        cfg["optimization_profile"] = cfg["profile"]
+    else:
+        cfg["optimization_profile"] = "Equilibrado (Recomendado)"
     start_total = time.time()
     TIME_SOLVER = cfg.get("solver_time", 120) or None
     MAX_ITERS = int(cfg.get("iterations", 3))

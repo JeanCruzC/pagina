@@ -14,6 +14,16 @@ def _is_on(form, *keys):
     return False
 
 
+def _get_profile_from_form(form):
+    # Acepta cualquiera de estos nombres tal como vienen del front
+    for k in ("optimization_profile", "profile", "perfil"):
+        v = form.get(k)
+        if v and str(v).strip():
+            return str(v).strip()
+    # Si no llega nada, usa un perfil neutral (no fuerces JEAN)
+    return "Equilibrado (Recomendado)"
+
+
 def _normalize_cfg_for_scheduler(form):
     # Toggles de tipo de contrato
     use_ft = _is_on(form, "use_ft", "allow_ft", "full_time", "ft")
@@ -71,11 +81,14 @@ def generador():
                 "break_before_end": float(form.get("break_to", 2.0)),
 
                 # perfil/solver
-                "optimization_profile": form.get("profile", "JEAN"),
                 "random_seed": 42,
                 "solver_threads": int(form.get("threads", 1)),
             }
         )
+
+        profile_name = _get_profile_from_form(form)
+        cfg["profile"] = profile_name
+        cfg["optimization_profile"] = profile_name
 
         cfg.update(_normalize_cfg_for_scheduler(form))
 
