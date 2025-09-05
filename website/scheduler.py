@@ -107,6 +107,31 @@ def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
     return np.rint(mat).astype(int)
 
 
+# Utilidad para validar patrones según los toggles del perfil
+def _allowed_by_toggles(name: str, cfg: dict) -> bool:
+    # Bloques por familia
+    if name.startswith('FT') and not cfg.get('use_ft', True):
+        return False
+    if name.startswith('PT') and not cfg.get('use_pt', True):
+        return False
+
+    # Compatibilidad de prefijos (nueva y “legacy”)
+    FT8  = name.startswith(('FT8_', 'FT_8H_'))
+    FT10 = name.startswith(('FT10p8_', 'FT_10H_', 'FT_10H8_'))
+    PT4  = name.startswith(('PT4_', 'PT_4H_'))
+    PT6  = name.startswith(('PT6_', 'PT_6H_'))
+    PT5  = name.startswith(('PT5_', 'PT_5H_'))
+
+    if FT8:  return bool(cfg.get('allow_8h', False))
+    if FT10: return bool(cfg.get('allow_10h8', False))
+    if PT4:  return bool(cfg.get('allow_pt_4h', False))
+    if PT6:  return bool(cfg.get('allow_pt_6h', False))
+    if PT5:  return bool(cfg.get('allow_pt_5h', False))
+
+    # Si no matchea ningún formato conocido, lo bloqueamos.
+    return False
+
+
 def generate_weekly_pattern_simple(start_hour, duration, working_days):
     pat = np.zeros((7, 24), dtype=np.int8)
     for d in working_days:
@@ -706,6 +731,8 @@ def run_complete_optimization(
         allow_pt_6h=allow_pt and cfg.get("pt_6h4d", True),
     ):
         patterns.update(batch)
+
+    patterns = {k: v for k, v in patterns.items() if _allowed_by_toggles(k, cfg)}
 
     ft_count = sum(1 for k in patterns if k.startswith("FT"))
     pt_count = sum(1 for k in patterns if k.startswith("PT"))
