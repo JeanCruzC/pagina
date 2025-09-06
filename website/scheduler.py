@@ -842,6 +842,23 @@ def run_complete_optimization(
         cfg["optimization_profile"] = cfg["profile"]
     else:
         cfg["optimization_profile"] = "Equilibrado (Recomendado)"
+    profile = cfg.get("optimization_profile", "")
+
+    # JEAN Personalizado: manejar JSON de turnos si viene en config
+    if profile == "JEAN Personalizado":
+        json_text = cfg.get("custom_shifts_json")
+        if json_text:
+            import tempfile, os, json as _json
+            fd, path = tempfile.mkstemp(prefix="jean_shifts_", suffix=".json")
+            os.close(fd)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(json_text if isinstance(json_text, str) else _json.dumps(json_text, ensure_ascii=False))
+            cfg["custom_shifts"] = True
+            cfg["shift_config_file"] = path
+            print(f"[CONFIG] JEAN Personalizado: shifts personalizados habilitados -> {path}")
+        else:
+            print("[CONFIG] JEAN Personalizado: usando lógica JEAN estándar (sin JSON personalizado)")
+
     TIME_SOLVER = cfg.get("solver_time", 120) or None
     MAX_ITERS = int(cfg.get("iterations", 3))
     df = pd.read_excel(file_stream)
@@ -874,7 +891,12 @@ def run_complete_optimization(
             )
         return {"assignments": {}}
 
-    assignments, pulp_status = optimize_jean_search(
+    optimizer = optimize_jean_search
+    if profile == "JEAN Personalizado":
+        from .profile_optimizers import optimize_jean_personalizado
+        optimizer = optimize_jean_personalizado
+
+    assignments, pulp_status = optimizer(
         patterns,
         demand_matrix,
         cfg={**cfg, "solver_time": TIME_SOLVER, "iterations": MAX_ITERS},
