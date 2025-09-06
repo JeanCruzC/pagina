@@ -2,36 +2,40 @@
 {% set figs = payload.figures or {} %}
 {% set insight = payload.insights or {} %}
 
-<!-- BANNER ÉXITO -->
+{% if payload.error %}
+  <div class="alert alert-warning mt-3">{{ payload.error }}</div>
+{% endif %}
+
+<!-- BANNER -->
 <div class="card mt-3">
   <div class="card-body d-flex align-items-center gap-3">
-    <span class="badge text-bg-success">Optimización completada en {{ payload.meta.elapsed }}s</span>
-    <span class="kpi-label">Perfil: <strong>{{ payload.config.optimization_profile }}</strong></span>
+    <span class="badge text-bg-success">Optimización completada</span>
+    <span class="kpi-label">Perfil:
+      <strong>{{ payload.effective_profile or (payload.config and payload.config.optimization_profile) or "—" }}</strong>
+    </span>
+    {% if payload.export_b64 %}
+      <a class="btn btn-success btn-sm ms-auto"
+         download="turnos.xlsx"
+         href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{{ payload.export_b64 }}">
+        <i class="bi bi-download"></i> Descargar Excel
+      </a>
+    {% elif payload.export_error %}
+      <span class="text-warning ms-auto">{{ payload.export_error }}</span>
+    {% endif %}
   </div>
 </div>
-
-{% if payload.export_b64 %}
-  <div class="mt-3">
-    <a class="btn btn-primary"
-       download="asignacion_turnos.xlsx"
-       href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{{ payload.export_b64 }}">
-       Descargar Excel
-    </a>
-  </div>
-{% endif %}
 
 <!-- KPIs -->
 <div class="row g-3 mt-1">
   <div class="col-6 col-md-3">
-    <div class="card p-3 text-center">
-      <div class="big-metric">{{ payload.agents_total }}</div>
-      <small>FT: {{ payload.contracts.ft }} · PT: {{ payload.contracts.pt }}</small>
+    <div class="card p-3">
+      <div class="kpi">{{ m.agents or 0 }}</div>
       <div class="kpi-label">Total Agentes</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="card p-3">
-      <div class="kpi">{{ m.coverage_percentage or 0 }}%</div>
+      <div class="kpi">{{ m.coverage_pure or 0 }}%</div>
       <div class="kpi-label">Cobertura Pura</div>
     </div>
   </div>

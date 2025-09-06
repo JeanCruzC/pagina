@@ -1,99 +1,119 @@
-from flask import Blueprint, render_template, request
-from .scheduler import run_complete_optimization as run_opt
+from flask import Blueprint, render_template, request, jsonify
+from .scheduler import run_complete_optimization
 
 bp = Blueprint("generator", __name__)
 
+# -------------------------
+# Helpers de parsing seguro
+# -------------------------
+TRUE_SET = {"true", "1", "on", "yes", "y", "si", "sí"}
 
-def _is_on(form, *names):
-    """Devuelve True si CUALQUIERA de los nombres llega encendido en el form."""
-    for n in names:
-        v = form.get(n)
+def _is_on(val):
+    if val is None:
+        return False
+    return str(val).strip().lower() in TRUE_SET
+
+def _any_on(form, keys):
+    # Retorna True si CUALQUIERA de las llaves viene marcada en el POST
+    for k in keys:
+        v = form.get(k)
         if v is None:
+            # checkboxes pueden venir como list si usas <input name="...[]">
+            lst = form.getlist(k)
+            if lst and any(_is_on(x) for x in lst):
+                return True
             continue
-        if str(v).lower() in ("on", "true", "1", "yes"):
+        if _is_on(v):
             return True
     return False
 
+def _cfg_from_request(form):
+    # PERFIL EXACTO (sin caer siempre en JEAN)
+    # Acepta tanto "optimization_profile" (nuevo) como "profile" (legacy)
+    optimization_profile = (
+        form.get("optimization_profile")
+        or form.get("profile")
+        or "Equilibrado (Recomendado)"
+    )
 
-def _get_profile_from_form(form):
-    # Acepta cualquiera de estos nombres tal como vienen del front
-    for k in ("optimization_profile", "profile", "perfil"):
-        v = form.get(k)
-        if v and str(v).strip():
-            return str(v).strip()
-    # Si no llega nada, usa un perfil neutral (no fuerces JEAN)
-    return "Equilibrado (Recomendado)"
+    # FAMILIAS: SOLO lo que el usuario marque.
+    allow_8h    = _any_on(form, ["ft_8h", "allow_8h", "FT_8H"])
+    allow_10h8  = _any_on(form, ["ft_10h5d", "allow_10h8", "FT_10H_5D", "ft_10h", "ft_10h_5d"])
+    allow_pt_4h = _any_on(form, ["pt_4h6d", "allow_pt_4h", "PT_4H_6D", "pt_4h"])
+    allow_pt_5h = _any_on(form, ["pt_5h5d", "allow_pt_5h", "PT_5H_5D", "pt_5h"])
+    allow_pt_6h = _any_on(form, ["pt_6h4d", "allow_pt_6h", "PT_6H_4D", "pt_6h"])
 
+    # Grupos FT/PT
+    use_ft = allow_8h or allow_10h8
+    use_pt = allow_pt_4h or allow_pt_5h or allow_pt_6h
+
+    # Si NO marcó ninguna familia, devolvemos 400 (en el original ejecutas solo lo seleccionado)
+    if not (use_ft or use_pt):
+        raise ValueError("Selecciona al menos una familia de turnos (FT y/o PT).")
+
+    # Otros parámetros (sin inventar opciones que no están en tu UI)
+    solver_time = int(form.get("solver_time", 240))
+    iterations  = int(form.get("iterations", 6))
+
+    # Penalizaciones/bonos por si vienen del form (si no, usa defaults sanos)
+    coverage      = float(form.get("coverage", 98))
+    agent_factor  = int(form.get("agent_limit_factor", 30))
+    excess_pen    = float(form.get("excess_penalty", 5))
+    peak_bonus    = float(form.get("peak_bonus", 2))
+    critical_bonus= float(form.get("critical_bonus", 2.5))
+
+    return {
+        "optimization_profile": optimization_profile,
+        # Grupos
+        "use_ft": use_ft,
+        "use_pt": use_pt,
+        # Familias exactas
+        "allow_8h": allow_8h,
+        "allow_10h8": allow_10h8,
+        "allow_pt_4h": allow_pt_4h,
+        "allow_pt_5h": allow_pt_5h,
+        "allow_pt_6h": allow_pt_6h,
+        # Parámetros del solver/estrategia
+        "solver_time": solver_time,
+        "iterations": iterations,
+        "coverage": coverage,
+        "agent_limit_factor": agent_factor,
+        "excess_penalty": excess_pen,
+        "peak_bonus": peak_bonus,
+        "critical_bonus": critical_bonus,
+        # Constantes del pipeline (no exponemos opciones que no están en la UI)
+        "solver_msg": False,
+        "use_pulp": True,
+        "use_greedy": True,
+        "export_files": True,
+        "ft_first_pt_last": True,
+    }
 
 @bp.route("/generador", methods=["GET", "POST"])
 def generador():
-    if request.method == "POST":
-        form = request.form
+    if request.method == "GET":
+        return render_template("generador.html", mode="sync")
 
-        cfg = {
-            # núcleo
-            "iterations": int(form.get("max_iters", 30)),
-            "solver_time": int(form.get("solver_time", 240)),
-            "solver_msg": _is_on(form, "verbose"),
-            "target_coverage": int(form.get("target_coverage", 98)),
+    # POST: flujo síncrono
+    xls = request.files.get("file") or request.files.get("excel")
+    if not xls:
+        return jsonify({"error": "Falta el archivo Excel"}), 400
 
-            # breaks
-            "break_start_from": float(form.get("break_from", 2.0)),
-            "break_before_end": float(form.get("break_to", 2.0)),
-
-            # perfil/solver
-            "random_seed": 42,
-            "solver_threads": int(form.get("threads", 1)),
-        }
-
-        profile_name = _get_profile_from_form(form)
-        cfg["profile"] = profile_name
-        cfg["optimization_profile"] = profile_name
-
-        # === NORMALIZACIÓN DE FAMILIAS ===
-        cfg.update(
-            {
-                # Habilitar FT/PT (contratos)
-                "use_ft": _is_on(form, "allow_ft", "full_time", "use_ft"),
-                "use_pt": _is_on(form, "allow_pt", "part_time", "use_pt"),
-
-                # Familias FT
-                "ft_8h": _is_on(form, "ft_8h", "allow_8h", "ft_8h6d"),
-                "ft_10h5d": _is_on(form, "ft_10h5d", "allow_10h8", "ft_10h"),
-
-                # Familias PT
-                "pt_4h6d": _is_on(form, "pt_4h6d", "allow_pt_4h"),
-                "pt_5h5d": _is_on(form, "pt_5h5d", "allow_pt_5h"),
-                "pt_6h4d": _is_on(form, "pt_6h4d", "allow_pt_6h"),
-            }
+    try:
+        cfg = _cfg_from_request(request.form)
+    except ValueError as e:
+        # Respuesta limpia si no marcó ninguna familia
+        return render_template(
+            "resultados.html",
+            payload={"error": str(e), "config": {"optimization_profile": "—"}},
+            mode="sync",
         )
 
-        # Solo si el usuario NO seleccionó ninguna familia, activamos un set seguro
-        familias = ["ft_8h", "ft_10h5d", "pt_4h6d", "pt_5h5d", "pt_6h4d"]
-        if not any(cfg.get(k) for k in familias):
-            cfg["ft_8h"] = True
-            cfg["pt_4h6d"] = True
-            cfg["pt_6h4d"] = True
-            print("[GEN] fallback aplicado: ft_8h + pt_4h6d + pt_6h4d")
-
-        # (Opcional) si tu otra variante del scheduler espera las claves "allow_*", duplicamos:
-        cfg["allow_8h"] = cfg["ft_8h"]
-        cfg["allow_10h8"] = cfg["ft_10h5d"]
-        cfg["allow_pt_4h"] = cfg["pt_4h6d"]
-        cfg["allow_pt_5h"] = cfg["pt_5h5d"]
-        cfg["allow_pt_6h"] = cfg["pt_6h4d"]
-
-        # DEBUG: imprime qué familias quedaron realmente activas
-        print("[GEN] familias activas:", [f for f in familias if cfg.get(f)])
-
-        xls = request.files.get("file")
-        if not xls:
-            return render_template("generador.html", payload=None)
-
-        payload = run_opt(
-            xls, config=cfg, generate_charts=True, job_id=None, return_payload=True
-        )
-        return render_template("generador.html", payload=payload)
-
-    return render_template("generador.html", payload=None)
-
+    payload = run_complete_optimization(
+        xls,
+        config=cfg,
+        generate_charts=True,
+        job_id=None,
+        return_payload=True  # <- devolvemos figuras/base64 + métricas + export
+    )
+    return render_template("resultados.html", payload=payload, mode="sync")
