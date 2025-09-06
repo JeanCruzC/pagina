@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from collections import Counter
 
 try:
     import pulp
@@ -130,6 +131,52 @@ def _allowed_by_toggles(name: str, cfg: dict) -> bool:
 
     # Si no matchea ningún formato conocido, lo bloqueamos.
     return False
+
+
+# --- Helpers de filtrado por familias/FT-PT ---
+def _pattern_id(pid_or_dict):
+    if isinstance(pid_or_dict, dict):
+        return pid_or_dict.get("id") or pid_or_dict.get("name") or pid_or_dict.get("pattern")
+    return str(pid_or_dict)
+
+
+def _allow_pid(pid, cfg):
+    pid = str(pid)
+    # Bloqueo por grupo FT/PT
+    if not cfg.get("use_ft", True) and pid.startswith("FT_"):
+        return False
+    if not cfg.get("use_pt", True) and pid.startswith("PT_"):
+        return False
+
+    # Familias FT
+    if pid.startswith("FT_8H") and not cfg.get("allow_8h", False):
+        return False
+    if pid.startswith("FT_10H") and not cfg.get("allow_10h8", False):
+        return False
+
+    # Familias PT
+    if pid.startswith("PT_4H") and not cfg.get("allow_pt_4h", False):
+        return False
+    if pid.startswith("PT_5H") and not cfg.get("allow_pt_5h", False):
+        return False
+    if pid.startswith("PT_6H") and not cfg.get("allow_pt_6h", False):
+        return False
+
+    return True
+
+
+def _filter_patterns_by_cfg(patterns, cfg):
+    """
+    patterns: dict[str, dict|array]  (id -> patrón)
+    Devuelve solo los patrones permitidos por cfg (familias/FT-PT).
+    """
+    if not patterns:
+        return patterns
+    filtered = {}
+    for pid, pdef in patterns.items():
+        if _allow_pid(pid, cfg):
+            filtered[pid] = pdef
+    return filtered
 
 
 def generate_weekly_pattern_simple(start_hour, duration, working_days):
@@ -519,45 +566,65 @@ def _count_contracts(assignments: dict):
     return int(ft), int(pt), int(ft + pt)
 
 
-def _export_xlsx_b64(assignments: dict, metrics: dict):
-    rows = [{"turno": k, "agentes": int(v)} for k, v in sorted(assignments.items())]
-    df_asg = pd.DataFrame(rows)
-    df_sum = pd.DataFrame([
-        {
-            "total_agentes": metrics.get("agents_total", 0),
-            "ft": metrics.get("ft", 0),
-            "pt": metrics.get("pt", 0),
-            "cobertura_pura_%": metrics.get("coverage_pure", 0),
-            "cobertura_real_%": metrics.get("coverage_real", 0),
-            "exceso": metrics.get("excess", 0),
-            "deficit": metrics.get("deficit", 0),
-        }
-    ])
+def _export_xlsx_b64(assignments, payload):
+    """
+    Crea un Excel con:
+    - Hoja 'asignaciones' (turno, agentes)
+    - Hoja 'kpis'
+    - Hojas 'demanda', 'cobertura', 'diferencias'
+    Devuelve base64 o None si no hay motor de escritura.
+    """
+    try:
+        import xlsxwriter  # noqa: F401
+    except Exception:
+        return None, "Falta el paquete 'xlsxwriter' (pip install xlsxwriter)"
+
+    counts = Counter()
+    for v in (assignments or {}).values():
+        pid = v.get("pattern") if isinstance(v, dict) else v
+        counts[str(pid)] += 1
+
+    df_asg = pd.DataFrame(
+        [{"turno": k, "agentes": v} for k, v in sorted(counts.items())],
+        columns=["turno", "agentes"]
+    )
+
+    m = payload.get("metrics", {})
+    df_kpi = pd.DataFrame([{
+        "agentes": m.get("agents", 0),
+        "cobertura_pura_%": m.get("coverage_pure", 0.0),
+        "cobertura_real_%": m.get("coverage_real", 0.0),
+        "exceso": m.get("excess", 0),
+        "déficit": m.get("deficit", 0),
+        "perfil": (payload.get("config") or {}).get("optimization_profile", ""),
+    }])
+
+    mats = payload.get("matrices", {})
+    df_dem  = pd.DataFrame(mats.get("demand", []))
+    df_cov  = pd.DataFrame(mats.get("coverage", []))
+    df_diff = pd.DataFrame(mats.get("diff", []))
 
     bio = io.BytesIO()
     with pd.ExcelWriter(bio, engine="xlsxwriter") as xls:
-        df_sum.to_excel(xls, index=False, sheet_name="Resumen")
-        df_asg.to_excel(xls, index=False, sheet_name="Asignaciones")
-    bio.seek(0)
-    return base64.b64encode(bio.read()).decode("ascii")
+        df_asg.to_excel(xls, sheet_name="asignaciones", index=False)
+        df_kpi.to_excel(xls, sheet_name="kpis", index=False)
+        df_dem.to_excel(xls, sheet_name="demanda", index=False, header=False)
+        df_cov.to_excel(xls, sheet_name="cobertura", index=False, header=False)
+        df_diff.to_excel(xls, sheet_name="diferencias", index=False, header=False)
+
+    return base64.b64encode(bio.getvalue()).decode("ascii"), None
 
 
 def _heatmap(matrix, title, day_labels=None, hour_labels=None, annotate=True, cmap="RdYlBu_r"):
     M = np.asarray(matrix)
     D, H = M.shape
-    fig, ax = plt.subplots(figsize=(min(1.0 * H, 20), min(0.7 * D + 2, 10)))
+    fig, ax = plt.subplots(figsize=(min(1.0*H, 20), min(0.7*D+2, 10)))
     im = ax.imshow(M, cmap=cmap, aspect="auto")
-    if hour_labels is None:
-        hour_labels = [f"{h:02d}" for h in range(H)]
-    if day_labels is None:
-        day_labels = [f"Día {i+1}" for i in range(D)]
-    ax.set_xticks(range(H))
-    ax.set_xticklabels(hour_labels, fontsize=8)
-    ax.set_yticks(range(D))
-    ax.set_yticklabels(day_labels, fontsize=9)
-    ax.set_title(title)
-    ax.set_xlabel("Hora del día")
-    ax.set_ylabel("Día")
+    if hour_labels is None: hour_labels = [f"{h:02d}" for h in range(H)]
+    if day_labels  is None: day_labels  = [f"Día {i+1}" for i in range(D)]
+    ax.set_xticks(range(H)); ax.set_xticklabels(hour_labels, fontsize=8)
+    ax.set_yticks(range(D)); ax.set_yticklabels(day_labels, fontsize=9)
+    ax.set_title(title); ax.set_xlabel("Hora del día"); ax.set_ylabel("Día")
     if annotate and H <= 30 and D <= 14:
         for i in range(D):
             for j in range(H):
@@ -646,35 +713,50 @@ def _analyze_demand(matrix):
         "critical_hours_label": critical_hours_label,
     }
 
-def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None, hour_labels=None, meta=None):
+def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None, hour_labels=None, meta=None, cfg=None):
     dem = np.asarray(demand_matrix, dtype=int)
     D, H = dem.shape
-    cov = _assigned_matrix_from(assignments, patterns, D, H)
+
+    # Cobertura asignada
+    cov = np.zeros((D, H), dtype=int)
+    if assignments:
+        for v in assignments.values():
+            pid = v.get("pattern") if isinstance(v, dict) else v
+            p = patterns.get(pid)
+            if p is None:
+                continue
+            mat = np.asarray(p["matrix"] if isinstance(p, dict) and "matrix" in p else p).reshape(D, H)
+            cov += mat
+
     diff = cov - dem
 
     total_dem = int(dem.sum())
-    total_cov = int(cov.sum())
-    cap = np.minimum(cov, dem).sum()
-    coverage_pure = (cap / total_dem * 100.0) if total_dem > 0 else 0.0
-    coverage_real = (total_cov / total_dem * 100.0) if total_dem > 0 else 0.0
-
+    pure_cov_units = int(cov.sum())
+    real_cov_units = int(np.minimum(cov, dem).sum())
+    excess  = int(np.clip(cov - dem, 0, None).sum())
     deficit = int(np.clip(dem - cov, 0, None).sum())
-    excess = int(np.clip(cov - dem, 0, None).sum())
 
-    fig_dem = _heatmap(dem, "Demanda por Hora y Día", day_labels, hour_labels, annotate=True, cmap="Reds")
-    fig_cov = _heatmap(cov, "Cobertura por Hora y Día", day_labels, hour_labels, annotate=True, cmap="Blues")
+    coverage_pure = (pure_cov_units / total_dem * 100.0) if total_dem > 0 else 0.0   # puede >100
+    coverage_real = (real_cov_units / total_dem * 100.0) if total_dem > 0 else 0.0   # <=100
+
+    fig_dem  = _heatmap(dem,  "Demanda (agentes-hora)", day_labels, hour_labels, annotate=True, cmap="Reds")
+    fig_cov  = _heatmap(cov,  "Cobertura (agentes-hora)", day_labels, hour_labels, annotate=True, cmap="Blues")
     fig_diff = _heatmap(diff, "Cobertura - Demanda (exceso/deficit)", day_labels, hour_labels, annotate=True, cmap="RdBu_r")
 
     return {
         "metrics": {
-            "total_demand": total_dem,
-            "total_coverage": total_cov,
-            "coverage_percentage": round(coverage_pure, 1),
+            "agents": len(assignments or {}),
             "coverage_pure": round(coverage_pure, 1),
             "coverage_real": round(coverage_real, 1),
-            "deficit": deficit,
             "excess": excess,
-            "agents": len(assignments or {}),
+            "deficit": deficit,
+        },
+        "matrices": {
+            "demand": dem.tolist(),
+            "coverage": cov.tolist(),
+            "diff": diff.tolist(),
+            "day_labels": day_labels or [f"Día {i+1}" for i in range(D)],
+            "hour_labels": hour_labels or list(range(H)),
         },
         "figures": {
             "demand_png": _fig_to_b64(fig_dem),
@@ -682,6 +764,7 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
             "diff_png": _fig_to_b64(fig_diff),
         },
         "meta": meta or {},
+        "config": cfg or {},
     }
 
 
@@ -720,7 +803,6 @@ def run_complete_optimization(
         cfg["optimization_profile"] = cfg["profile"]
     else:
         cfg["optimization_profile"] = "Equilibrado (Recomendado)"
-    start_total = time.time()
     TIME_SOLVER = cfg.get("solver_time", 120) or None
     MAX_ITERS = int(cfg.get("iterations", 3))
     df = pd.read_excel(file_stream)
@@ -739,8 +821,6 @@ def run_complete_optimization(
     ):
         patterns.update(batch)
 
-    patterns = {k: v for k, v in patterns.items() if _allowed_by_toggles(k, cfg)}
-
     ft_count = sum(1 for k in patterns if k.startswith("FT"))
     pt_count = sum(1 for k in patterns if k.startswith("PT"))
     patterns_count = len(patterns)
@@ -755,14 +835,16 @@ def run_complete_optimization(
             )
         return {"assignments": {}}
 
-    assignments, status = optimize_jean_search(
+    assignments, pulp_status = optimize_jean_search(
         patterns,
         demand_matrix,
         cfg={**cfg, "solver_time": TIME_SOLVER, "iterations": MAX_ITERS},
     )
-    ft, pt, total = _count_contracts(assignments or {})
-    total_elapsed = time.time() - start_total
     if return_payload:
+        # --- ANTES de armar payload, filtra patrones según familias seleccionadas ---
+        patterns = _filter_patterns_by_cfg(patterns, cfg)
+
+        # --- Payload con KPIs (pura vs real) ---
         D, H = demand_matrix.shape
         day_labels = [f"Día {i+1}" for i in range(D)]
         hour_labels = list(range(H))
@@ -772,34 +854,20 @@ def run_complete_optimization(
             demand_matrix=demand_matrix,
             day_labels=day_labels,
             hour_labels=hour_labels,
-            meta={"status": status, "elapsed": round(total_elapsed, 1)},
+            meta={"status": pulp_status},
+            cfg=cfg,
         )
-        metrics = payload.get("metrics", {})
-        coverage_pure = metrics.get("coverage_pure", 0)
-        coverage_real = metrics.get("coverage_real", 0)
-        excess = metrics.get("excess", 0)
-        deficit = metrics.get("deficit", 0)
-        payload["contracts"] = {"ft": ft, "pt": pt}
-        payload["agents_total"] = total
-        payload["coverage_pure"] = coverage_pure
-        payload["coverage_real"] = coverage_real
-        payload["excess"] = excess
-        payload["deficit"] = deficit
-        payload["export_b64"] = _export_xlsx_b64(
-            assignments or {},
-            {
-                "agents_total": total,
-                "ft": ft,
-                "pt": pt,
-                "coverage_pure": coverage_pure,
-                "coverage_real": coverage_real,
-                "excess": excess,
-                "deficit": deficit,
-            },
-        )
-        metrics["agents"] = total
-        payload["status"] = status
-        payload["config"] = cfg
+        payload["status"] = pulp_status
+        payload["effective_profile"] = cfg.get("optimization_profile", "")
         payload["insights"] = _insights_from_analysis(analysis, cfg)
+
+        # --- Exportable ---
+        b64, err = _export_xlsx_b64(assignments or {}, payload)
+        if b64:
+            payload["export_b64"] = b64
+        if err:
+            payload["export_error"] = err
+
         return payload
+
     return {"assignments": assignments}
