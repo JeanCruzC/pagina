@@ -40,11 +40,11 @@ def get_profile_optimizer(profile_name: str):
     if _get_profile_optimizer is not None:
         return _get_profile_optimizer(profile_name)
 
-    def _fallback(patterns, demand_matrix, *, cfg=None, job_id=None, **kwargs):
+    def _fallback(shifts_coverage, demand_matrix, *, cfg=None, job_id=None, **_):
         _cfg = cfg or {}
         return (
             solve_in_chunks_optimized(
-                patterns,
+                shifts_coverage,
                 demand_matrix,
                 optimization_profile=profile_name,
                 use_ft=_cfg.get("use_ft", True),
@@ -610,11 +610,14 @@ def optimize_jean_search(
     TIME_SOLVER = iteration_time_limit if iteration_time_limit is not None else cfg.get(
         "solver_time", 120
     )
-    MAX_ITERS = int(cfg.get("iterations", max_iterations))
+    MAX_ITERS = int(
+        cfg.get("search_iterations", cfg.get("iterations", max_iterations))
+    )
 
     best_assignments = {}
     best_score = float("inf")
     iteration = 0
+    iters_log = []
     while iteration < MAX_ITERS and factor >= 1:
         assignments, _ = optimize_with_precision_targeting(
             shifts_coverage,
@@ -626,8 +629,24 @@ def optimize_jean_search(
             TIME_SOLVER=TIME_SOLVER,
         )
         results = analyze_results(assignments, shifts_coverage, demand_matrix)
+        score = (
+            (results["overstaffing"] + results["understaffing"]) if results else float("inf")
+        )
+        cov = results["coverage_percentage"] if results else 0.0
+        iters_log.append(
+            {
+                "iter": iteration + 1,
+                "factor": factor,
+                "coverage": cov,
+                "score": score,
+                "over": results.get("overstaffing", 0) if results else 0,
+                "under": results.get("understaffing", 0) if results else 0,
+            }
+        )
+        print(
+            f"[JEAN] iter={iteration+1} factor={factor} cov={cov:.1f}% score={score:.2f}"
+        )
         if results:
-            score = results["understaffing"] + results["overstaffing"] * 0.3
             if score < best_score or not best_assignments:
                 best_score = score
                 best_assignments = assignments
@@ -636,6 +655,10 @@ def optimize_jean_search(
     best_assignments = {
         k: v for k, v in (best_assignments or {}).items() if _is_allowed_pid(k, cfg)
     }
+    try:
+        current_app.config["JEAN_LAST_ITERS"] = iters_log
+    except Exception:
+        pass
     return best_assignments, "JEAN"
 
 
@@ -983,6 +1006,26 @@ def run_complete_optimization(
         cfg["optimization_profile"] = "Equilibrado (Recomendado)"
     optimization_profile = cfg.get("optimization_profile", "")
 
+    # Alias para iteraciones: UI usa 'iterations', perfil usa 'search_iterations'
+    if "iterations" in cfg and "search_iterations" not in cfg:
+        try:
+            cfg["search_iterations"] = int(cfg["iterations"])
+        except Exception:
+            pass
+
+    # Propagar configuraciones globales a current_app.config
+    if current_app is not None:
+        solver_time = cfg.get("TIME_SOLVER", cfg.get("solver_time"))
+        if solver_time is not None:
+            current_app.config["TIME_SOLVER"] = solver_time
+        current_app.config["iterations"] = int(
+            cfg.get("search_iterations", cfg.get("iterations", 30))
+        )
+        try:
+            current_app.config.pop("JEAN_LAST_ITERS", None)
+        except Exception:
+            pass
+
     # JEAN Personalizado: manejar JSON de turnos si viene en config
     if optimization_profile == "JEAN Personalizado":
         json_text = cfg.get("custom_shifts_json")
@@ -1058,7 +1101,9 @@ def run_complete_optimization(
                 peak_bonus=peak_bonus,
                 critical_bonus=critical_bonus,
                 iteration_time_limit=iteration_time_limit,
-                max_iterations=cfg.get("iterations", 30),
+                max_iterations=cfg.get(
+                    "search_iterations", cfg.get("iterations", 30)
+                ),
             )
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
     elif optimization_profile == "Aprendizaje Adaptativo":
@@ -1070,19 +1115,17 @@ def run_complete_optimization(
         )
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
     else:
-        print(f"[SCHEDULER] Ejecutando perfil estándar: {optimization_profile}")
+        print(
+            f"[SCHEDULER] Ejecutando perfil estándar con optimizador dedicado: {optimization_profile}"
+        )
         opt_fn = get_profile_optimizer(optimization_profile)
         try:
-            assignments, pulp_status = opt_fn(
-                patterns,
-                demand_matrix,
-                cfg=cfg,
-                job_id=job_id,
+            assignments, status = opt_fn(
+                patterns, demand_matrix, cfg=cfg, job_id=job_id
             )
-            assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
         except Exception as e:
             print(
-                f"[SCHEDULER] Error perfil {optimization_profile}: {e} -> fallback a chunks"
+                f"[SCHEDULER] Error en optimizador de perfil: {e} -> fallback a chunks"
             )
             assignments = solve_in_chunks_optimized(
                 patterns,
@@ -1096,8 +1139,17 @@ def run_complete_optimization(
                 peak_bonus=peak_bonus,
                 critical_bonus=critical_bonus,
             )
-            assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
-            pulp_status = f"CHUNKS_OPTIMIZED_{optimization_profile.upper().replace(' ', '_')}"
+            status = f"CHUNKS_OPTIMIZED_{optimization_profile.upper().replace(' ', '_')}"
+        pulp_status = status
+        assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
+
+    jean_iters = []
+    if current_app is not None:
+        try:
+            jean_iters = current_app.config.get("JEAN_LAST_ITERS", [])
+        except Exception:
+            jean_iters = []
+
     if return_payload:
         # --- ANTES de armar payload, filtra patrones según familias seleccionadas ---
         patterns = _filter_patterns_by_cfg(patterns, cfg)
@@ -1118,6 +1170,7 @@ def run_complete_optimization(
         payload["status"] = pulp_status
         payload["effective_profile"] = cfg.get("optimization_profile", "")
         payload["insights"] = _insights_from_analysis(analysis, cfg)
+        payload["jean_iterations"] = jean_iters
 
         # --- Exportable ---
         b64, err = _export_xlsx_b64(assignments or {}, payload)
@@ -1128,4 +1181,4 @@ def run_complete_optimization(
 
         return payload
 
-    return {"assignments": assignments}
+    return {"assignments": assignments, "jean_iterations": jean_iters}
