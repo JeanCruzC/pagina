@@ -113,7 +113,12 @@ def apply_profile(cfg=None):
 
     # 3) El perfil sobrescribe siempre
     if params:
-        cfg.update(params)
+        for key, val in params.items():
+            cfg[key] = val
+
+        # Normalizar nombre de cobertura si el perfil trae 'target_coverage'
+        if "target_coverage" in params and "TARGET_COVERAGE" not in params:
+            cfg["TARGET_COVERAGE"] = params["target_coverage"]
 
         # Configuraciones específicas por perfil
         if profile_name == "JEAN":

@@ -123,6 +123,7 @@ def generador():
         elif "jean_json" in request.form:
             raw = request.form.get("jean_json", "").strip()
         if raw:
+            cfg["custom_shifts_json"] = raw
             try:
                 user_overrides = json.loads(raw)
                 cfg.update(user_overrides)
