@@ -1,5 +1,7 @@
+import json
 from flask import Blueprint, render_template, request, jsonify
 from .scheduler import run_complete_optimization
+from .profiles import apply_profile
 
 bp = Blueprint("generator", __name__)
 
@@ -109,6 +111,25 @@ def generador():
             mode="sync",
         )
 
+    # 2) Aplica perfil (sobrescribe defaults)
+    cfg = apply_profile(cfg)
+
+    # 3) JEAN (Personalizado): JSON del usuario domina
+    profile = (cfg.get("optimization_profile") or "").lower()
+    if profile.startswith("jean"):
+        raw = None
+        if "jean_json" in request.files and request.files["jean_json"].filename:
+            raw = request.files["jean_json"].read().decode("utf-8", "ignore")
+        elif "jean_json" in request.form:
+            raw = request.form.get("jean_json", "").strip()
+        if raw:
+            try:
+                user_overrides = json.loads(raw)
+                cfg.update(user_overrides)
+            except Exception:
+                pass
+
+    # 4) Ejecuta optimización con cfg final
     payload = run_complete_optimization(
         xls,
         config=cfg,
