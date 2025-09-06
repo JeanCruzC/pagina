@@ -1,10 +1,26 @@
 import io, base64, time, gc, hashlib
 import numpy as np
-import pandas as pd
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+try:
+    import pandas as pd
+except Exception:  # pragma: no cover
+    class _PDPlaceholder:
+        class DataFrame:  # type: ignore
+            ...
+    pd = _PDPlaceholder()
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except Exception:  # pragma: no cover
+    matplotlib = None
+    plt = None
 from collections import Counter
+
+try:
+    from .profile_optimizers import get_profile_optimizer
+except Exception:  # pragma: no cover
+    def get_profile_optimizer(*args, **kwargs):
+        raise ImportError("profile_optimizers module not available")
 
 try:
     import pulp
@@ -177,6 +193,34 @@ def _filter_patterns_by_cfg(patterns, cfg):
         if _allow_pid(pid, cfg):
             filtered[pid] = pdef
     return filtered
+
+
+def _is_allowed_pid(pid: str, cfg: dict) -> bool:
+    allow_8h   = cfg.get("allow_8h", True)
+    allow_10h8 = cfg.get("allow_10h8", False)
+    allow_pt_4h = cfg.get("allow_pt_4h", True)
+    allow_pt_5h = cfg.get("allow_pt_5h", False)
+    allow_pt_6h = cfg.get("allow_pt_6h", True)
+
+    # FT (ambos estilos)
+    if pid.startswith("FT"):
+        if pid.startswith(("FT8_", "FT_8H_")) and not allow_8h:
+            return False
+        if pid.startswith(("FT10p8_", "FT_10H_", "FT_10H8_")) and not allow_10h8:
+            return False
+        return True
+
+    # PT (ambos estilos)
+    if pid.startswith("PT"):
+        if pid.startswith(("PT4_", "PT_4H_")) and not allow_pt_4h:
+            return False
+        if pid.startswith(("PT5_", "PT_5H_")) and not allow_pt_5h:
+            return False
+        if pid.startswith(("PT6_", "PT_6H_")) and not allow_pt_6h:
+            return False
+        return True
+
+    return True
 
 
 def generate_weekly_pattern_simple(start_hour, duration, working_days):
@@ -366,7 +410,7 @@ def adaptive_chunk_size(base):
     return base
 
 
-def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000):
+def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, **kwargs):
     scored = []
     seen = set()
     for name, pat in shifts_coverage.items():
@@ -405,6 +449,10 @@ def optimize_with_precision_targeting(
     cfg=None,
     iteration_time_limit=None,
     agent_limit_factor=30,
+    excess_penalty=0,
+    peak_bonus=0,
+    critical_bonus=0,
+    TIME_SOLVER=None,
 ):
     if not PULP_AVAILABLE:
         return {}, "NO_PULP"
@@ -444,7 +492,13 @@ def optimize_with_precision_targeting(
             )
             prob += cov + deficit_vars[(d, h)] - excess_vars[(d, h)] == int(demand_matrix[d, h])
 
-    time_limit = iteration_time_limit if iteration_time_limit is not None else cfg.get("solver_time", 240)
+    time_limit = (
+        TIME_SOLVER
+        if TIME_SOLVER is not None
+        else (
+            iteration_time_limit if iteration_time_limit is not None else cfg.get("solver_time", 240)
+        )
+    )
     solver = _build_cbc_solver({**cfg, "solver_time": time_limit})
     prob.solve(solver)
 
@@ -458,16 +512,39 @@ def optimize_with_precision_targeting(
     return {}, f"STATUS_{prob.status}"
 
 
-def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix):
+def optimize_ft_then_pt_strategy(
+    shifts_coverage,
+    demand_matrix,
+    *,
+    agent_limit_factor=30,
+    excess_penalty=0,
+    TIME_SOLVER=None,
+):
     ft = {k: v for k, v in shifts_coverage.items() if k.startswith("FT")}
     pt = {k: v for k, v in shifts_coverage.items() if k.startswith("PT")}
-    ft_ass, _ = optimize_with_precision_targeting(ft, demand_matrix)
+    ft_ass, _ = optimize_with_precision_targeting(
+        ft,
+        demand_matrix,
+        agent_limit_factor=agent_limit_factor,
+        excess_penalty=excess_penalty,
+        peak_bonus=0,
+        critical_bonus=0,
+        TIME_SOLVER=TIME_SOLVER,
+    )
     cov_ft = np.zeros_like(demand_matrix)
     for s, c in ft_ass.items():
         slots = len(ft[s]) // 7
         cov_ft += ft[s].reshape(7, slots) * c
     remaining = np.maximum(0, demand_matrix - cov_ft)
-    pt_ass, _ = optimize_with_precision_targeting(pt, remaining)
+    pt_ass, _ = optimize_with_precision_targeting(
+        pt,
+        remaining,
+        agent_limit_factor=agent_limit_factor,
+        excess_penalty=excess_penalty,
+        peak_bonus=0,
+        critical_bonus=0,
+        TIME_SOLVER=TIME_SOLVER,
+    )
     return {**ft_ass, **pt_ass}, "FT_PT"
 
 
@@ -891,16 +968,59 @@ def run_complete_optimization(
             )
         return {"assignments": {}}
 
-    optimizer = optimize_jean_search
-    if profile == "JEAN Personalizado":
-        from .profile_optimizers import optimize_jean_personalizado
-        optimizer = optimize_jean_personalizado
+    TARGET_COVERAGE = cfg.get("TARGET_COVERAGE", 98.0)
+    agent_limit_factor = cfg.get("agent_limit_factor", 30)
+    excess_penalty = cfg.get("excess_penalty", 0)
+    peak_bonus = cfg.get("peak_bonus", 0)
+    critical_bonus = cfg.get("critical_bonus", 0)
 
-    assignments, pulp_status = optimizer(
-        patterns,
-        demand_matrix,
-        cfg={**cfg, "solver_time": TIME_SOLVER, "iterations": MAX_ITERS},
-    )
+    if profile in ("JEAN", "JEAN Personalizado"):
+        if profile == "JEAN Personalizado":
+            from .profile_optimizers import optimize_jean_personalizado
+            assignments, pulp_status = optimize_jean_personalizado(
+                patterns,
+                demand_matrix,
+                cfg=cfg,
+            )
+        else:
+            assignments, pulp_status = optimize_jean_search(
+                patterns,
+                demand_matrix,
+                cfg={**cfg, "solver_time": TIME_SOLVER, "iterations": MAX_ITERS},
+            )
+    elif profile == "Aprendizaje Adaptativo":
+        from .profile_optimizers import optimize_adaptive_learning
+        assignments, pulp_status = optimize_adaptive_learning(
+            patterns,
+            demand_matrix,
+            cfg=cfg,
+        )
+    else:
+        opt_fn = get_profile_optimizer(profile)
+        try:
+            assignments, pulp_status = opt_fn(
+                patterns,
+                demand_matrix,
+                cfg=cfg,
+                job_id=job_id,
+            )
+        except Exception as e:
+            print(f"[SCHEDULER] Fallback a chunks por error en perfil: {e}")
+            assignments = solve_in_chunks_optimized(
+                patterns,
+                demand_matrix,
+                optimization_profile=profile,
+                use_ft=use_ft,
+                use_pt=use_pt,
+                TARGET_COVERAGE=TARGET_COVERAGE,
+                agent_limit_factor=agent_limit_factor,
+                excess_penalty=excess_penalty,
+                peak_bonus=peak_bonus,
+                critical_bonus=critical_bonus,
+            )
+            pulp_status = f"CHUNKS_OPTIMIZED_{profile.upper().replace(' ', '_')}"
+
+    assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
     if return_payload:
         # --- ANTES de armar payload, filtra patrones según familias seleccionadas ---
         patterns = _filter_patterns_by_cfg(patterns, cfg)
