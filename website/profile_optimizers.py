@@ -222,11 +222,27 @@ def optimize_maximum_coverage(shifts_coverage, demand_matrix, *, cfg=None):
             return assignments, "MAXIMUM_COVERAGE"
         else:
             print(f"[MAX_COV] Status no óptimo: {prob.status}")
-            return optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=cfg)
-    
+            return optimize_with_precision_targeting(
+                shifts_coverage,
+                demand_matrix,
+                agent_limit_factor=cfg["agent_limit_factor"],
+                excess_penalty=cfg["excess_penalty"],
+                peak_bonus=cfg["peak_bonus"],
+                critical_bonus=cfg["critical_bonus"],
+                TIME_SOLVER=cfg.get("TIME_SOLVER", cfg.get("solver_time", 240)),
+            )
+
     except Exception as e:
         print(f"[MAX_COV] Error: {e}")
-        return optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=cfg)
+        return optimize_with_precision_targeting(
+            shifts_coverage,
+            demand_matrix,
+            agent_limit_factor=cfg["agent_limit_factor"],
+            excess_penalty=cfg["excess_penalty"],
+            peak_bonus=cfg["peak_bonus"],
+            critical_bonus=cfg["critical_bonus"],
+            TIME_SOLVER=cfg.get("TIME_SOLVER", cfg.get("solver_time", 240)),
+        )
 
 
 @single_model
@@ -509,11 +525,27 @@ def optimize_perfect_coverage(shifts_coverage, demand_matrix, *, cfg=None):
             return assignments, f"PERFECT_{profile.upper().replace(' ', '_')}"
         else:
             print(f"[PERFECT] Status no óptimo: {prob.status}, usando fallback")
-            return optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=cfg)
-    
+            return optimize_with_precision_targeting(
+                shifts_coverage,
+                demand_matrix,
+                agent_limit_factor=cfg["agent_limit_factor"],
+                excess_penalty=cfg["excess_penalty"],
+                peak_bonus=cfg["peak_bonus"],
+                critical_bonus=cfg["critical_bonus"],
+                TIME_SOLVER=cfg.get("TIME_SOLVER", cfg.get("solver_time", 240)),
+            )
+
     except Exception as e:
         print(f"[PERFECT] Error: {e}")
-        return optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=cfg)
+        return optimize_with_precision_targeting(
+            shifts_coverage,
+            demand_matrix,
+            agent_limit_factor=cfg["agent_limit_factor"],
+            excess_penalty=cfg["excess_penalty"],
+            peak_bonus=cfg["peak_bonus"],
+            critical_bonus=cfg["critical_bonus"],
+            TIME_SOLVER=cfg.get("TIME_SOLVER", cfg.get("solver_time", 240)),
+        )
 
 
 @single_model
@@ -608,7 +640,13 @@ def optimize_jean_personalizado(shifts_coverage, demand_matrix, *, cfg=None):
     # Estrategia 2 fases si se usan FT y PT
     if cfg.get("ft_pt_strategy") and cfg.get("use_ft") and cfg.get("use_pt"):
         print(f"[JEAN_CUSTOM] Usando estrategia 2 fases FT->PT")
-        assignments, status = optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=cfg)
+        assignments, status = optimize_ft_then_pt_strategy(
+            shifts_coverage,
+            demand_matrix,
+            agent_limit_factor=cfg["agent_limit_factor"],
+            excess_penalty=cfg["excess_penalty"],
+            TIME_SOLVER=cfg.get("TIME_SOLVER", cfg.get("solver_time", 240)),
+        )
         
         # Verificar si necesita refinamiento con búsqueda JEAN
         results = analyze_results(assignments, shifts_coverage, demand_matrix)
@@ -619,8 +657,16 @@ def optimize_jean_personalizado(shifts_coverage, demand_matrix, *, cfg=None):
             
             if coverage < target or score > 0:
                 print(f"[JEAN_CUSTOM] Refinando con búsqueda JEAN (cov: {coverage:.1f}%, score: {score:.1f})")
-                refined_assignments, refined_status = optimize_jean_search(
-                    shifts_coverage, demand_matrix, cfg=cfg, target_coverage=target
+                refined_assignments, refined_status = scheduler.optimize_jean_search(
+                    shifts_coverage,
+                    demand_matrix,
+                    target_coverage=target,
+                    max_iterations=cfg.get("max_iterations", 5),
+                    agent_limit_factor=cfg["agent_limit_factor"],
+                    excess_penalty=cfg["excess_penalty"],
+                    peak_bonus=cfg["peak_bonus"],
+                    critical_bonus=cfg["critical_bonus"],
+                    job_id=job_id if 'job_id' in locals() or 'job_id' in globals() else None,
                 )
                 if refined_assignments:
                     return refined_assignments, f"JEAN_CUSTOM_REFINED_{refined_status}"
@@ -628,7 +674,17 @@ def optimize_jean_personalizado(shifts_coverage, demand_matrix, *, cfg=None):
         return assignments, f"JEAN_CUSTOM_{status}"
     else:
         # Usar búsqueda JEAN estándar
-        return optimize_jean_search(shifts_coverage, demand_matrix, cfg=cfg)
+        return scheduler.optimize_jean_search(
+            shifts_coverage,
+            demand_matrix,
+            target_coverage=cfg.get("TARGET_COVERAGE", 98.0),
+            max_iterations=cfg.get("max_iterations", 5),
+            agent_limit_factor=cfg["agent_limit_factor"],
+            excess_penalty=cfg["excess_penalty"],
+            peak_bonus=cfg["peak_bonus"],
+            critical_bonus=cfg["critical_bonus"],
+            job_id=job_id if 'job_id' in locals() or 'job_id' in globals() else None,
+        )
 
 
 @single_model
@@ -648,7 +704,15 @@ def optimize_adaptive_learning(shifts_coverage, demand_matrix, *, cfg=None):
     print(f"[ADAPTIVE] Parámetros evolutivos aplicados: {adaptive_params.get('evolution_step', 'unknown')}")
     
     # Usar optimización de precisión con parámetros adaptativos
-    assignments, status = optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=temp_cfg)
+    assignments, status = optimize_with_precision_targeting(
+        shifts_coverage,
+        demand_matrix,
+        agent_limit_factor=temp_cfg["agent_limit_factor"],
+        excess_penalty=temp_cfg["excess_penalty"],
+        peak_bonus=temp_cfg["peak_bonus"],
+        critical_bonus=temp_cfg["critical_bonus"],
+        TIME_SOLVER=temp_cfg.get("TIME_SOLVER", temp_cfg.get("solver_time", 240)),
+    )
     
     # Guardar resultado para aprendizaje
     if assignments:
@@ -675,7 +739,15 @@ def optimize_equilibrado(shifts_coverage, demand_matrix, *, cfg=None):
     print(f"[EQUILIBRADO] Iniciando optimización equilibrada")
     
     # Usar optimización estándar con parámetros equilibrados
-    return optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=cfg)
+    return optimize_with_precision_targeting(
+        shifts_coverage,
+        demand_matrix,
+        agent_limit_factor=cfg["agent_limit_factor"],
+        excess_penalty=cfg["excess_penalty"],
+        peak_bonus=cfg["peak_bonus"],
+        critical_bonus=cfg["critical_bonus"],
+        TIME_SOLVER=cfg.get("TIME_SOLVER", cfg.get("solver_time", 240)),
+    )
 
 
 @single_model
@@ -687,7 +759,15 @@ def optimize_personalizado(shifts_coverage, demand_matrix, *, cfg=None):
     print(f"[PERSONALIZADO] Parámetros: factor={cfg['agent_limit_factor']}, penalty={cfg['excess_penalty']}")
     
     # Usar optimización estándar con parámetros personalizados
-    return optimize_with_precision_targeting(shifts_coverage, demand_matrix, cfg=cfg)
+    return optimize_with_precision_targeting(
+        shifts_coverage,
+        demand_matrix,
+        agent_limit_factor=cfg["agent_limit_factor"],
+        excess_penalty=cfg["excess_penalty"],
+        peak_bonus=cfg["peak_bonus"],
+        critical_bonus=cfg["critical_bonus"],
+        TIME_SOLVER=cfg.get("TIME_SOLVER", cfg.get("solver_time", 240)),
+    )
 
 
 # Mapeo de perfiles a funciones optimizadoras
