@@ -22,12 +22,35 @@ except ImportError:
     PULP_AVAILABLE = False
 
 from . import scheduler
-from .scheduler import (
-    merge_config, single_model, analyze_results,
-    optimize_schedule_greedy_enhanced, optimize_with_precision_targeting,
-    get_adaptive_params, save_execution_result, load_shift_patterns,
-    optimize_ft_then_pt_strategy, _write_partial_result
-)
+
+try:
+    from .scheduler import (
+        merge_config,
+        single_model,
+        analyze_results,
+        optimize_schedule_greedy_enhanced,
+        optimize_with_precision_targeting,
+        get_adaptive_params,
+        save_execution_result,
+        load_shift_patterns,
+        optimize_ft_then_pt_strategy,
+        _write_partial_result,
+        optimize_jean_search,
+    )
+except Exception:  # pragma: no cover
+    from scheduler import (
+        merge_config,
+        single_model,
+        analyze_results,
+        optimize_schedule_greedy_enhanced,
+        optimize_with_precision_targeting,
+        get_adaptive_params,
+        save_execution_result,
+        load_shift_patterns,
+        optimize_ft_then_pt_strategy,
+        _write_partial_result,
+        optimize_jean_search,
+    )
 
 _sched_sig = inspect.signature(scheduler.optimize_jean_search)
 _TARGET_COVERAGE_DEFAULT = _sched_sig.parameters["target_coverage"].default
