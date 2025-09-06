@@ -623,8 +623,11 @@ def optimize_jean_search(
         and "TARGET_COVERAGE" in cfg
     ):
         target_coverage = cfg["TARGET_COVERAGE"]
-    if max_iterations == _MAX_ITERATIONS_DEFAULT and "iterations" in cfg:
-        max_iterations = cfg["iterations"]
+    if max_iterations == _MAX_ITERATIONS_DEFAULT:
+        if "search_iterations" in cfg:
+            max_iterations = cfg["search_iterations"]
+        elif "iterations" in cfg:
+            max_iterations = cfg["iterations"]
 
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
@@ -684,7 +687,9 @@ def optimize_jean_personalizado(shifts_coverage, demand_matrix, *, cfg=None):
                     shifts_coverage,
                     demand_matrix,
                     target_coverage=target,
-                    max_iterations=cfg.get("iterations", 30),
+                    max_iterations=cfg.get(
+                        "search_iterations", cfg.get("iterations", 30)
+                    ),
                     agent_limit_factor=cfg["agent_limit_factor"],
                     excess_penalty=cfg["excess_penalty"],
                     peak_bonus=cfg["peak_bonus"],
@@ -701,7 +706,9 @@ def optimize_jean_personalizado(shifts_coverage, demand_matrix, *, cfg=None):
             shifts_coverage,
             demand_matrix,
             target_coverage=cfg.get("TARGET_COVERAGE", 98.0),
-            max_iterations=cfg.get("iterations", 30),
+            max_iterations=cfg.get(
+                "search_iterations", cfg.get("iterations", 30)
+            ),
             agent_limit_factor=cfg["agent_limit_factor"],
             excess_penalty=cfg["excess_penalty"],
             peak_bonus=cfg["peak_bonus"],
