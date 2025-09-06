@@ -102,34 +102,35 @@ PROFILES = {
 def apply_profile(cfg=None):
     """Aplicar perfil de optimización sobre la configuración."""
     from .scheduler_core import merge_config
-    
+
+    # 1) Rellenar con defaults
     cfg = merge_config(cfg)
-    profile = cfg.get("optimization_profile", "Equilibrado (Recomendado)")
-    
-    print(f"[PROFILE] Aplicando perfil: {profile}")
-    
-    # Obtener parámetros del perfil
-    profile_params = PROFILES.get(profile)
-    
-    if profile_params:
-        # Aplicar todos los parámetros del perfil
-        for key, val in profile_params.items():
-            if key not in cfg or cfg[key] is None:
-                cfg[key] = val
-        
+
+    # 2) Aplicar perfil seleccionado
+    profile_name = cfg.get("optimization_profile") or "Equilibrado (Recomendado)"
+    print(f"[PROFILE] Aplicando perfil: {profile_name}")
+    params = PROFILES.get(profile_name, {})
+
+    # 3) El perfil sobrescribe siempre
+    if params:
+        cfg.update(params)
+
         # Configuraciones específicas por perfil
-        if profile == "JEAN":
+        if profile_name == "JEAN":
             cfg["optimization_profile"] = "JEAN"
             cfg["use_jean_search"] = True
-            print(f"[PROFILE] JEAN: factor={cfg['agent_limit_factor']}, penalty={cfg['excess_penalty']}, target={cfg.get('TARGET_COVERAGE', 98)}%")
-        
-        elif profile == "JEAN Personalizado":
+            print(
+                f"[PROFILE] JEAN: factor={cfg['agent_limit_factor']}, penalty={cfg['excess_penalty']}, target={cfg.get('TARGET_COVERAGE', 98)}%"
+            )
+        elif profile_name == "JEAN Personalizado":
             cfg["optimization_profile"] = "JEAN Personalizado"
             cfg["use_jean_search"] = True
             print(f"[PROFILE] JEAN Personalizado configurado")
-        
+
         print(f"[PROFILE] Configuración aplicada - Strategy: {cfg.get('strategy', 'default')}")
     else:
-        print(f"[PROFILE] ADVERTENCIA: Perfil '{profile}' no encontrado, usando configuración por defecto")
-    
+        print(
+            f"[PROFILE] ADVERTENCIA: Perfil '{profile_name}' no encontrado, usando configuración por defecto"
+        )
+
     return cfg

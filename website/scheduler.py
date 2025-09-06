@@ -686,11 +686,11 @@ def _insights_from_analysis(analysis, cfg):
     ]
 
     pt = []
-    if cfg.get("allow_pt", True) and cfg.get("pt_4h6d"):
+    if cfg.get("use_pt", True) and cfg.get("allow_pt_4h"):
         pt.append("4h×6días")
-    if cfg.get("allow_pt", True) and cfg.get("pt_6h4d"):
+    if cfg.get("use_pt", True) and cfg.get("allow_pt_6h"):
         pt.append("6h×4días")
-    if cfg.get("allow_pt", True) and cfg.get("pt_5h5d"):
+    if cfg.get("use_pt", True) and cfg.get("allow_pt_5h"):
         pt.append("5h×5días")
     ins["pt_habilitados"].append(", ".join(pt) if pt else "—")
 
@@ -848,15 +848,15 @@ def run_complete_optimization(
     demand_matrix = load_demand_matrix_from_df(df)
     analysis = _analyze_demand(demand_matrix)
     patterns = {}
-    allow_ft = cfg.get("allow_ft", True)
-    allow_pt = cfg.get("allow_pt", True)
+    use_ft = cfg.get("use_ft", True)
+    use_pt = cfg.get("use_pt", True)
     for batch in generate_shifts_coverage_optimized(
         demand_matrix,
-        allow_8h=allow_ft and cfg.get("ft_8h", True),
-        allow_10h8=allow_ft and cfg.get("ft_10h5d", True),
-        allow_pt_4h=allow_pt and cfg.get("pt_4h6d", True),
-        allow_pt_5h=allow_pt and cfg.get("pt_5h5d", True),
-        allow_pt_6h=allow_pt and cfg.get("pt_6h4d", True),
+        allow_8h=use_ft and cfg.get("allow_8h", False),
+        allow_10h8=use_ft and cfg.get("allow_10h8", False),
+        allow_pt_4h=use_pt and cfg.get("allow_pt_4h", False),
+        allow_pt_5h=use_pt and cfg.get("allow_pt_5h", False),
+        allow_pt_6h=use_pt and cfg.get("allow_pt_6h", False),
     ):
         patterns.update(batch)
 
