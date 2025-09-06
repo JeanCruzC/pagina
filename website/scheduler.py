@@ -16,11 +16,48 @@ except Exception:  # pragma: no cover
     plt = None
 from collections import Counter
 
+# === Robust import of profile optimizer selector ===
 try:
-    from .profile_optimizers import get_profile_optimizer
-except Exception:  # pragma: no cover
-    def get_profile_optimizer(*args, **kwargs):
-        raise ImportError("profile_optimizers module not available")
+    # paquete relativo (cuando se ejecuta como paquete Flask)
+    from .profile_optimizers import get_profile_optimizer as _get_profile_optimizer
+except Exception:
+    try:
+        # ruta plana (por si se ejecuta como script)
+        from profile_optimizers import get_profile_optimizer as _get_profile_optimizer
+    except Exception as e:  # pragma: no cover
+        _get_profile_optimizer = None
+        _get_profile_optimizer_err = e
+
+
+def get_profile_optimizer(profile_name: str):
+    """
+    Devuelve un optimizador callable. Nunca lanza ImportError.
+    Si no puede importar, usa un fallback basado en solve_in_chunks_optimized.
+    """
+
+    if _get_profile_optimizer is not None:
+        return _get_profile_optimizer(profile_name)
+
+    # --- Fallback seguro: usa el solver por chunks existente ---
+    def _fallback(patterns, demand_matrix, *, cfg=None, job_id=None, **kwargs):
+        _cfg = cfg or {}
+        return (
+            solve_in_chunks_optimized(
+                patterns,
+                demand_matrix,
+                optimization_profile=profile_name,
+                use_ft=_cfg.get("use_ft", True),
+                use_pt=_cfg.get("use_pt", True),
+                TARGET_COVERAGE=_cfg.get("TARGET_COVERAGE", 98.0),
+                agent_limit_factor=_cfg.get("agent_limit_factor", 12),
+                excess_penalty=_cfg.get("excess_penalty", 1.0),
+                peak_bonus=_cfg.get("peak_bonus", 0.0),
+                critical_bonus=_cfg.get("critical_bonus", 0.0),
+            ),
+            "FALLBACK_CHUNKS",
+        )
+
+    return _fallback
 
 try:
     import pulp
@@ -574,6 +611,9 @@ def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None):
                 best_assignments = assignments
         iteration += 1
         factor = max(1, factor // (2 if iteration == 1 else 1))
+    best_assignments = {
+        k: v for k, v in (best_assignments or {}).items() if _is_allowed_pid(k, cfg)
+    }
     return best_assignments, "JEAN"
 
 
