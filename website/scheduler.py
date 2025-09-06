@@ -15,16 +15,18 @@ except Exception:  # pragma: no cover
     matplotlib = None
     plt = None
 from collections import Counter
+try:  # pragma: no cover
+    from flask import current_app
+except Exception:  # pragma: no cover
+    current_app = None
 
 # === Robust import of profile optimizer selector ===
 try:
-    # paquete relativo (cuando se ejecuta como paquete Flask)
     from .profile_optimizers import get_profile_optimizer as _get_profile_optimizer
 except Exception:
     try:
-        # ruta plana (por si se ejecuta como script)
         from profile_optimizers import get_profile_optimizer as _get_profile_optimizer
-    except Exception as e:  # pragma: no cover
+    except Exception as e:
         _get_profile_optimizer = None
         _get_profile_optimizer_err = e
 
@@ -32,13 +34,12 @@ except Exception:
 def get_profile_optimizer(profile_name: str):
     """
     Devuelve un optimizador callable. Nunca lanza ImportError.
-    Si no puede importar, usa un fallback basado en solve_in_chunks_optimized.
+    Si no hay módulo, hace fallback a solve_in_chunks_optimized.
     """
 
     if _get_profile_optimizer is not None:
         return _get_profile_optimizer(profile_name)
 
-    # --- Fallback seguro: usa el solver por chunks existente ---
     def _fallback(patterns, demand_matrix, *, cfg=None, job_id=None, **kwargs):
         _cfg = cfg or {}
         return (
@@ -50,9 +51,9 @@ def get_profile_optimizer(profile_name: str):
                 use_pt=_cfg.get("use_pt", True),
                 TARGET_COVERAGE=_cfg.get("TARGET_COVERAGE", 98.0),
                 agent_limit_factor=_cfg.get("agent_limit_factor", 12),
-                excess_penalty=_cfg.get("excess_penalty", 1.0),
-                peak_bonus=_cfg.get("peak_bonus", 0.0),
-                critical_bonus=_cfg.get("critical_bonus", 0.0),
+                excess_penalty=_cfg.get("excess_penalty", 2.0),
+                peak_bonus=_cfg.get("peak_bonus", 1.5),
+                critical_bonus=_cfg.get("critical_bonus", 2.0),
             ),
             "FALLBACK_CHUNKS",
         )
@@ -585,23 +586,44 @@ def optimize_ft_then_pt_strategy(
     return {**ft_ass, **pt_ass}, "FT_PT"
 
 
-def optimize_jean_search(shifts_coverage, demand_matrix, *, cfg=None):
-    cfg = cfg or {}
-    TIME_SOLVER = cfg.get("solver_time", 120) or None
-    MAX_ITERS = int(cfg.get("iterations", 3))
-    factor = int(cfg.get("agent_limit_factor", 30))
+def optimize_jean_search(
+    shifts_coverage,
+    demand_matrix,
+    *,
+    target_coverage=98.0,
+    agent_limit_factor=30,
+    excess_penalty=0.0,
+    peak_bonus=0.0,
+    critical_bonus=0.0,
+    iteration_time_limit=None,
+    max_iterations=30,
+    verbose=False,
+    cfg=None,
+    job_id=None,
+    **kwargs,
+):
+    cfg = {**(cfg or {}), **kwargs}
+    factor = int(cfg.get("agent_limit_factor", agent_limit_factor))
+    excess_penalty = cfg.get("excess_penalty", excess_penalty)
+    peak_bonus = cfg.get("peak_bonus", peak_bonus)
+    critical_bonus = cfg.get("critical_bonus", critical_bonus)
+    TIME_SOLVER = iteration_time_limit if iteration_time_limit is not None else cfg.get(
+        "solver_time", 120
+    )
+    MAX_ITERS = int(cfg.get("iterations", max_iterations))
+
     best_assignments = {}
     best_score = float("inf")
     iteration = 0
     while iteration < MAX_ITERS and factor >= 1:
-        temp_cfg = cfg.copy()
-        temp_cfg["agent_limit_factor"] = factor
         assignments, _ = optimize_with_precision_targeting(
             shifts_coverage,
             demand_matrix,
-            cfg=temp_cfg,
-            iteration_time_limit=TIME_SOLVER,
             agent_limit_factor=factor,
+            excess_penalty=excess_penalty,
+            peak_bonus=peak_bonus,
+            critical_bonus=critical_bonus,
+            TIME_SOLVER=TIME_SOLVER,
         )
         results = analyze_results(assignments, shifts_coverage, demand_matrix)
         if results:
@@ -959,10 +981,10 @@ def run_complete_optimization(
         cfg["optimization_profile"] = cfg["profile"]
     else:
         cfg["optimization_profile"] = "Equilibrado (Recomendado)"
-    profile = cfg.get("optimization_profile", "")
+    optimization_profile = cfg.get("optimization_profile", "")
 
     # JEAN Personalizado: manejar JSON de turnos si viene en config
-    if profile == "JEAN Personalizado":
+    if optimization_profile == "JEAN Personalizado":
         json_text = cfg.get("custom_shifts_json")
         if json_text:
             import tempfile, os, json as _json
@@ -976,8 +998,6 @@ def run_complete_optimization(
         else:
             print("[CONFIG] JEAN Personalizado: usando lógica JEAN estándar (sin JSON personalizado)")
 
-    TIME_SOLVER = cfg.get("solver_time", 120) or None
-    MAX_ITERS = int(cfg.get("iterations", 3))
     df = pd.read_excel(file_stream)
     demand_matrix = load_demand_matrix_from_df(df)
     analysis = _analyze_demand(demand_matrix)
@@ -1014,8 +1034,8 @@ def run_complete_optimization(
     peak_bonus = cfg.get("peak_bonus", 0)
     critical_bonus = cfg.get("critical_bonus", 0)
 
-    if profile in ("JEAN", "JEAN Personalizado"):
-        if profile == "JEAN Personalizado":
+    if optimization_profile in ("JEAN", "JEAN Personalizado"):
+        if optimization_profile == "JEAN Personalizado":
             from .profile_optimizers import optimize_jean_personalizado
             assignments, pulp_status = optimize_jean_personalizado(
                 patterns,
@@ -1023,20 +1043,35 @@ def run_complete_optimization(
                 cfg=cfg,
             )
         else:
+            iteration_time_limit = None
+            if current_app is not None:
+                try:  # pragma: no cover
+                    iteration_time_limit = current_app.config.get("TIME_SOLVER")
+                except Exception:  # pragma: no cover
+                    iteration_time_limit = None
             assignments, pulp_status = optimize_jean_search(
                 patterns,
                 demand_matrix,
-                cfg={**cfg, "solver_time": TIME_SOLVER, "iterations": MAX_ITERS},
+                target_coverage=TARGET_COVERAGE,
+                agent_limit_factor=agent_limit_factor,
+                excess_penalty=excess_penalty,
+                peak_bonus=peak_bonus,
+                critical_bonus=critical_bonus,
+                iteration_time_limit=iteration_time_limit,
+                max_iterations=cfg.get("iterations", 30),
             )
-    elif profile == "Aprendizaje Adaptativo":
+        assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
+    elif optimization_profile == "Aprendizaje Adaptativo":
         from .profile_optimizers import optimize_adaptive_learning
         assignments, pulp_status = optimize_adaptive_learning(
             patterns,
             demand_matrix,
             cfg=cfg,
         )
+        assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
     else:
-        opt_fn = get_profile_optimizer(profile)
+        print(f"[SCHEDULER] Ejecutando perfil estándar: {optimization_profile}")
+        opt_fn = get_profile_optimizer(optimization_profile)
         try:
             assignments, pulp_status = opt_fn(
                 patterns,
@@ -1044,12 +1079,15 @@ def run_complete_optimization(
                 cfg=cfg,
                 job_id=job_id,
             )
+            assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
         except Exception as e:
-            print(f"[SCHEDULER] Fallback a chunks por error en perfil: {e}")
+            print(
+                f"[SCHEDULER] Error perfil {optimization_profile}: {e} -> fallback a chunks"
+            )
             assignments = solve_in_chunks_optimized(
                 patterns,
                 demand_matrix,
-                optimization_profile=profile,
+                optimization_profile=optimization_profile,
                 use_ft=use_ft,
                 use_pt=use_pt,
                 TARGET_COVERAGE=TARGET_COVERAGE,
@@ -1058,9 +1096,8 @@ def run_complete_optimization(
                 peak_bonus=peak_bonus,
                 critical_bonus=critical_bonus,
             )
-            pulp_status = f"CHUNKS_OPTIMIZED_{profile.upper().replace(' ', '_')}"
-
-    assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
+            assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
+            pulp_status = f"CHUNKS_OPTIMIZED_{optimization_profile.upper().replace(' ', '_')}"
     if return_payload:
         # --- ANTES de armar payload, filtra patrones según familias seleccionadas ---
         patterns = _filter_patterns_by_cfg(patterns, cfg)
