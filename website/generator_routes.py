@@ -104,7 +104,7 @@ def generador():
     except ValueError as e:
         # Respuesta limpia si no marcó ninguna familia
         return render_template(
-            "resultados.html",
+            "generador.html",
             payload={"error": str(e), "config": {"optimization_profile": "—"}},
             mode="sync",
         )
@@ -116,4 +116,4 @@ def generador():
         job_id=None,
         return_payload=True  # <- devolvemos figuras/base64 + métricas + export
     )
-    return render_template("resultados.html", payload=payload, mode="sync")
+    return render_template("generador.html", payload=payload, mode="sync")

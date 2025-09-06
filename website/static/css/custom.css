@@ -31,6 +31,9 @@ body{ background:#0a0f1c; color:var(--st-text); }
 .divider{ height:1px; background:var(--st-border); margin:14px 0; }
 .kpi{ font-size:2.2rem; font-weight:800; }
 .kpi-label{ color:var(--st-muted); font-size:.9rem; }
+.card.stat .label{ color:var(--st-muted); font-size:.9rem; }
+.card.stat .value{ font-size:2rem; font-weight:700; }
+.card.stat .small{ color:var(--st-muted); font-size:.85rem; }
 .tabbar .nav-link{ border:none; color:#9aa4b2; }
 .tabbar .nav-link.active{ color:#fff; border-bottom:2px solid #60a5fa; border-radius:0; }
 .bullet li{ margin-bottom:6px; }
