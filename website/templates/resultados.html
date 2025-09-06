@@ -25,36 +25,40 @@
   </div>
 </div>
 
-<!-- KPIs -->
-<div class="row g-3 mt-1">
-  <div class="col-6 col-md-3">
-    <div class="card p-3">
-      <div class="kpi">{{ m.agents or 0 }}</div>
-      <div class="kpi-label">Total Agentes</div>
+<!-- MÉTRICAS PRINCIPALES -->
+<div class="row g-3 my-2">
+  <div class="col-6 col-lg-3">
+    <div class="card stat">
+      <div class="card-body">
+        <div class="label">Total Agentes</div>
+        <div class="value">{{ m.agents or 0 }}</div>
+        <div class="small">FT: {{ m.ft or '-' }} · PT: {{ m.pt or '-' }}</div>
+      </div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="card p-3">
-      <div class="kpi">{{ m.coverage_pure or 0 }}%</div>
-      <div class="kpi-label">Cobertura Pura</div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat">
+      <div class="card-body">
+        <div class="label">Cobertura Pura</div>
+        <div class="value">{{ m.coverage_pure or 0 }}%</div>
+      </div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="card p-3">
-      <div class="kpi">{{ m.coverage_real or 0 }}%</div>
-      <div class="kpi-label">Cobertura Real</div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat">
+      <div class="card-body">
+        <div class="label">Cobertura Real</div>
+        <div class="value">{{ m.coverage_real or 0 }}%</div>
+      </div>
     </div>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="card p-3">
-      <div class="kpi">{{ m.excess or 0 }}</div>
-      <div class="kpi-label">Exceso</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="card p-3">
-      <div class="kpi">{{ m.deficit or 0 }}</div>
-      <div class="kpi-label">Déficit</div>
+  <div class="col-6 col-lg-3">
+    <div class="card stat">
+      <div class="card-body">
+        <div class="label">Exceso</div>
+        <div class="value">{{ m.excess or 0 }}</div>
+        <div class="small text-muted">Déficit: {{ m.deficit or 0 }}</div>
+      </div>
     </div>
   </div>
 </div>

@@ -615,21 +615,53 @@ def _export_xlsx_b64(assignments, payload):
     return base64.b64encode(bio.getvalue()).decode("ascii"), None
 
 
-def _heatmap(matrix, title, day_labels=None, hour_labels=None, annotate=True, cmap="RdYlBu_r"):
+def _heatmap(matrix, title, day_labels=None, hour_labels=None,
+             annotate=True, cmap="Reds"):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
     M = np.asarray(matrix)
     D, H = M.shape
-    fig, ax = plt.subplots(figsize=(min(1.0*H, 20), min(0.7*D+2, 10)))
-    im = ax.imshow(M, cmap=cmap, aspect="auto")
-    if hour_labels is None: hour_labels = [f"{h:02d}" for h in range(H)]
-    if day_labels  is None: day_labels  = [f"Día {i+1}" for i in range(D)]
-    ax.set_xticks(range(H)); ax.set_xticklabels(hour_labels, fontsize=8)
-    ax.set_yticks(range(D)); ax.set_yticklabels(day_labels, fontsize=9)
-    ax.set_title(title); ax.set_xlabel("Hora del día"); ax.set_ylabel("Día")
-    if annotate and H <= 30 and D <= 14:
+
+    # Tamaño “wide” cómodo en UI oscura
+    fig, ax = plt.subplots(figsize=(18, 6), dpi=110)
+
+    im = ax.imshow(M, aspect="auto", cmap=cmap, interpolation="nearest")
+
+    # Ejes y título
+    ax.set_title(title, fontsize=14, pad=12)
+    if hour_labels is not None:
+        ax.set_xticks(range(H))
+        ax.set_xticklabels(hour_labels, fontsize=9)
+    else:
+        ax.set_xticks(range(H))
+        ax.set_xticklabels(range(H), fontsize=9)
+
+    if day_labels is not None:
+        ax.set_yticks(range(D))
+        ax.set_yticklabels(day_labels, fontsize=10)
+    else:
+        ax.set_yticks(range(D))
+        ax.set_yticklabels([f"Día {i+1}" for i in range(D)], fontsize=10)
+
+    ax.set_xlabel("Hora del día", labelpad=8)
+    ax.set_ylabel("Día de la semana", labelpad=8)
+
+    # Números legibles (blanco o negro según el fondo)
+    if annotate:
+        norm = im.norm
         for i in range(D):
             for j in range(H):
-                ax.text(j, i, f"{int(M[i, j])}", ha="center", va="center", fontsize=7, color="black")
-    fig.colorbar(im, ax=ax, shrink=0.95)
+                v = int(M[i, j])
+                if v:
+                    color = "white" if norm(v) > 0.6 else "black"
+                    ax.text(j, i, f"{v}", ha="center", va="center", fontsize=9, color=color)
+
+    # Colorbar fina
+    cbar = fig.colorbar(im, ax=ax, fraction=0.025, pad=0.02)
+    cbar.ax.tick_params(labelsize=9)
+
+    fig.tight_layout()
     return fig
 
 
@@ -717,17 +749,18 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
     dem = np.asarray(demand_matrix, dtype=int)
     D, H = dem.shape
 
-    # Cobertura asignada
-    cov = np.zeros((D, H), dtype=int)
-    if assignments:
-        for v in assignments.values():
+    # Normaliza asignaciones a {patron: count}
+    counts = {}
+    for k, v in (assignments or {}).items():
+        if isinstance(v, int) and isinstance(k, str):
+            counts[k] = counts.get(k, 0) + int(v)
+        else:
             pid = v.get("pattern") if isinstance(v, dict) else v
-            p = patterns.get(pid)
-            if p is None:
+            if pid is None:
                 continue
-            mat = np.asarray(p["matrix"] if isinstance(p, dict) and "matrix" in p else p).reshape(D, H)
-            cov += mat
+            counts[str(pid)] = counts.get(str(pid), 0) + 1
 
+    cov = _assigned_matrix_from(counts, patterns, D, H)
     diff = cov - dem
 
     total_dem = int(dem.sum())
@@ -739,13 +772,19 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
     coverage_pure = (pure_cov_units / total_dem * 100.0) if total_dem > 0 else 0.0   # puede >100
     coverage_real = (real_cov_units / total_dem * 100.0) if total_dem > 0 else 0.0   # <=100
 
+    ft = sum(c for p, c in counts.items() if str(p).upper().startswith("FT"))
+    pt = sum(c for p, c in counts.items() if str(p).upper().startswith("PT"))
+    total_agents = ft + pt if (ft or pt) else len(assignments or {})
+
     fig_dem  = _heatmap(dem,  "Demanda (agentes-hora)", day_labels, hour_labels, annotate=True, cmap="Reds")
     fig_cov  = _heatmap(cov,  "Cobertura (agentes-hora)", day_labels, hour_labels, annotate=True, cmap="Blues")
     fig_diff = _heatmap(diff, "Cobertura - Demanda (exceso/deficit)", day_labels, hour_labels, annotate=True, cmap="RdBu_r")
 
     return {
         "metrics": {
-            "agents": len(assignments or {}),
+            "agents": total_agents,
+            "ft": ft,
+            "pt": pt,
             "coverage_pure": round(coverage_pure, 1),
             "coverage_real": round(coverage_real, 1),
             "excess": excess,
