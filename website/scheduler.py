@@ -517,7 +517,11 @@ def optimize_with_precision_targeting(
     total_def = pulp.lpSum(deficit_vars.values())
     total_exc = pulp.lpSum(excess_vars.values())
     total_agents = pulp.lpSum(shift_vars.values())
-    prob += total_def + 0.5 * total_exc + 0.001 * total_agents
+
+    def_pen = float(cfg.get("deficit_penalty", 1.0))
+    exc_pen = float(cfg.get("excess_penalty", 0.5))
+    agent_w = float(cfg.get("agent_weight", 0.001))
+    prob += def_pen * total_def + exc_pen * total_exc + agent_w * total_agents
 
     for d in range(7):
         for h in range(hours):
