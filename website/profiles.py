@@ -108,6 +108,7 @@ def apply_profile(cfg=None):
 
     # 2) Aplicar perfil seleccionado
     profile_name = cfg.get("optimization_profile") or "Equilibrado (Recomendado)"
+    profile_name = normalize_profile(profile_name)
     print(f"[PROFILE] Aplicando perfil: {profile_name}")
     params = PROFILES.get(profile_name, {})
 
@@ -139,3 +140,15 @@ def apply_profile(cfg=None):
         )
 
     return cfg
+
+# --- ALIASES para nombres de UI ---
+ALIASES = {
+    "100% Exacto": "Cobertura Exacta",
+    "100% Cobertura Eficiente": "Cobertura Eficiente 100",
+    "100% Cobertura Total": "Cobertura Total 100",
+    "Aprendizaje Adaptativo": "Adaptativo-Recomendado",
+}
+
+
+def normalize_profile(name: str) -> str:
+    return ALIASES.get(name, name)

@@ -20,6 +20,11 @@ try:  # pragma: no cover
 except Exception:  # pragma: no cover
     current_app = None
 
+try:
+    from .profiles import normalize_profile
+except Exception:  # pragma: no cover
+    from website.profiles import normalize_profile
+
 # === Robust import of profile optimizer selector ===
 try:
     from .profile_optimizers import get_profile_optimizer as _get_profile_optimizer
@@ -458,9 +463,13 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
         seen.add(key)
         scored.append((name, pat, score_pattern(pat, demand_matrix)))
     scored.sort(key=lambda x: x[2], reverse=True)
+    if len(scored) > 8000:
+        keep = int(len(scored) * 0.6)
+        scored = scored[:keep]
 
     assignments_total = {}
     coverage = np.zeros_like(demand_matrix)
+    days = demand_matrix.shape[0]
     idx = 0
     while idx < len(scored):
         chunk_size = adaptive_chunk_size(base_chunk_size)
@@ -468,11 +477,11 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
         remaining = np.maximum(0, demand_matrix - coverage)
         if not np.any(remaining):
             break
-        assigns, _ = optimize_with_precision_targeting(chunk, remaining)
+        assigns, _ = optimize_portfolio(chunk, remaining, cfg={})
         for n, v in assigns.items():
             assignments_total[n] = assignments_total.get(n, 0) + v
-            slots = len(chunk[n]) // 7
-            coverage += chunk[n].reshape(7, slots) * v
+            slots = len(chunk[n]) // days
+            coverage += chunk[n].reshape(days, slots) * v
         idx += chunk_size
         gc.collect()
         if not np.any(np.maximum(0, demand_matrix - coverage)):
@@ -497,34 +506,80 @@ def optimize_with_precision_targeting(
     cfg = cfg or {}
     shifts_list = list(shifts_coverage.keys())
     prob = pulp.LpProblem("PrecisionTargeting", pulp.LpMinimize)
-    max_per_shift = max(5, int(demand_matrix.sum() / max(agent_limit_factor, 1)))
-    shift_vars = {
-        s: pulp.LpVariable(f"x_{i}", 0, max_per_shift, pulp.LpInteger)
-        for i, s in enumerate(shifts_list)
-    }
-    hours = demand_matrix.shape[1]
+
+    D, H = demand_matrix.shape
+    total_dem = int(demand_matrix.sum())
+    peak_dem = int(demand_matrix.max())
+
+    shift_vars = {}
+    for i, s in enumerate(shifts_list):
+        pat = np.array(shifts_coverage[s])
+        pat_2d = pat.reshape(D, len(pat) // D)
+        pat_hours = int(pat_2d.sum())
+        ub = max(0, min(max(3, peak_dem), int(np.ceil(total_dem / max(pat_hours, 1)))))
+        shift_vars[s] = pulp.LpVariable(f"x_{i}", 0, ub, pulp.LpInteger)
+
     deficit_vars = {
         (d, h): pulp.LpVariable(f"def_{d}_{h}", 0, None)
-        for d in range(7)
-        for h in range(hours)
+        for d in range(D)
+        for h in range(H)
     }
     excess_vars = {
         (d, h): pulp.LpVariable(f"exc_{d}_{h}", 0, None)
-        for d in range(7)
-        for h in range(hours)
+        for d in range(D)
+        for h in range(H)
     }
 
-    total_def = pulp.lpSum(deficit_vars.values())
-    total_exc = pulp.lpSum(excess_vars.values())
-    total_agents = pulp.lpSum(shift_vars.values())
-    prob += total_def + 0.5 * total_exc + 0.001 * total_agents
+    # --- PESOS POR HORA / DÍA ---
+    daily_tot = demand_matrix.sum(axis=1)
+    hourly_tot = demand_matrix.sum(axis=0)
+    crit_days = set(np.argsort(daily_tot)[-2:]) if D >= 2 else {int(np.argmax(daily_tot))}
+    pos_hours = hourly_tot[hourly_tot > 0]
+    thr = np.percentile(pos_hours, 75) if pos_hours.size else 0
+    peak_hours = set(np.where(hourly_tot >= thr)[0])
 
-    for d in range(7):
-        for h in range(hours):
+    ex_pen = float(excess_penalty or 0.5)
+    pk_bo = float(peak_bonus or 0.75)
+    cr_bo = float(critical_bonus or 1.0)
+
+    W_DEF_BASE = 1000.0
+    W_EXC_BASE = 10.0 * ex_pen
+    W_AGENTS = 0.01
+
+    w_def, w_exc = {}, {}
+    for d in range(D):
+        for h in range(H):
+            w_d = W_DEF_BASE
+            if d in crit_days:
+                w_d *= (1.0 + cr_bo)
+            if h in peak_hours:
+                w_d *= (1.0 + pk_bo)
+
+            if demand_matrix[d, h] <= 0:
+                w_e = W_EXC_BASE * 200.0
+            elif demand_matrix[d, h] <= 2:
+                w_e = W_EXC_BASE * 50.0
+            elif demand_matrix[d, h] <= 5:
+                w_e = W_EXC_BASE * 10.0
+            else:
+                w_e = W_EXC_BASE * 4.0
+
+            w_def[(d, h)] = w_d
+            w_exc[(d, h)] = w_e
+
+    total_agents = pulp.lpSum(shift_vars.values())
+    prob += (
+        pulp.lpSum(w_def[(d, h)] * deficit_vars[(d, h)] for d in range(D) for h in range(H))
+        + pulp.lpSum(w_exc[(d, h)] * excess_vars[(d, h)] for d in range(D) for h in range(H))
+        + W_AGENTS * total_agents
+    )
+
+    for d in range(D):
+        for h in range(H):
             cov = pulp.lpSum(
                 [
                     shift_vars[s]
-                    * np.array(shifts_coverage[s]).reshape(7, len(shifts_coverage[s]) // 7)[d, h]
+                    * np.array(shifts_coverage[s]).reshape(D, len(shifts_coverage[s]) // D)[d, h]
                     for s in shifts_list
                 ]
             )
@@ -539,6 +594,21 @@ def optimize_with_precision_targeting(
     )
     solver = _build_cbc_solver({**cfg, "solver_time": time_limit})
     prob.solve(solver)
+    nodes = None
+    solver_model = getattr(prob, "solverModel", None)
+    if solver_model is not None:
+        nodes = getattr(solver_model, "nodeCount", None)
+        if nodes is None and hasattr(solver_model, "getNodeCount"):
+            try:
+                nodes = solver_model.getNodeCount()
+            except Exception:
+                nodes = None
+    if nodes == 0:
+        print("[DIAG] CBC devolvió 0 nodos. Posible objetivo plano/relajación trivial.")
+        print(f"[DIAG] pesos: ex_pen={excess_penalty}, peak={peak_bonus}, critical={critical_bonus}")
+        print(
+            f"[DIAG] demanda total={int(demand_matrix.sum())}, pico={int(demand_matrix.max())}"
+        )
 
     assignments = {}
     if prob.status == pulp.LpStatusOptimal:
@@ -548,6 +618,51 @@ def optimize_with_precision_targeting(
                 assignments[s] = v
         return assignments, "PRECISION_TARGETING"
     return {}, f"STATUS_{prob.status}"
+
+
+def _evaluate(assigns, shifts_coverage, demand_matrix):
+    import numpy as np
+    if not assigns:
+        return float("inf")
+    D = demand_matrix.shape[0]
+    cov = np.zeros_like(demand_matrix)
+    for s, c in assigns.items():
+        slots = len(shifts_coverage[s]) // D
+        cov += np.array(shifts_coverage[s]).reshape(D, slots) * int(c)
+    deficit = np.maximum(0, demand_matrix - cov).sum()
+    excess = np.maximum(0, cov - demand_matrix).sum()
+    return deficit * 1000 + excess * 10
+
+
+def optimize_portfolio(shifts_coverage, demand_matrix, cfg=None):
+    cfg = (cfg or {}).copy()
+    candidates = []
+    for seed in (1, 11, 21, 31):
+        for factor in (
+            cfg.get("agent_limit_factor", 30),
+            max(10, cfg.get("agent_limit_factor", 30) // 2),
+        ):
+            local = cfg.copy()
+            local["random_seed"] = seed
+            local["agent_limit_factor"] = factor
+            assigns, _ = optimize_with_precision_targeting(
+                shifts_coverage,
+                demand_matrix,
+                cfg=local,
+                iteration_time_limit=local.get("solver_time", 240),
+                agent_limit_factor=factor,
+                excess_penalty=local.get("excess_penalty", 0.5),
+                peak_bonus=local.get("peak_bonus", 0.75),
+                critical_bonus=local.get("critical_bonus", 1.0),
+            )
+            candidates.append(
+                (_evaluate(assigns, shifts_coverage, demand_matrix), assigns, seed, factor)
+            )
+    candidates.sort(key=lambda x: x[0])
+    if candidates:
+        _, best, seed, factor = candidates[0]
+        return best, f"seed={seed}_factor={factor}"
+    return {}, "PORTFOLIO_EMPTY"
 
 
 def optimize_ft_then_pt_strategy(
@@ -1115,10 +1230,12 @@ def run_complete_optimization(
         )
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
     else:
+        normalized = normalize_profile(optimization_profile or "")
         print(
-            f"[SCHEDULER] Ejecutando perfil estándar con optimizador dedicado: {optimization_profile}"
+            f"[SCHEDULER] Ejecutando perfil estándar con optimizador dedicado: {normalized}"
         )
-        opt_fn = get_profile_optimizer(optimization_profile)
+        opt_fn = get_profile_optimizer(normalized)
+        cfg["optimization_profile"] = normalized
         try:
             assignments, status = opt_fn(
                 patterns, demand_matrix, cfg=cfg, job_id=job_id
@@ -1130,7 +1247,7 @@ def run_complete_optimization(
             assignments = solve_in_chunks_optimized(
                 patterns,
                 demand_matrix,
-                optimization_profile=optimization_profile,
+                optimization_profile=normalized,
                 use_ft=use_ft,
                 use_pt=use_pt,
                 TARGET_COVERAGE=TARGET_COVERAGE,
@@ -1139,7 +1256,7 @@ def run_complete_optimization(
                 peak_bonus=peak_bonus,
                 critical_bonus=critical_bonus,
             )
-            status = f"CHUNKS_OPTIMIZED_{optimization_profile.upper().replace(' ', '_')}"
+            status = f"CHUNKS_OPTIMIZED_{normalized.upper().replace(' ', '_')}"
         pulp_status = status
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
 

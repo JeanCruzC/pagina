@@ -470,7 +470,7 @@ def optimize_perfect_coverage(shifts_coverage, demand_matrix, *, cfg=None):
         
         # Variables con límites según el perfil
         total_demand = demand_matrix.sum()
-        if profile == "100% Cobertura Total":
+        if profile in ("100% Cobertura Total", "Cobertura Total 100"):
             max_per_shift = max(20, int(total_demand / 3))  # Más generoso
         else:
             max_per_shift = max(15, int(total_demand / cfg["agent_limit_factor"]))
@@ -498,18 +498,18 @@ def optimize_perfect_coverage(shifts_coverage, demand_matrix, *, cfg=None):
         total_excess = pl.lpSum([excess_vars[(day, hour)] for day in range(7) for hour in range(hours)])
         total_agents = pl.lpSum([shift_vars[shift] for shift in shifts_list])
         
-        if profile == "100% Exacto":
+        if profile in ("100% Exacto", "Cobertura Exacta"):
             # Prohibir cualquier déficit o exceso
             prob += total_deficit * 1000000 + total_excess * 1000000 + total_agents * 1
             # Restricciones estrictas
             prob += total_deficit == 0
             prob += total_excess == 0
-        elif profile == "100% Cobertura Eficiente":
+        elif profile in ("100% Cobertura Eficiente", "Cobertura Eficiente 100"):
             # Minimizar exceso pero permitir cobertura completa
             prob += total_deficit * 100000 + total_excess * cfg["excess_penalty"] * 1000 + total_agents * 1
             prob += total_deficit == 0  # Sin déficit
             prob += total_excess <= total_demand * cfg.get("max_excess_ratio", 0.02)
-        elif profile == "100% Cobertura Total":
+        elif profile in ("100% Cobertura Total", "Cobertura Total 100"):
             # Cobertura completa sin restricciones de exceso
             prob += total_deficit * 100000 + total_excess * cfg["excess_penalty"] + total_agents * 0.1
             prob += total_deficit == 0  # Sin déficit
@@ -808,13 +808,17 @@ PROFILE_OPTIMIZERS = {
     "Máxima Cobertura": optimize_maximum_coverage,
     "Mínimo Costo": optimize_minimum_cost,
     "100% Cobertura Eficiente": optimize_perfect_coverage,
+    "Cobertura Eficiente 100": optimize_perfect_coverage,
     "100% Cobertura Total": optimize_perfect_coverage,
+    "Cobertura Total 100": optimize_perfect_coverage,
     "Cobertura Perfecta": optimize_perfect_coverage,
     "100% Exacto": optimize_perfect_coverage,
+    "Cobertura Exacta": optimize_perfect_coverage,
     "JEAN": optimize_jean_search,
     "JEAN Personalizado": optimize_jean_personalizado,
     "Personalizado": optimize_personalizado,
     "Aprendizaje Adaptativo": optimize_adaptive_learning,
+    "Adaptativo-Recomendado": optimize_adaptive_learning,
 }
 
 
