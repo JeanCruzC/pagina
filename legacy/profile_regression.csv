@@ -1,0 +1,5 @@
+profile,time_sec,total_deficit,total_excess,num_agents,tag
+100% Exacto,1.026,1,1868,128,FALLBACK_CHUNKS
+100% Cobertura Eficiente,0.981,1,1868,128,FALLBACK_CHUNKS
+100% Cobertura Total,1.011,1,1868,128,FALLBACK_CHUNKS
+JEAN,1.041,1,1868,128,FALLBACK_CHUNKS
