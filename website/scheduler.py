@@ -275,6 +275,36 @@ def generate_weekly_pattern_simple(start_hour, duration, working_days):
             pat[(d + d_off) % 7, idx] = 1
     return pat.flatten()
 
+def generate_weekly_pattern_with_break(start_hour, duration, working_days, break_len=1, break_from_start=2.0, break_from_end=2.0):
+    """Genera patrón semanal con break usando lógica original de mitad de jornada"""
+    pat = np.zeros((7, 24), dtype=np.int8)
+    for d in working_days:
+        # Llenar horas de trabajo
+        for h in range(duration):
+            t = start_hour + h
+            d_off, idx = divmod(int(t), 24)
+            pat[(d + d_off) % 7, idx] = 1
+        
+        # Calcular break con lógica original - precisión de media hora
+        slot_factor = 2  # 2 slots por hora para granularidad 30min
+        b_start = int((start_hour + break_from_start) * slot_factor)
+        b_end = int((start_hour + duration - break_from_end) * slot_factor)
+        
+        # Punto medio de la ventana de descanso
+        if b_start < b_end:
+            b_slot = b_start + (b_end - b_start) // 2
+        else:
+            b_slot = b_start
+        
+        # Marcar el descanso de break_len horas como 0s
+        for b in range(int(break_len * slot_factor)):
+            slot = b_slot + b
+            # Convertir slot de 30min a hora entera
+            hour_slot = slot // slot_factor
+            d_off, idx = divmod(hour_slot, 24)
+            pat[(d + d_off) % 7, idx] = 0
+    return pat.flatten()
+
 
 def generate_weekly_pattern_pt5(start_hour, working_days):
     # 4 días de 5h + 1 día de 4h (24h/sem)
@@ -295,16 +325,29 @@ def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break
     pat = np.zeros((7, 24), dtype=np.int8)
     for d in working_days:
         dur = 8 if d == eight_hour_day else 10
+        # Llenar horas de trabajo
         for h in range(dur):
             t = start_hour + h
             d_off, idx = divmod(int(t), 24)
             pat[(d + d_off) % 7, idx] = 1
-        bs = start_hour + break_from_start
-        be = start_hour + dur - break_from_end
-        bh = int(bs) if int(bs) >= int(be) else int(bs) + (int(be) - int(bs)) // 2
-        for b in range(int(break_len)):
-            t = bh + b
-            d_off, idx = divmod(int(t), 24)
+        
+        # Calcular break con lógica original - precisión de media hora
+        slot_factor = 2  # 2 slots por hora para granularidad 30min
+        b_start = int((start_hour + break_from_start) * slot_factor)
+        b_end = int((start_hour + dur - break_from_end) * slot_factor)
+        
+        # Punto medio de la ventana de descanso
+        if b_start < b_end:
+            b_slot = b_start + (b_end - b_start) // 2
+        else:
+            b_slot = b_start
+        
+        # Marcar el descanso de break_len horas como 0s
+        for b in range(int(break_len * slot_factor)):
+            slot = b_slot + b
+            # Convertir slot de 30min a hora entera
+            hour_slot = slot // slot_factor
+            d_off, idx = divmod(hour_slot, 24)
             pat[(d + d_off) % 7, idx] = 0
     return pat.flatten()
 
@@ -319,6 +362,58 @@ def score_pattern(pat, demand_matrix) -> int:
     pat_arr = pat_arr.astype(np.uint8)
     dm_arr = dm_arr.astype(np.uint8)
     return int(np.unpackbits(np.bitwise_and(pat_arr, dm_arr)).sum())
+
+def score_and_filter_patterns(patterns: dict, demand: np.ndarray, keep_percentage=0.3,
+                             peak_bonus=1.5, critical_bonus=2.0, efficiency_bonus=1.0):
+    """Filtrado de patrones basado en puntaje para reducir el conjunto a los más efectivos"""
+    if demand is None or not patterns:
+        return patterns
+    
+    # Calcular totales por día y hora
+    daily = demand.sum(axis=1)
+    hourly = demand.sum(axis=0)
+    
+    # 2 días con mayor demanda total
+    critical_days = set(np.argsort(daily)[-2:]) if daily.size > 1 else {int(np.argmax(daily))}
+    
+    # Horas >= P75 de demanda
+    peak_hours = set(np.where(hourly >= np.percentile(hourly[hourly > 0], 75) if np.any(hourly > 0) else 0)[0])
+    
+    scores = []
+    for name, pat in patterns.items():
+        try:
+            cov = np.array(pat).reshape(demand.shape)
+            
+            # Eficiencia: cobertura útil / horas trabajadas
+            covered = np.minimum(cov, demand).sum()
+            hours_worked = cov.sum()
+            efficiency = covered / hours_worked if hours_worked > 0 else 0
+            
+            # Cobertura en picos y críticos
+            peak_cov = cov[:, list(peak_hours)].sum() if peak_hours else 0
+            critical_cov = cov[list(critical_days), :].sum() if critical_days else 0
+            
+            # Puntaje total con bonos
+            score = covered
+            score += peak_bonus * peak_cov
+            score += critical_bonus * critical_cov
+            score += efficiency_bonus * (efficiency * covered)
+            
+            scores.append((score, name))
+        except Exception:
+            # Si hay error, asignar puntaje mínimo
+            scores.append((0, name))
+    
+    # Ordenar por puntaje descendente
+    scores.sort(reverse=True, key=lambda x: x[0])
+    
+    # Mantener top X%
+    keep_n = max(1, int(len(scores) * keep_percentage))
+    top_names = {name for _, name in scores[:keep_n]}
+    
+    print(f"[FILTER] Filtrado de patrones: {len(patterns)} -> {len(top_names)} (top {keep_percentage*100:.0f}%)")
+    
+    return {name: patterns[name] for name in top_names}
 
 
 def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
@@ -365,47 +460,82 @@ def generate_shifts_coverage_corrected(demand_matrix=None, *, cfg=None):
         batch = {}
         return tmp
 
-    # FT cada 30 minutos (0.5h)
+    # FT cada 30 minutos (0.5h) - RANGO COMPLETO 24/7
     if use_ft and allow_8h:
-        for start_h in range(8, 21):
+        for start_h in range(0, 24):  # 00:00 hasta 23:30
             for start_m in [0, 30]:  # cada 30'
                 start = start_h + start_m/60.0
                 for dso in days:
                     wd = [d for d in days if d != dso][:6]
-                    pat = generate_weekly_pattern_simple(start, 8, wd)
+                    # FT 8h con break usando lógica original
+                    pat = generate_weekly_pattern_with_break(
+                        start, 8, wd, 
+                        break_len=1,
+                        break_from_start=cfg.get("break_from_start", 2.0),
+                        break_from_end=cfg.get("break_from_end", 2.0)
+                    )
                     batch[f"FT_8H_{start:04.1f}_DSO{dso}"] = pat
                     if len(batch) >= BATCH:
                         shifts.update(flush())
 
     if use_ft and allow_10h8:
-        for start_h in range(8, 20):
+        for start_h in range(0, 23):  # 00:00 hasta 22:30 (10h caben hasta 22:30)
             for start_m in [0, 30]:  # cada 30'
                 start = start_h + start_m/60.0
                 for eight_day in LUN_VIE:
-                    pat = generate_weekly_pattern_10h8(start, LUN_VIE, eight_day)
+                    # FT 10h8 con break usando lógica original
+                    pat = generate_weekly_pattern_10h8(
+                        start, LUN_VIE, eight_day,
+                        break_len=1,
+                        break_from_start=cfg.get("break_from_start", 2.0),
+                        break_from_end=cfg.get("break_from_end", 2.0)
+                    )
                     batch[f"FT_10H8_{start:04.1f}_8D{eight_day}"] = pat
                     if len(batch) >= BATCH:
                         shifts.update(flush())
 
-    # PT cada 60 minutos (1h)
+    # PT cada 60 minutos (1h) - TODAS las combinaciones como en Streamlit original
+    from itertools import combinations
+    
+    # PT cada 60 minutos (1h) - RANGO COMPLETO 24/7
+    # PT 4h - generar combos de 4, 5 y 6 días
     if use_pt and allow_pt_4h:
-        for start in range(8, 21):
-            pat = generate_weekly_pattern_simple(start, 4, LUN_SAB)
-            batch[f"PT_4H_{start:02d}"] = pat
-            if len(batch) >= BATCH:
-                shifts.update(flush())
+        for start in range(0, 24):  # 00:00 hasta 23:00
+            for num_days in [4, 5, 6]:
+                if 4 * num_days <= 24:  # máximo 24h para PT
+                    for days_combo in combinations(LUN_SAB, num_days):
+                        pat = generate_weekly_pattern_simple(start, 4, list(days_combo))
+                        name = f"PT_4H{num_days}D_{start:02d}_{''.join(str(d) for d in days_combo)}"
+                        batch[name] = pat
+                        if len(batch) >= BATCH:
+                            shifts.update(flush())
 
+    # PT 6h - generar combos de 4 días (6h caben hasta 18:00)
     if use_pt and allow_pt_6h:
-        for start in range(8, 19):
-            pat = generate_weekly_pattern_simple(start, 6, LUN_JUE)
-            batch[f"PT_6H_{start:02d}"] = pat
-            if len(batch) >= BATCH:
-                shifts.update(flush())
+        for start in range(0, 19):  # 00:00 hasta 18:00
+            for num_days in [4]:
+                if 6 * num_days <= 24:  # máximo 24h para PT
+                    for days_combo in combinations(LUN_SAB, num_days):
+                        pat = generate_weekly_pattern_simple(start, 6, list(days_combo))
+                        name = f"PT_6H{num_days}D_{start:02d}_{''.join(str(d) for d in days_combo)}"
+                        batch[name] = pat
+                        if len(batch) >= BATCH:
+                            shifts.update(flush())
 
+    # PT 5h - patrones múltiples: 4×5h (20h), 5×5h (25h ajustado a 24h), 4×5h+1×4h (24h)
     if use_pt and allow_pt_5h:
-        for start in range(8, 20):
+        for start in range(0, 20):  # 00:00 hasta 19:00 (5h caben hasta 19:00)
+            # Patrón 1: 4 días de 5h (20h semanales)
+            for days_combo in combinations(LUN_VIE, 4):
+                pat = generate_weekly_pattern_simple(start, 5, list(days_combo))
+                name = f"PT_5H4D_{start:02d}_{''.join(str(d) for d in days_combo)}"
+                batch[name] = pat
+                if len(batch) >= BATCH:
+                    shifts.update(flush())
+            
+            # Patrón 2: 5 días híbrido 4×5h + 1×4h = 24h (patrón original)
             pat = generate_weekly_pattern_pt5(start, LUN_VIE)
-            batch[f"PT_5H_{start:02d}"] = pat
+            batch[f"PT_5H5D_{start:02d}"] = pat
             if len(batch) >= BATCH:
                 shifts.update(flush())
 
@@ -424,6 +554,10 @@ def generate_shifts_coverage_optimized(
     allow_pt_5h=True,
     allow_pt_6h=False,
     batch_size=2000,
+    keep_percentage=0.3,
+    peak_bonus=1.5,
+    critical_bonus=2.0,
+    efficiency_bonus=1.0,
 ):
     cfg = {
         "use_ft": allow_8h or allow_10h8,
@@ -434,23 +568,42 @@ def generate_shifts_coverage_optimized(
         "allow_pt_5h": allow_pt_5h,
         "allow_pt_6h": allow_pt_6h,
     }
+    
+    # Generar todos los patrones
     raw = generate_shifts_coverage_corrected(demand_matrix, cfg=cfg)
-    selected = 0
+    
+    # Eliminar duplicados
     seen = set()
-    batch = {}
+    unique_patterns = {}
     for name, pat in raw.items():
         key = hashlib.md5(pat).digest()
-        if key in seen:
-            continue
-        seen.add(key)
-        if score_pattern(pat, demand_matrix) >= quality_threshold:
-            batch[name] = pat
-            selected += 1
-            if len(batch) >= batch_size:
-                yield batch
-                batch = {}
-            if max_patterns and selected >= max_patterns:
-                break
+        if key not in seen:
+            seen.add(key)
+            if score_pattern(pat, demand_matrix) >= quality_threshold:
+                unique_patterns[name] = pat
+    
+    print(f"[GEN] Patrones únicos generados: {len(unique_patterns)}")
+    
+    # Aplicar filtrado inteligente por puntaje
+    filtered_patterns = score_and_filter_patterns(
+        unique_patterns, demand_matrix, 
+        keep_percentage=keep_percentage,
+        peak_bonus=peak_bonus,
+        critical_bonus=critical_bonus,
+        efficiency_bonus=efficiency_bonus
+    )
+    
+    # Entregar en batches
+    selected = 0
+    batch = {}
+    for name, pat in filtered_patterns.items():
+        batch[name] = pat
+        selected += 1
+        if len(batch) >= batch_size:
+            yield batch
+            batch = {}
+        if max_patterns and selected >= max_patterns:
+            break
     if batch:
         yield batch
 
@@ -1176,6 +1329,10 @@ def run_complete_optimization(
         allow_pt_4h=use_pt and cfg.get("allow_pt_4h", False),
         allow_pt_5h=use_pt and cfg.get("allow_pt_5h", False),
         allow_pt_6h=use_pt and cfg.get("allow_pt_6h", False),
+        keep_percentage=cfg.get("keep_percentage", 0.3),
+        peak_bonus=cfg.get("peak_bonus", 1.5),
+        critical_bonus=cfg.get("critical_bonus", 2.0),
+        efficiency_bonus=cfg.get("efficiency_bonus", 1.0),
     ):
         patterns.update(batch)
 
