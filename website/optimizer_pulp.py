@@ -98,12 +98,18 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
         total_excess = pl.lpSum([excess_vars[(day, hour)] for day in range(7) for hour in range(hours)])
         total_agents = pl.lpSum([shift_vars[shift] for shift in shifts_list])
         
+<<<<<<< HEAD
         # Pesos de la función objetivo
         W_def = 1000.0
         W_exc = float(cfg["excess_penalty"])
         W_agents = 0.1
         W_crit = float(cfg.get("critical_bonus", 0.0))
         W_peak = float(cfg.get("peak_bonus", 0.0))
+=======
+        # Penalizaciones por días críticos y horas pico
+        critical_penalty_value = 0
+        peak_penalty_value = 0
+>>>>>>> 7579ccf68f3995aad4d6bc86549dc11d0a49be61
         
         # Penalizaciones adicionales por días críticos y horas pico
         critical_penalty = 0
@@ -114,13 +120,18 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
             if critical_day < 7:
                 for hour in range(hours):
                     if demand_matrix[critical_day, hour] > 0:
+<<<<<<< HEAD
                         critical_penalty += deficit_vars[(critical_day, hour)] * W_crit
+=======
+                        critical_penalty_value += deficit_vars[(critical_day, hour)] * cfg["critical_bonus"]
+>>>>>>> 7579ccf68f3995aad4d6bc86549dc11d0a49be61
         
         # Horas pico - SUMA penalización (no resta)
         for hour in peak_hours:
             if hour < hours:
                 for day in range(7):
                     if demand_matrix[day, hour] > 0:
+<<<<<<< HEAD
                         peak_penalty += deficit_vars[(day, hour)] * W_peak
         
         # Función objetivo corregida
@@ -129,6 +140,16 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
                  W_agents * total_agents + 
                  critical_penalty + 
                  peak_penalty)
+=======
+                        peak_penalty_value += deficit_vars[(day, hour)] * cfg["peak_bonus"]
+        
+        # Función objetivo EXACTA del original
+        prob += (total_deficit * 1000 + 
+                 total_excess * cfg["excess_penalty"] + 
+                 total_agents * 0.1 +
+                 critical_penalty_value +
+                 peak_penalty_value)
+>>>>>>> 7579ccf68f3995aad4d6bc86549dc11d0a49be61
         
         # Restricciones de cobertura EXACTAS del original
         for day in range(7):

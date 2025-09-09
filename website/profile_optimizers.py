@@ -202,28 +202,27 @@ def optimize_maximum_coverage(shifts_coverage, demand_matrix, *, cfg=None):
                 prob += coverage + deficit_vars[(day, hour)] >= demand
                 prob += coverage - excess_vars[(day, hour)] <= demand
         
-        # Bonificaciones por cobertura en horas críticas
+        # Penalizaciones adicionales por días críticos y horas pico
         daily_totals = demand_matrix.sum(axis=1)
         hourly_totals = demand_matrix.sum(axis=0)
         critical_days = np.argsort(daily_totals)[-2:] if len(daily_totals) > 1 else [np.argmax(daily_totals)]
         peak_hours = np.where(hourly_totals >= np.percentile(hourly_totals[hourly_totals > 0], 75))[0]
-        
-        # Bonificaciones adicionales
-        critical_bonus = 0
+
+        critical_penalty = 0
         for cd in critical_days:
             if cd < 7:
                 for h in range(hours):
                     if demand_matrix[cd, h] > 0:
-                        critical_bonus -= deficit_vars[(cd, h)] * cfg["critical_bonus"] * 1000
-        
-        peak_bonus = 0
+                        critical_penalty += deficit_vars[(cd, h)] * cfg["critical_bonus"] * 1000
+
+        peak_penalty = 0
         for h in peak_hours:
             if h < hours:
                 for d in range(7):
                     if demand_matrix[d, h] > 0:
-                        peak_bonus -= deficit_vars[(d, h)] * cfg["peak_bonus"] * 1000
-        
-        prob += critical_bonus + peak_bonus
+                        peak_penalty += deficit_vars[(d, h)] * cfg["peak_bonus"] * 1000
+
+        prob += critical_penalty + peak_penalty
         
         # Límite generoso de agentes
         prob += total_agents <= int(total_demand / max(1, cfg["agent_limit_factor"] - 3))

@@ -21,9 +21,9 @@ except Exception:  # pragma: no cover
     current_app = None
 
 try:
-    from .profiles import normalize_profile
+    from .profiles import PROFILES, resolve_profile_name
 except Exception:  # pragma: no cover
-    from website.profiles import normalize_profile
+    from website.profiles import PROFILES, resolve_profile_name
 
 # === Robust import of profile optimizer selector ===
 try:
@@ -1109,13 +1109,23 @@ def run_complete_optimization(
     return_payload=False,
 ): 
     cfg = config or {}
-    # --- respeta el perfil si vino desde el front ---
-    if cfg.get("optimization_profile"):
-        pass  # ya viene bien
-    elif cfg.get("profile"):
-        cfg["optimization_profile"] = cfg["profile"]
+    requested = (
+        cfg.get("optimization_profile")
+        or cfg.get("profile")
+        or "Equilibrado (Recomendado)"
+    )
+    resolved = resolve_profile_name(requested)
+    if resolved and resolved != requested:
+        print(f"[PROFILE] Usando alias '{requested}' -> '{resolved}'")
+    profile_params = PROFILES.get(resolved)
+    if not profile_params:
+        print(
+            f"[PROFILE] ADVERTENCIA: Perfil '{requested}' no encontrado, usando configuración por defecto"
+        )
     else:
-        cfg["optimization_profile"] = "Equilibrado (Recomendado)"
+        for k, v in profile_params.items():
+            cfg.setdefault(k, v)
+    cfg["optimization_profile"] = resolved or requested
     optimization_profile = cfg.get("optimization_profile", "")
 
     # Alias para iteraciones: UI usa 'iterations', perfil usa 'search_iterations'
@@ -1227,7 +1237,7 @@ def run_complete_optimization(
         )
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
     else:
-        normalized = normalize_profile(optimization_profile or "")
+        normalized = resolve_profile_name(optimization_profile or "") or optimization_profile
         print(
             f"[SCHEDULER] Ejecutando perfil estándar con optimizador dedicado: {normalized}"
         )
