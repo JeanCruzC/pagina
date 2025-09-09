@@ -107,12 +107,13 @@ def generador():
         # Respuesta limpia si no marcó ninguna familia
         return render_template(
             "generador.html",
-            payload={"error": str(e), "config": {"optimization_profile": "—"}},
+            payload={"error": str(e), "config": {"optimization_profile": "JEAN"}},
             mode="sync",
         )
 
-    # 2) Aplica perfil (sobrescribe defaults)
+    # 2) Aplica perfil ANTES de generar patrones
     cfg = apply_profile(cfg)
+    print(f"[ROUTES] Perfil aplicado: {cfg.get('optimization_profile')}")
 
     # 3) JEAN (Personalizado): JSON del usuario domina
     profile = (cfg.get("optimization_profile") or "").lower()
@@ -130,12 +131,17 @@ def generador():
             except Exception:
                 pass
 
-    # 4) Ejecuta optimización con cfg final
+    # 4) Ejecuta optimización con cfg final (ya con perfil aplicado)
     payload = run_complete_optimization(
         xls,
         config=cfg,
         generate_charts=True,
         job_id=None,
-        return_payload=True  # <- devolvemos figuras/base64 + métricas + export
+        return_payload=True
     )
+    
+    # Log final del resultado
+    if payload and payload.get('metrics'):
+        m = payload['metrics']
+        print(f"[ROUTES] Resultado: {m.get('agents', 0)} agentes, cobertura pura {m.get('coverage_pure', 0)}%, real {m.get('coverage_real', 0)}%")
     return render_template("generador.html", payload=payload, mode="sync")

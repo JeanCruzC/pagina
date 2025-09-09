@@ -365,23 +365,29 @@ def generate_shifts_coverage_corrected(demand_matrix=None, *, cfg=None):
         batch = {}
         return tmp
 
+    # FT cada 30 minutos (0.5h)
     if use_ft and allow_8h:
-        for start in range(8, 21):
-            for dso in days:
-                wd = [d for d in days if d != dso][:6]
-                pat = generate_weekly_pattern_simple(start, 8, wd)
-                batch[f"FT_8H_{start:02d}_DSO{dso}"] = pat
-                if len(batch) >= BATCH:
-                    shifts.update(flush())
+        for start_h in range(8, 21):
+            for start_m in [0, 30]:  # cada 30'
+                start = start_h + start_m/60.0
+                for dso in days:
+                    wd = [d for d in days if d != dso][:6]
+                    pat = generate_weekly_pattern_simple(start, 8, wd)
+                    batch[f"FT_8H_{start:04.1f}_DSO{dso}"] = pat
+                    if len(batch) >= BATCH:
+                        shifts.update(flush())
 
     if use_ft and allow_10h8:
-        for start in range(8, 20):
-            for eight_day in LUN_VIE:
-                pat = generate_weekly_pattern_10h8(start, LUN_VIE, eight_day)
-                batch[f"FT_10H8_{start:02d}_8D{eight_day}"] = pat
-                if len(batch) >= BATCH:
-                    shifts.update(flush())
+        for start_h in range(8, 20):
+            for start_m in [0, 30]:  # cada 30'
+                start = start_h + start_m/60.0
+                for eight_day in LUN_VIE:
+                    pat = generate_weekly_pattern_10h8(start, LUN_VIE, eight_day)
+                    batch[f"FT_10H8_{start:04.1f}_8D{eight_day}"] = pat
+                    if len(batch) >= BATCH:
+                        shifts.update(flush())
 
+    # PT cada 60 minutos (1h)
     if use_pt and allow_pt_4h:
         for start in range(8, 21):
             pat = generate_weekly_pattern_simple(start, 4, LUN_SAB)
@@ -533,10 +539,8 @@ def optimize_with_precision_targeting(
     # --- PESOS POR HORA / DÍA ---
     daily_tot = demand_matrix.sum(axis=1)
     hourly_tot = demand_matrix.sum(axis=0)
-    crit_days = set(np.argsort(daily_tot)[-2:]) if D >= 2 else {int(np.argmax(daily_tot))}
-    pos_hours = hourly_tot[hourly_tot > 0]
-    thr = np.percentile(pos_hours, 75) if pos_hours.size else 0
-    peak_hours = set(np.where(hourly_tot >= thr)[0])
+    crit_days = set(cfg.get("critical_days", np.argsort(daily_tot)[-2:] if D >= 2 else [int(np.argmax(daily_tot))]))
+    peak_hours = set(cfg.get("peak_hours", np.where(hourly_tot >= np.percentile(hourly_tot[hourly_tot > 0], 75) if np.any(hourly_tot > 0) else 0)[0]))
 
     ex_pen = float(excess_penalty or 0.5)
     pk_bo = float(peak_bonus or 0.75)
@@ -717,63 +721,56 @@ def optimize_jean_search(
     job_id=None,
     **kwargs,
 ):
+    """Búsqueda JEAN en 2 fases: base con exceso + precisión sin exceso"""
+    import math
     cfg = {**(cfg or {}), **kwargs}
-    factor = int(cfg.get("agent_limit_factor", agent_limit_factor))
-    excess_penalty = cfg.get("excess_penalty", excess_penalty)
-    peak_bonus = cfg.get("peak_bonus", peak_bonus)
-    critical_bonus = cfg.get("critical_bonus", critical_bonus)
-    TIME_SOLVER = iteration_time_limit if iteration_time_limit is not None else cfg.get(
-        "solver_time", 120
+    
+    print("[JEAN] Iniciando búsqueda JEAN de 2 fases")
+    
+    # 1) SOLVE BASE: con exceso permitido (para tener un piso)
+    print("[JEAN] Fase 1: Solución base con exceso permitido")
+    base_assignments, _ = optimize_with_precision_targeting(
+        shifts_coverage, demand_matrix, cfg=cfg
     )
-    MAX_ITERS = int(
-        cfg.get("search_iterations", cfg.get("iterations", max_iterations))
-    )
-
-    best_assignments = {}
+    
+    # 2) SOLVE PRECISIÓN: prohíbe exceso y barre caps de agentes
+    total_demand = float(demand_matrix.sum())
+    hours_per_agent = float(cfg.get("hours_per_agent_effective", 29.6))
+    base_agents_est = max(1, int(math.ceil(total_demand / hours_per_agent)))
+    
+    print(f"[JEAN] Fase 2: Búsqueda sin exceso - Estimación base: {base_agents_est} agentes")
+    
+    best_assignments = base_assignments
     best_score = float("inf")
-    iteration = 0
-    iters_log = []
-    while iteration < MAX_ITERS and factor >= 1:
-        assignments, _ = optimize_with_precision_targeting(
-            shifts_coverage,
-            demand_matrix,
-            agent_limit_factor=factor,
-            excess_penalty=excess_penalty,
-            peak_bonus=peak_bonus,
-            critical_bonus=critical_bonus,
-            TIME_SOLVER=TIME_SOLVER,
+    
+    # Factores exactos del Streamlit original
+    for factor in [30, 27, 24]:
+        cap = max(1, int(round(base_agents_est * factor / 100.0)))
+        print(f"[JEAN] Iteración: factor {factor}%, cap agentes {cap}")
+        
+        # Configuración temporal sin exceso
+        temp_cfg = cfg.copy()
+        temp_cfg["allow_excess"] = False
+        temp_cfg["allow_deficit"] = True
+        temp_cfg["agent_cap"] = cap
+        
+        trial_assignments, _ = optimize_with_precision_targeting(
+            shifts_coverage, demand_matrix, cfg=temp_cfg
         )
-        results = analyze_results(assignments, shifts_coverage, demand_matrix)
-        score = (
-            (results["overstaffing"] + results["understaffing"]) if results else float("inf")
-        )
-        cov = results["coverage_percentage"] if results else 0.0
-        iters_log.append(
-            {
-                "iter": iteration + 1,
-                "factor": factor,
-                "coverage": cov,
-                "score": score,
-                "over": results.get("overstaffing", 0) if results else 0,
-                "under": results.get("understaffing", 0) if results else 0,
-            }
-        )
-        print(
-            f"[JEAN] iter={iteration+1} factor={factor} cov={cov:.1f}% score={score:.2f}"
-        )
-        if results:
-            if score < best_score or not best_assignments:
-                best_score = score
-                best_assignments = assignments
-        iteration += 1
-        factor = max(1, factor // (2 if iteration == 1 else 1))
-    best_assignments = {
-        k: v for k, v in (best_assignments or {}).items() if _is_allowed_pid(k, cfg)
-    }
-    try:
-        current_app.config["JEAN_LAST_ITERS"] = iters_log
-    except Exception:
-        pass
+        
+        if trial_assignments:
+            results = analyze_results(trial_assignments, shifts_coverage, demand_matrix)
+            if results:
+                score = results["overstaffing"] + results["understaffing"]
+                cov = results["coverage_percentage"]
+                
+                print(f"[JEAN] Factor {factor}: cobertura {cov:.1f}%, score {score:.1f}")
+                
+                if score < best_score:
+                    best_assignments = trial_assignments
+                    best_score = score
+                    print(f"[JEAN] Nueva mejor solución: score {score:.1f}")
+    
     return best_assignments, "JEAN"
 
 
@@ -1041,13 +1038,13 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
     diff = cov - dem
 
     total_dem = int(dem.sum())
-    pure_cov_units = int(cov.sum())
-    real_cov_units = int(np.minimum(cov, dem).sum())
+    real_cov_units = int(cov.sum())  # total cobertura (puede >100%)
+    pure_cov_units = int(np.minimum(cov, dem).sum())  # cobertura efectiva (<=100%)
     excess  = int(np.clip(cov - dem, 0, None).sum())
     deficit = int(np.clip(dem - cov, 0, None).sum())
 
-    coverage_pure = (pure_cov_units / total_dem * 100.0) if total_dem > 0 else 0.0   # puede >100
-    coverage_real = (real_cov_units / total_dem * 100.0) if total_dem > 0 else 0.0   # <=100
+    coverage_pure = (pure_cov_units / total_dem * 100.0) if total_dem > 0 else 0.0   # <=100
+    coverage_real = (real_cov_units / total_dem * 100.0) if total_dem > 0 else 0.0   # puede >100
 
     ft = sum(c for p, c in counts.items() if str(p).upper().startswith("FT"))
     pt = sum(c for p, c in counts.items() if str(p).upper().startswith("PT"))

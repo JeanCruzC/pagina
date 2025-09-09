@@ -93,35 +93,42 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
         peak_threshold = np.percentile(hourly_totals[hourly_totals > 0], 75) if np.any(hourly_totals > 0) else 0
         peak_hours = np.where(hourly_totals >= peak_threshold)[0]
         
-        # Función objetivo EXACTA del original
+        # Función objetivo corregida - penaliza MÁS el déficit en picos y días críticos
         total_deficit = pl.lpSum([deficit_vars[(day, hour)] for day in range(7) for hour in range(hours)])
         total_excess = pl.lpSum([excess_vars[(day, hour)] for day in range(7) for hour in range(hours)])
         total_agents = pl.lpSum([shift_vars[shift] for shift in shifts_list])
         
-        # Bonificaciones por días críticos y horas pico EXACTAS del original
-        critical_bonus_value = 0
-        peak_bonus_value = 0
+        # Pesos de la función objetivo
+        W_def = 1000.0
+        W_exc = float(cfg["excess_penalty"])
+        W_agents = 0.1
+        W_crit = float(cfg.get("critical_bonus", 0.0))
+        W_peak = float(cfg.get("peak_bonus", 0.0))
         
-        # Días críticos
+        # Penalizaciones adicionales por días críticos y horas pico
+        critical_penalty = 0
+        peak_penalty = 0
+        
+        # Días críticos - SUMA penalización (no resta)
         for critical_day in critical_days:
             if critical_day < 7:
                 for hour in range(hours):
                     if demand_matrix[critical_day, hour] > 0:
-                        critical_bonus_value -= deficit_vars[(critical_day, hour)] * cfg["critical_bonus"]
+                        critical_penalty += deficit_vars[(critical_day, hour)] * W_crit
         
-        # Horas pico
+        # Horas pico - SUMA penalización (no resta)
         for hour in peak_hours:
             if hour < hours:
                 for day in range(7):
                     if demand_matrix[day, hour] > 0:
-                        peak_bonus_value -= deficit_vars[(day, hour)] * cfg["peak_bonus"]
+                        peak_penalty += deficit_vars[(day, hour)] * W_peak
         
-        # Función objetivo EXACTA del original
-        prob += (total_deficit * 1000 + 
-                 total_excess * cfg["excess_penalty"] + 
-                 total_agents * 0.1 + 
-                 critical_bonus_value + 
-                 peak_bonus_value)
+        # Función objetivo corregida
+        prob += (W_def * total_deficit + 
+                 W_exc * total_excess + 
+                 W_agents * total_agents + 
+                 critical_penalty + 
+                 peak_penalty)
         
         # Restricciones de cobertura EXACTAS del original
         for day in range(7):
