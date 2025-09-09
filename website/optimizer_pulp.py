@@ -98,30 +98,30 @@ def optimize_with_pulp(shifts_coverage, demand_matrix, *, cfg=None, job_id=None)
         total_excess = pl.lpSum([excess_vars[(day, hour)] for day in range(7) for hour in range(hours)])
         total_agents = pl.lpSum([shift_vars[shift] for shift in shifts_list])
         
-        # Bonificaciones por días críticos y horas pico EXACTAS del original
-        critical_bonus_value = 0
-        peak_bonus_value = 0
+        # Penalizaciones por días críticos y horas pico
+        critical_penalty_value = 0
+        peak_penalty_value = 0
         
         # Días críticos
         for critical_day in critical_days:
             if critical_day < 7:
                 for hour in range(hours):
                     if demand_matrix[critical_day, hour] > 0:
-                        critical_bonus_value -= deficit_vars[(critical_day, hour)] * cfg["critical_bonus"]
+                        critical_penalty_value += deficit_vars[(critical_day, hour)] * cfg["critical_bonus"]
         
         # Horas pico
         for hour in peak_hours:
             if hour < hours:
                 for day in range(7):
                     if demand_matrix[day, hour] > 0:
-                        peak_bonus_value -= deficit_vars[(day, hour)] * cfg["peak_bonus"]
+                        peak_penalty_value += deficit_vars[(day, hour)] * cfg["peak_bonus"]
         
         # Función objetivo EXACTA del original
         prob += (total_deficit * 1000 + 
                  total_excess * cfg["excess_penalty"] + 
-                 total_agents * 0.1 + 
-                 critical_bonus_value + 
-                 peak_bonus_value)
+                 total_agents * 0.1 +
+                 critical_penalty_value +
+                 peak_penalty_value)
         
         # Restricciones de cobertura EXACTAS del original
         for day in range(7):

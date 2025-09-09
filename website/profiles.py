@@ -107,8 +107,10 @@ def apply_profile(cfg=None):
     cfg = merge_config(cfg)
 
     # 2) Aplicar perfil seleccionado
-    profile_name = cfg.get("optimization_profile") or "Equilibrado (Recomendado)"
-    profile_name = normalize_profile(profile_name)
+    requested = cfg.get("optimization_profile") or "Equilibrado (Recomendado)"
+    profile_name = resolve_profile_name(requested) or requested
+    if profile_name != requested:
+        print(f"[PROFILE] Usando alias '{requested}' -> '{profile_name}'")
     print(f"[PROFILE] Aplicando perfil: {profile_name}")
     params = PROFILES.get(profile_name, {})
 
@@ -143,12 +145,19 @@ def apply_profile(cfg=None):
 
 # --- ALIASES para nombres de UI ---
 ALIASES = {
-    "100% Exacto": "Cobertura Exacta",
-    "100% Cobertura Eficiente": "Cobertura Eficiente 100",
-    "100% Cobertura Total": "Cobertura Total 100",
-    "Aprendizaje Adaptativo": "Adaptativo-Recomendado",
+    "100% Exacto": "Máxima Cobertura",
+    "100% Cobertura Eficiente": "Máxima Cobertura",
+    "Cobertura Perfecta": "Máxima Cobertura",
 }
 
 
+def resolve_profile_name(name: str) -> str:
+    if not name:
+        return None
+    if name in PROFILES:
+        return name
+    return ALIASES.get(name)
+
+
 def normalize_profile(name: str) -> str:
-    return ALIASES.get(name, name)
+    return resolve_profile_name(name) or name

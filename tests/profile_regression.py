@@ -53,7 +53,7 @@ def run_for_profile(profile, demand_matrix, shifts_coverage):
 if __name__ == "__main__":
     dm, sc = make_demand_matrix_from_legacy()
     results = []
-    for p in ["100% Exacto", "100% Cobertura Eficiente", "100% Cobertura Total", "JEAN"]:
+    for p in ["100% Exacto", "100% Cobertura Eficiente", "Cobertura Perfecta", "JEAN"]:
         results.append(run_for_profile(p, dm, sc))
     import csv
     with open(f"{LEGACY_DIR}/profile_regression.csv", "w", newline="", encoding="utf-8") as f:
