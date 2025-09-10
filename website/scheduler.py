@@ -1034,25 +1034,32 @@ def optimize_jean_search(
             shifts_coverage, demand_matrix, **base_cfg
         )
     
-    # 2) FASE PRECISIÓN: caps progresivos sin exceso
+    # 2) FASE PRECISIÓN: caps progresivos con exceso controlado
     total_demand = float(demand_matrix.sum())
-    hours_per_agent = 29.6  # Exacto del original
-    base_agents_est = max(1, int(math.ceil(total_demand / hours_per_agent)))
+    peak_demand = float(demand_matrix.max())
     
-    print(f"[JEAN] Fase 2: Búsqueda sin exceso - Estimación base: {base_agents_est} agentes")
+    print(f"[JEAN] Fase 2: Búsqueda con exceso controlado")
     
+    # Inicializar con solución base
     best_assignments = base_assignments
     best_score = float("inf")
     best_coverage = 0
     
-    # Factores exactos del original: 30%, 27%, 24%
+    if base_assignments:
+        base_results = analyze_results(base_assignments, shifts_coverage, demand_matrix)
+        if base_results:
+            best_score = base_results["overstaffing"] + base_results["understaffing"]
+            best_coverage = base_results["coverage_percentage"]
+            print(f"[JEAN] Solución base: cobertura {best_coverage:.1f}%, score {best_score:.1f}")
+    
+    # Factores exactos del original: 30, 27, 24 como divisores
     for factor in [30, 27, 24]:
-        agent_cap = max(1, int(round(base_agents_est * factor / 100.0)))
-        print(f"[JEAN] Iteración: factor {factor}%, cap agentes {agent_cap}")
+        agent_cap = max(1, int(total_demand / factor), int(peak_demand * 1.1))
+        print(f"[JEAN] Iteración: factor {factor}, cap agentes {agent_cap}")
         
-        # Configuración sin exceso
+        # Configuración con exceso controlado (no prohibido)
         temp_cfg = cfg.copy()
-        temp_cfg["allow_excess"] = False
+        temp_cfg["allow_excess"] = True  # Permitir exceso pero penalizado
         temp_cfg["allow_deficit"] = True
         temp_cfg["agent_cap"] = agent_cap
         temp_cfg["agent_limit_factor"] = max(5, agent_limit_factor // 2)
@@ -1090,8 +1097,8 @@ def optimize_jean_search(
                         best_score = score
                         best_coverage = cov
                         print(f"[JEAN] Nueva mejor solución: score {score:.1f}")
-                elif cov > best_coverage:
-                    # Si no alcanza target pero es mejor cobertura
+                elif cov > best_coverage and best_coverage < target_coverage:
+                    # Solo actualizar si no hemos alcanzado el target aún
                     best_assignments = trial_assignments
                     best_score = score
                     best_coverage = cov
