@@ -363,18 +363,18 @@ def score_pattern(pat, demand_matrix) -> int:
 
 def score_and_filter_patterns(patterns: dict, demand: np.ndarray, keep_percentage=0.3,
                              peak_bonus=1.5, critical_bonus=2.0, efficiency_bonus=1.0):
-    """Filtrado de patrones basado en puntaje para reducir el conjunto a los más efectivos"""
+    """Pattern scoring with exact APP1 logic - efficiency as additive bonus"""
     if demand is None or not patterns:
         return patterns
     
-    # Calcular totales por día y hora
+    # Calculate totals by day and hour
     daily = demand.sum(axis=1)
     hourly = demand.sum(axis=0)
     
-    # 2 días con mayor demanda total
+    # 2 days with highest total demand
     critical_days = set(np.argsort(daily)[-2:]) if daily.size > 1 else {int(np.argmax(daily))}
     
-    # Horas >= P75 de demanda
+    # Hours >= P75 of demand
     peak_hours = set(np.where(hourly >= np.percentile(hourly[hourly > 0], 75) if np.any(hourly > 0) else 0)[0])
     
     scores = []
@@ -382,28 +382,37 @@ def score_and_filter_patterns(patterns: dict, demand: np.ndarray, keep_percentag
         try:
             pat_mat = np.array(pat).reshape(demand.shape)
             coverage = np.minimum(pat_mat, demand)
+            
+            # Base score: coverage sum
             score = coverage.sum()
+            
+            # Peak hours bonus (multiplicative)
+            if peak_hours:
+                score += coverage[:, list(peak_hours)].sum() * peak_bonus
+            
+            # Critical days bonus (multiplicative)
+            if critical_days:
+                score += coverage[list(critical_days), :].sum() * critical_bonus
+            
+            # Efficiency bonus (additive, not multiplicative like before)
             total_hours = pat_mat.sum()
             if total_hours > 0:
                 efficiency = coverage.sum() / total_hours
-                score += efficiency * efficiency_bonus
-            if peak_hours:
-                score += coverage[:, list(peak_hours)].sum() * peak_bonus
-            if critical_days:
-                score += coverage[list(critical_days), :].sum() * critical_bonus
+                score = score + efficiency * efficiency_bonus  # Additive like APP1
+            
             scores.append((score, name))
         except Exception:
-            # Si hay error, asignar puntaje mínimo
+            # If error, assign minimum score
             scores.append((0, name))
     
-    # Ordenar por puntaje descendente
+    # Sort by score descending
     scores.sort(reverse=True, key=lambda x: x[0])
     
-    # Mantener top X%
+    # Keep top X%
     keep_n = max(1, int(len(scores) * keep_percentage))
     top_names = {name for _, name in scores[:keep_n]}
     
-    print(f"[FILTER] Filtrado de patrones: {len(patterns)} -> {len(top_names)} (top {keep_percentage*100:.0f}%)")
+    print(f"[FILTER] Pattern filtering: {len(patterns)} -> {len(top_names)} (top {keep_percentage*100:.0f}%)")
     
     return {name: patterns[name] for name in top_names}
 
@@ -433,12 +442,13 @@ def generate_shifts_coverage_corrected(demand_matrix=None, *, cfg=None):
     demand = demand_matrix if demand_matrix is not None else np.zeros((7,24))
     active_days = [d for d in range(7) if demand[d].sum() > 0]
     
-    # Determine first and last hour with demand
+    # Determine first and last hour with demand - use full range without 6-20 restriction
     nonzero_hours = np.where(demand.sum(axis=0) > 0)[0]
     first_hour = int(nonzero_hours[0]) if len(nonzero_hours) > 0 else 0
     last_hour = int(nonzero_hours[-1] + 1) if len(nonzero_hours) > 0 else 24
-    start_h_min = max(6, first_hour)
-    start_h_max = min(last_hour - 2, 20)
+    # Allow starts from first hour with demand to last (no 6-20 clipping)
+    start_h_min = first_hour 
+    start_h_max = last_hour 
     base_start_hours = np.arange(start_h_min, start_h_max, 0.5)
     
     use_ft = cfg.get("use_ft", True)
@@ -460,19 +470,28 @@ def generate_shifts_coverage_corrected(demand_matrix=None, *, cfg=None):
             return True
         return False
 
-    # FT 8H: patterns of 6 working days + 1 day off, including multiple break positions
-    if use_ft and allow_8h and len(active_days) >= 6:
-        for start in base_start_hours:  # every 30 minutes between start_h_min and start_h_max
-            # Generate all 6-day work combinations (one day off)
-            for dso in active_days + ([None] if len(active_days) == 6 else []):
-                wd = [d for d in active_days if d != dso][:6]
-                if len(wd) >= 6:
-                    break_options = get_valid_break_times(start, 8, cfg)
-                    for brk in break_options:
-                        pattern = generate_weekly_pattern_with_break(start, 8, wd, dso, brk)
-                        dso_suffix = f"_DSO{dso}" if dso is not None else ""
-                        shift_name = f"FT8_{start:04.1f}_DAYS{''.join(map(str, wd))}_BRK{brk:04.1f}{dso_suffix}"
-                        add_pattern(shift_name, pattern)
+    # FT 8H: Generate patterns for all active days (even if < 6)
+    if use_ft and allow_8h and active_days:
+        for start in base_start_hours:  # every 30 minutes across full demand range
+            if len(active_days) >= 6:
+                # Generate all 6-day work combinations (one day off)
+                for dso in active_days + ([None] if len(active_days) == 6 else []):
+                    wd = [d for d in active_days if d != dso][:6]
+                    if len(wd) >= 6:
+                        break_options = get_valid_break_times(start, 8, cfg)
+                        for brk in break_options:
+                            pattern = generate_weekly_pattern_with_break(start, 8, wd, dso, brk)
+                            dso_suffix = f"_DSO{dso}" if dso is not None else ""
+                            shift_name = f"FT8_{start:04.1f}_DAYS{''.join(map(str, wd))}_BRK{brk:04.1f}{dso_suffix}"
+                            add_pattern(shift_name, pattern)
+            else:
+                # Generate pattern working ALL days with demand (<=5 days)
+                wd = list(active_days)  # use all active days
+                break_options = get_valid_break_times(start, 8, cfg)
+                for brk in break_options:
+                    pattern = generate_weekly_pattern_with_break(start, 8, wd, None, brk)
+                    shift_name = f"FT8_{start:04.1f}_DAYS{''.join(map(str, wd))}_BRK{brk:04.1f}"
+                    add_pattern(shift_name, pattern)
 
     # FT 10H8: 5 working days, 4 days of 10h + 1 day of 8h (48h/week), with break
     if use_ft and allow_10h8 and len(active_days) >= 5:
@@ -547,17 +566,20 @@ def load_shift_patterns(template_cfg, demand_matrix=None, *, max_patterns=None, 
             return True
         return False
     
-    # Generar horas de inicio según granularidad
+    # Generate start hours according to granularity
     slot_factor = 60 / slot_duration_minutes
     if smart_start_hours and demand_matrix is not None:
-        # Priorizar horas con alta demanda
+        # Prioritize hours with high demand
         hourly_demand = demand_matrix.sum(axis=0)
         peak_hours = np.where(hourly_demand >= np.percentile(hourly_demand[hourly_demand > 0], 60))[0]
         start_hours = [h + m/60.0 for h in peak_hours for m in range(0, 60, int(slot_duration_minutes))]
-        start_hours = [h for h in start_hours if 8 <= h <= 20]  # Limitar rango operativo
+        # No operational range limit - allow all hours with demand
     else:
-        # Horas estándar cada slot_duration_minutes
-        start_hours = [h + m/60.0 for h in range(8, 21) for m in range(0, 60, int(slot_duration_minutes))]
+        # Standard hours every slot_duration_minutes - use full demand range
+        nonzero_hours = np.where(demand_matrix.sum(axis=0) > 0)[0] if demand_matrix is not None else range(24)
+        first_hour = int(nonzero_hours[0]) if len(nonzero_hours) > 0 else 0
+        last_hour = int(nonzero_hours[-1] + 1) if len(nonzero_hours) > 0 else 24
+        start_hours = [h + m/60.0 for h in range(first_hour, last_hour) for m in range(0, 60, int(slot_duration_minutes))]
     
     for shift_def in shifts:
         shift_name = shift_def.get("name", "CUSTOM")
@@ -630,7 +652,7 @@ def load_shift_patterns(template_cfg, demand_matrix=None, *, max_patterns=None, 
                         if add_pattern(name, pat):
                             pattern_count += 1
                     except Exception as e:
-                        print(f"[CUSTOM] Error generando patrón {shift_name}: {e}")
+                        print(f"[CUSTOM] Error generating pattern {shift_name}: {e}")
                         continue
                 
                 if max_patterns and pattern_count >= max_patterns:
@@ -638,9 +660,9 @@ def load_shift_patterns(template_cfg, demand_matrix=None, *, max_patterns=None, 
             if max_patterns and pattern_count >= max_patterns:
                 break
     
-    print(f"[CUSTOM] Patrones personalizados generados: {len(patterns)}")
+    print(f"[CUSTOM] Custom patterns generated: {len(patterns)}")
     
-    # Aplicar filtrado por score si se especifica
+    # Apply score filtering if specified
     if keep_percentage < 1.0 and demand_matrix is not None:
         patterns = score_and_filter_patterns(
             patterns, demand_matrix, keep_percentage=keep_percentage
@@ -650,19 +672,19 @@ def load_shift_patterns(template_cfg, demand_matrix=None, *, max_patterns=None, 
 
 
 def get_smart_start_hours(demand_matrix, slot_duration_minutes=60):
-    """Obtiene horas de inicio inteligentes basadas en demanda"""
+    """Get smart start hours based on demand - no 8-20 restriction like APP1"""
     hourly_demand = demand_matrix.sum(axis=0)
-    # Horas con demanda >= percentil 60
+    # Hours with demand >= percentile 60
     threshold = np.percentile(hourly_demand[hourly_demand > 0], 60) if np.any(hourly_demand > 0) else 0
     peak_hours = np.where(hourly_demand >= threshold)[0]
     
-    # Generar slots cada slot_duration_minutes
+    # Generate slots every slot_duration_minutes
     start_hours = []
     for h in peak_hours:
         for m in range(0, 60, int(slot_duration_minutes)):
             start_hour = h + m/60.0
-            if 8 <= start_hour <= 20:  # Rango operativo
-                start_hours.append(start_hour)
+            # No operational range restriction - allow night/early morning shifts
+            start_hours.append(start_hour)
     
     return sorted(set(start_hours))
 
@@ -764,6 +786,122 @@ def emergency_cleanup(threshold: float = 85.0) -> bool:
         gc.collect()
         return True
     return False
+
+
+def save_execution_result(demand_matrix, cfg, coverage_percentage, total_agents, execution_time, overstaffing=0, understaffing=0):
+    """Save execution results for adaptive learning."""
+    import json
+    import os
+    from datetime import datetime
+    
+    # Create data directory if it doesn't exist
+    data_dir = "data"
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+    
+    history_file = os.path.join(data_dir, "adaptive_history.json")
+    
+    # Load existing history
+    history = []
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, 'r', encoding='utf-8') as f:
+                history = json.load(f)
+        except Exception:
+            history = []
+    
+    # Create new result entry
+    result = {
+        "timestamp": datetime.now().isoformat(),
+        "demand_total": int(demand_matrix.sum()),
+        "demand_peak": int(demand_matrix.max()),
+        "agent_limit_factor": cfg.get("agent_limit_factor", 30),
+        "excess_penalty": cfg.get("excess_penalty", 0.5),
+        "peak_bonus": cfg.get("peak_bonus", 0.75),
+        "critical_bonus": cfg.get("critical_bonus", 1.0),
+        "coverage_percentage": coverage_percentage,
+        "total_agents": total_agents,
+        "execution_time": execution_time,
+        "overstaffing": overstaffing,
+        "understaffing": understaffing,
+        "score": overstaffing + understaffing
+    }
+    
+    # Add to history (keep last 50 results)
+    history.append(result)
+    history = history[-50:]
+    
+    # Save updated history
+    try:
+        with open(history_file, 'w', encoding='utf-8') as f:
+            json.dump(history, f, indent=2, ensure_ascii=False)
+        print(f"[ADAPTIVE] Result saved: coverage {coverage_percentage:.1f}%, agents {total_agents}")
+    except Exception as e:
+        print(f"[ADAPTIVE] Error saving result: {e}")
+
+
+def get_adaptive_params(demand_matrix):
+    """Get adaptive parameters based on execution history."""
+    import json
+    import os
+    
+    history_file = os.path.join("data", "adaptive_history.json")
+    
+    # Default parameters
+    default_params = {
+        "agent_limit_factor": 25,
+        "excess_penalty": 2.0,
+        "peak_bonus": 1.5,
+        "critical_bonus": 2.0
+    }
+    
+    if not os.path.exists(history_file):
+        print("[ADAPTIVE] No previous history, using default parameters")
+        return default_params
+    
+    try:
+        with open(history_file, 'r', encoding='utf-8') as f:
+            history = json.load(f)
+    except Exception:
+        print("[ADAPTIVE] Error reading history, using default parameters")
+        return default_params
+    
+    if not history:
+        return default_params
+    
+    # Find similar demand patterns (±20% total demand)
+    current_total = demand_matrix.sum()
+    current_peak = demand_matrix.max()
+    
+    similar_results = []
+    for result in history:
+        demand_diff = abs(result["demand_total"] - current_total) / max(current_total, 1)
+        peak_diff = abs(result["demand_peak"] - current_peak) / max(current_peak, 1)
+        
+        if demand_diff <= 0.2 and peak_diff <= 0.3:  # Similar patterns
+            similar_results.append(result)
+    
+    if not similar_results:
+        # Use best overall results
+        similar_results = sorted(history, key=lambda x: x["score"])[:5]
+    
+    if not similar_results:
+        return default_params
+    
+    # Find best performing parameters
+    best_result = min(similar_results, key=lambda x: x["score"])
+    
+    adaptive_params = {
+        "agent_limit_factor": best_result["agent_limit_factor"],
+        "excess_penalty": best_result["excess_penalty"],
+        "peak_bonus": best_result["peak_bonus"],
+        "critical_bonus": best_result["critical_bonus"]
+    }
+    
+    print(f"[ADAPTIVE] Adaptive parameters based on {len(similar_results)} similar results")
+    print(f"[ADAPTIVE] Factor: {adaptive_params['agent_limit_factor']}, Excess: {adaptive_params['excess_penalty']:.1f}")
+    
+    return adaptive_params
 
 
 def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, **kwargs):
@@ -889,11 +1027,12 @@ def optimize_with_precision_targeting(
         for h in range(H)
     }
 
-    # --- PESOS POR HORA / DÍA ---
+    # --- DYNAMIC WEIGHTS BY HOUR/DAY (from actual demand, not config) ---
     daily_tot = demand_matrix.sum(axis=1)
     hourly_tot = demand_matrix.sum(axis=0)
-    crit_days = set(cfg.get("critical_days", np.argsort(daily_tot)[-2:] if D >= 2 else [int(np.argmax(daily_tot))]))
-    peak_hours = set(cfg.get("peak_hours", np.where(hourly_tot >= np.percentile(hourly_tot[hourly_tot > 0], 75) if np.any(hourly_tot > 0) else 0)[0]))
+    # Identify critical day and peak hour from actual demand
+    critical_day = int(np.argmax(daily_tot)) 
+    peak_hour = int(np.argmax(hourly_tot))
 
     ex_pen = float(excess_penalty or 0.5)
     pk_bo = float(peak_bonus or 0.75)
@@ -906,10 +1045,11 @@ def optimize_with_precision_targeting(
     w_def, w_exc = {}, {}
     for d in range(D):
         for h in range(H):
+            # Increase deficit weight on critical day and peak hour
             w_d = W_DEF_BASE
-            if d in crit_days:
-                w_d *= (1.0 + cr_bo)
-            if h in peak_hours:
+            if d == critical_day: 
+                w_d *= (1.0 + cr_bo) 
+            if h == peak_hour: 
                 w_d *= (1.0 + pk_bo)
 
             if demand_matrix[d, h] <= 0:
@@ -1712,9 +1852,9 @@ def run_complete_optimization(
                 f.write(json_text if isinstance(json_text, str) else _json.dumps(json_text, ensure_ascii=False))
             cfg["custom_shifts"] = True
             cfg["shift_config_file"] = path
-            print(f"[CONFIG] JEAN Personalizado: shifts personalizados habilitados -> {path}")
+            print(f"[CONFIG] JEAN Personalizado: custom shifts enabled -> {path}")
         else:
-            print("[CONFIG] JEAN Personalizado: usando lógica JEAN estándar (sin JSON personalizado)")
+            print("[CONFIG] JEAN Personalizado: using standard JEAN logic (no custom JSON)")
 
     df = pd.read_excel(file_stream)
     demand_matrix = load_demand_matrix_from_df(df)
@@ -1742,9 +1882,9 @@ def run_complete_optimization(
                 smart_start_hours=cfg.get("smart_start_hours", False),
                 cfg=cfg
             )
-            print(f"[CUSTOM] Cargadas {len(patterns)} plantillas personalizadas")
+            print(f"[CUSTOM] Loaded {len(patterns)} custom templates")
         except Exception as e:
-            print(f"[CUSTOM] Error cargando plantillas: {e} -> usando patrones estándar")
+            print(f"[CUSTOM] Error loading templates: {e} -> using standard patterns")
             use_custom_templates = False
     
     if not use_custom_templates:
@@ -1773,7 +1913,7 @@ def run_complete_optimization(
                 demand_matrix,
                 cfg,
                 analysis=analysis,
-                reason="Sin patrones: revisa contratos/turnos permitidos.",
+                reason="No patterns: check enabled contracts/shifts.",
             )
         return {"assignments": {}}
 
@@ -1784,8 +1924,12 @@ def run_complete_optimization(
     critical_bonus = cfg.get("critical_bonus", 0)
 
     if optimization_profile in ("JEAN", "JEAN Personalizado"):
-        # Aplicar parámetros JEAN antes de optimizar
+        # Apply JEAN profile parameters before optimizing
         cfg = apply_profile(cfg)
+        
+        # Ensure JEAN uses correct default agent_limit_factor (25, not 30)
+        if cfg.get("agent_limit_factor") is None or cfg.get("agent_limit_factor") == 30:
+            cfg["agent_limit_factor"] = 25
         
         if optimization_profile == "JEAN Personalizado":
             try:
@@ -1796,19 +1940,19 @@ def run_complete_optimization(
                     cfg=cfg,
                 )
             except ImportError:
-                # Fallback a JEAN estándar si no hay profile_optimizers
+                # Fallback to standard JEAN if no profile_optimizers
                 assignments, pulp_status = optimize_jean_search(
                     patterns,
                     demand_matrix,
                     target_coverage=TARGET_COVERAGE,
-                    agent_limit_factor=cfg.get("agent_limit_factor", 30),
+                    agent_limit_factor=cfg.get("agent_limit_factor", 25),
                     excess_penalty=cfg.get("excess_penalty", 5.0),
                     peak_bonus=cfg.get("peak_bonus", 2.0),
                     critical_bonus=cfg.get("critical_bonus", 2.5),
                     cfg=cfg
                 )
         else:
-            # JEAN estándar con parámetros del perfil
+            # Standard JEAN with profile parameters
             assignments, pulp_status = optimize_jean_search(
                 patterns,
                 demand_matrix,
@@ -1823,21 +1967,60 @@ def run_complete_optimization(
             )
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
     elif optimization_profile == "Aprendizaje Adaptativo":
-        from .profile_optimizers import optimize_adaptive_learning
-        assignments, pulp_status = optimize_adaptive_learning(
-            patterns,
-            demand_matrix,
-            cfg=cfg,
-        )
+        # Get adaptive parameters from history
+        adaptive_params = get_adaptive_params(demand_matrix)
+        
+        # Update config with adaptive parameters
+        temp_cfg = cfg.copy()
+        temp_cfg.update(adaptive_params)
+        
+        start_time = time.time()
+        
+        try:
+            from .profile_optimizers import optimize_adaptive_learning
+            assignments, pulp_status = optimize_adaptive_learning(
+                patterns,
+                demand_matrix,
+                cfg=temp_cfg,
+            )
+        except ImportError:
+            # Fallback to JEAN search with adaptive parameters
+            assignments, pulp_status = optimize_jean_search(
+                patterns,
+                demand_matrix,
+                target_coverage=TARGET_COVERAGE,
+                agent_limit_factor=adaptive_params["agent_limit_factor"],
+                excess_penalty=adaptive_params["excess_penalty"],
+                peak_bonus=adaptive_params["peak_bonus"],
+                critical_bonus=adaptive_params["critical_bonus"],
+                cfg=temp_cfg
+            )
+        
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
+        
+        # Save execution result for future learning
+        if assignments:
+            results = analyze_results(assignments, patterns, demand_matrix)
+            if results:
+                execution_time = time.time() - start_time
+                save_execution_result(
+                    demand_matrix, 
+                    temp_cfg, 
+                    results["coverage_percentage"], 
+                    results["total_agents"],
+                    execution_time,
+                    results["overstaffing"],
+                    results["understaffing"]
+                )
     elif use_ft and use_pt and optimization_profile not in ("JEAN", "JEAN Personalizado", "Aprendizaje Adaptativo"):
-        # Default to two-phase optimization for combined FT/PT (Equilibrado)
+        # Unified profiles: apply same toggles and configuration as original Streamlit
+        # Always enable two-phase strategy (ft_first_pt_last) for combined FT/PT profiles
         assignments, pulp_status = optimize_ft_then_pt_strategy(patterns, demand_matrix, cfg=cfg)
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
     else:
         normalized = resolve_profile_name(optimization_profile or "") or optimization_profile
         print(
-            f"[SCHEDULER] Ejecutando perfil estándar con optimizador dedicado: {normalized}"
+            f"[SCHEDULER] Executing standard profile with dedicated optimizer: {normalized}"
         )
         opt_fn = get_profile_optimizer(normalized)
         cfg["optimization_profile"] = normalized
@@ -1847,12 +2030,12 @@ def run_complete_optimization(
             )
         except Exception as e:
             print(
-                f"[SCHEDULER] Error en optimizador de perfil: {e} -> fallback a two-phase"
+                f"[SCHEDULER] Error in profile optimizer: {e} -> fallback to two-phase"
             )
             try:
                 assignments, status = optimize_ft_then_pt_strategy(patterns, demand_matrix, cfg=cfg)
             except Exception as e2:
-                print(f"[SCHEDULER] Error en two-phase: {e2} -> fallback a chunks")
+                print(f"[SCHEDULER] Error in two-phase: {e2} -> fallback to chunks")
                 assignments = solve_in_chunks_optimized(
                     patterns,
                     demand_matrix,
