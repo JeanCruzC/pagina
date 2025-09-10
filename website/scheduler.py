@@ -509,41 +509,40 @@ def generate_shifts_coverage_corrected(demand_matrix=None, *, cfg=None):
 
     from itertools import combinations, permutations
     
-    # PT 4H: allow 4h shifts with 4-6 working days (<=24h/week)
+    # PT 4H: allow 4h shifts with all possible working days (<=24h/week)
     if use_pt and allow_pt_4h:
         for start in base_start_hours[::2]:  # every 1 hour
-            for num_days in [4, 5, 6]:
-                if num_days <= len(active_days) and 4 * num_days <= 24:
+            for num_days in range(1, len(active_days)+1):
+                if 4 * num_days <= 24:
                     for days_combo in combinations(active_days, num_days):
                         pattern = _build_pattern(list(days_combo), [4] * num_days, start, 0, 0, 0)
                         shift_name = f"PT4_{start:04.1f}_DAYS{''.join(str(d) for d in days_combo)}"
                         add_pattern(shift_name, pattern)
 
-    # PT 6H: 4 working days (24h/week)
+    # PT 6H: all possible working days (<=24h/week)
     if use_pt and allow_pt_6h:
         for start in base_start_hours[::3]:  # every 1.5 hours
-            num_days = 4
-            if num_days <= len(active_days) and 6 * num_days <= 24:
-                for days_combo in combinations(active_days, num_days):
-                    pattern = _build_pattern(list(days_combo), [6] * num_days, start, 0, 0, 0)
-                    shift_name = f"PT6_{start:04.1f}_DAYS{''.join(str(d) for d in days_combo)}"
-                    add_pattern(shift_name, pattern)
+            for num_days in range(1, len(active_days)+1):
+                if 6 * num_days <= 24:
+                    for days_combo in combinations(active_days, num_days):
+                        pattern = _build_pattern(list(days_combo), [6] * num_days, start, 0, 0, 0)
+                        shift_name = f"PT6_{start:04.1f}_DAYS{''.join(str(d) for d in days_combo)}"
+                        add_pattern(shift_name, pattern)
 
-    # PT 5H: 5h shifts with 4 or 5 days (up to 25h/week, using one 4h day to cap at 24h)
+    # PT 5H: 5h shifts with all possible working days (up to 25h/week)
     if use_pt and allow_pt_5h:
         for start in base_start_hours[::3]:  # every 1.5 hours
-            # Pattern 1: 4 days of 5h (20h/week)
-            if len(active_days) >= 4 and 5 * 4 <= 24:
-                for days_combo in combinations(active_days, 4):
-                    pattern = _build_pattern(list(days_combo), [5] * 4, start, 0, 0, 0)
-                    shift_name = f"PT5_{start:04.1f}_DAYS{''.join(str(d) for d in days_combo)}"
-                    add_pattern(shift_name, pattern)
-            # Pattern 2: 5 days of 5h with one day only 4h (24h/week)
-            if len(active_days) >= 5:
-                for days_combo in combinations(active_days, 5):
-                    pattern = generate_weekly_pattern_pt5(start, list(days_combo))
-                    shift_name = f"PT5_{start:04.1f}_DAYS{''.join(str(d) for d in days_combo)}"
-                    add_pattern(shift_name, pattern)
+            for num_days in range(1, len(active_days)+1):
+                if 5 * num_days <= 25:
+                    for days_combo in combinations(active_days, num_days):
+                        if 5 * num_days <= 24:
+                            # Standard 5h pattern
+                            pattern = _build_pattern(list(days_combo), [5] * num_days, start, 0, 0, 0)
+                        else:
+                            # Use PT5 pattern with mixed hours to stay within 24h
+                            pattern = generate_weekly_pattern_pt5(start, list(days_combo))
+                        shift_name = f"PT5_{start:04.1f}_DAYS{''.join(str(d) for d in days_combo)}"
+                        add_pattern(shift_name, pattern)
 
     return shifts
 
@@ -1095,11 +1094,11 @@ def optimize_with_precision_targeting(
                 )
                 prob += cov <= int(demand_matrix[d, h])  # Sin exceso
     
-    # Restricción de exceso máximo para JEAN (10% de demanda total)
+    # Control de exceso global más flexible – permitir hasta 15% de exceso
     profile_name = cfg.get("optimization_profile", "")
     if "JEAN" in profile_name:
         total_excess = pulp.lpSum(excess_vars.values())
-        prob += total_excess <= demand_matrix.sum() * 0.10
+        prob += total_excess <= demand_matrix.sum() * 0.15  # 15% exceso permitido
     
     # Límite de agentes total si está configurado
     if cfg.get("agent_cap"):
@@ -1370,20 +1369,25 @@ def optimize_jean_search(
     
     print(f"[JEAN] Fase 2: Búsqueda con exceso controlado (<=10%)")
     
-    # Inicializar con solución base
+    # Initialize tracking variables for complete iteration
     best_assignments = base_assignments
     best_method = ""
     best_score = float("inf")
     best_coverage = 0
+    best_target_score = float("inf")
+    got_target_solution = False
     
     if base_assignments:
         base_results = analyze_results(base_assignments, shifts_coverage, demand_matrix)
         if base_results:
             best_score = base_results["overstaffing"] + base_results["understaffing"]
             best_coverage = base_results["coverage_percentage"]
-            print(f"[JEAN] Solución base sin exceso: cobertura {best_coverage:.1f}%, score {best_score:.1f}")
+            if best_coverage >= target_coverage:
+                best_target_score = best_score
+                got_target_solution = True
+            print(f"[JEAN] Base solution without excess: coverage {best_coverage:.1f}%, score {best_score:.1f}")
     else:
-        print("[JEAN] No se encontró solución base sin exceso")
+        print("[JEAN] No base solution found without excess")
     
     # Factores progresivos con más iteraciones para mejor cobertura
     start_time = time.time()
@@ -1441,29 +1445,29 @@ def optimize_jean_search(
                 score = results["overstaffing"] + results["understaffing"]
                 cov = results["coverage_percentage"]
                 
-                print(f"[JEAN] Factor {factor}: cobertura {cov:.1f}%, score {score:.1f}, agentes {results['total_agents']}")
+                print(f"[JEAN] Factor {factor}: coverage {cov:.1f}%, score {score:.1f}, agents {results['total_agents']}")
                 
-                # Actualizar mejor solución si cobertura es mayor
-                if cov > best_coverage:
-                    best_assignments = trial_assignments
-                    best_method = f"JEAN_F{factor}"
-                    best_score = score
-                    best_coverage = cov
-                    print(f"[JEAN] Nueva mejor solución: cobertura {cov:.1f}%, score {score:.1f}, agentes {results['total_agents']}")
-                # Si cobertura igual, preferir menor score
-                elif cov == best_coverage and score < best_score:
-                    best_assignments = trial_assignments
-                    best_method = f"JEAN_F{factor}"
-                    best_score = score
-                    print(f"[JEAN] Mejor score con misma cobertura: {score:.1f}, agentes {results['total_agents']}")
-                
-                # Parar si alcanzamos el objetivo
                 if cov >= target_coverage:
-                    print(f"[JEAN] Objetivo alcanzado: {cov:.1f}% >= {target_coverage}%")
-                    break
+                    # Solution meets coverage target: evaluate quality
+                    if not got_target_solution or score < best_target_score:
+                        best_assignments = trial_assignments
+                        best_method = f"JEAN_F{factor}"
+                        best_target_score = score
+                        print(f"[JEAN] New best target solution: coverage {cov:.1f}%, score {score:.1f}, agents {results['total_agents']}")
+                    got_target_solution = True
+                else:
+                    # Solution below target: keep highest coverage
+                    if not got_target_solution and cov > best_coverage:
+                        best_assignments = trial_assignments
+                        best_method = f"JEAN_F{factor}"
+                        best_score = score
+                        best_coverage = cov
+                        print(f"[JEAN] New best coverage: {cov:.1f}%, score {score:.1f}, agents {results['total_agents']}")
     
     elapsed = time.time() - start_time
-    print(f"[JEAN] Completado en {elapsed:.1f}s: score final {best_score:.1f}, cobertura {best_coverage:.1f}%")
+    final_score = best_target_score if got_target_solution else best_score
+    final_coverage = best_coverage if not got_target_solution else (analyze_results(best_assignments, shifts_coverage, demand_matrix) or {}).get("coverage_percentage", 0)
+    print(f"[JEAN] Completed in {elapsed:.1f}s: final score {final_score:.1f}, coverage {final_coverage:.1f}%")
     return best_assignments, best_method or "JEAN_NO_SOLUTION"
 
 
@@ -1876,8 +1880,8 @@ def run_complete_optimization(
             patterns = load_shift_patterns(
                 template_cfg,
                 demand_matrix=demand_matrix,
-                max_patterns=cfg.get("max_patterns"),
-                keep_percentage=cfg.get("keep_percentage", 0.3),
+                max_patterns=None,
+                keep_percentage=1.0,
                 slot_duration_minutes=cfg.get("slot_duration_minutes", 60),
                 smart_start_hours=cfg.get("smart_start_hours", False),
                 cfg=cfg
@@ -1896,7 +1900,7 @@ def run_complete_optimization(
             allow_pt_4h=use_pt and cfg.get("allow_pt_4h", False),
             allow_pt_5h=use_pt and cfg.get("allow_pt_5h", False),
             allow_pt_6h=use_pt and cfg.get("allow_pt_6h", False),
-            keep_percentage=cfg.get("keep_percentage", 0.3),
+            keep_percentage=1.0,
             peak_bonus=cfg.get("peak_bonus", 1.5),
             critical_bonus=cfg.get("critical_bonus", 2.0),
             efficiency_bonus=cfg.get("efficiency_bonus", 1.0),
