@@ -1462,11 +1462,11 @@ def optimize_jean_search(
         base_results = analyze_results(base_assignments, shifts_coverage, demand_matrix)
         if base_results:
             best_score = base_results["overstaffing"] + base_results["understaffing"]
-            best_coverage = base_results["coverage_percentage"]
+            best_coverage = base_results["coverage_real"]
             if best_coverage >= target_coverage:
                 best_target_score = best_score
                 got_target_solution = True
-            print(f"[JEAN] Base solution without excess: coverage {best_coverage:.1f}%, score {best_score:.1f}")
+            print(f"[JEAN] Base solution without excess: coverage_real {best_coverage:.1f}%, score {best_score:.1f}")
             # Logs de métricas clave
             print(f"[MÉTRICAS] Cobertura_real={base_results.get('coverage_real', best_coverage):.1f}%, Cobertura_pura={best_coverage:.1f}%, Exceso={base_results['overstaffing']}, Déficit={base_results['understaffing']}, Agentes={base_results['total_agents']}")
     else:
@@ -1524,28 +1524,28 @@ def optimize_jean_search(
         if trial_assignments:
             trial_results = analyze_results(trial_assignments, shifts_coverage, demand_matrix)
             if trial_results:
-                # Score JEAN ajustado: |100 - cobertura| + overstaffing + understaffing
-                cov = trial_results["coverage_percentage"]
-                score = abs(100.0 - cov) + trial_results["overstaffing"] + trial_results["understaffing"]
+                # Score JEAN ajustado: |100 - cobertura_real| + overstaffing + understaffing
+                cov_real = trial_results["coverage_real"]
+                score = abs(100.0 - cov_real) + trial_results["overstaffing"] + trial_results["understaffing"]
                 
-                print(f"[JEAN] Factor {factor}: coverage {cov:.1f}%, score {score:.1f}, agents {trial_results['total_agents']}")
+                print(f"[JEAN] Factor {factor}: coverage_real {cov_real:.1f}%, score {score:.1f}, agents {trial_results['total_agents']}")
                 
                 # Usar score ajustado para todas las comparaciones
                 if not got_target_solution or score < best_target_score:
                     best_assignments = trial_assignments
                     best_method = f"JEAN_F{factor}"
                     best_target_score = score
-                    best_coverage = cov
-                    print(f"[JEAN] New best solution: coverage {cov:.1f}%, score {score:.1f}, agents {trial_results['total_agents']}")
+                    best_coverage = cov_real
+                    print(f"[JEAN] New best solution: coverage_real {cov_real:.1f}%, score {score:.1f}, agents {trial_results['total_agents']}")
                     # Logs de métricas clave para cada iteración
-                    print(f"[MÉTRICAS] Cobertura_real={trial_results.get('coverage_real', cov):.1f}%, Cobertura_pura={cov:.1f}%, Exceso={trial_results['overstaffing']}, Déficit={trial_results['understaffing']}, Agentes={trial_results['total_agents']}")
-                    if cov >= target_coverage:
+                    print(f"[MÉTRICAS] Cobertura_real={cov_real:.1f}%, Cobertura_pura={trial_results['coverage_percentage']:.1f}%, Exceso={trial_results['overstaffing']}, Déficit={trial_results['understaffing']}, Agentes={trial_results['total_agents']}")
+                    if cov_real >= target_coverage:
                         got_target_solution = True
     
     elapsed = time.time() - start_time
     final_score = best_target_score if got_target_solution else best_score
-    final_coverage = best_coverage if not got_target_solution else (analyze_results(best_assignments, shifts_coverage, demand_matrix) or {}).get("coverage_percentage", 0)
-    print(f"[JEAN] Completed in {elapsed:.1f}s: final score {final_score:.1f}, coverage {final_coverage:.1f}%")
+    final_coverage = best_coverage if not got_target_solution else (analyze_results(best_assignments, shifts_coverage, demand_matrix) or {}).get("coverage_real", best_coverage)
+    print(f"[JEAN] Completed in {elapsed:.1f}s: final score {final_score:.1f}, coverage_real {final_coverage:.1f}%")
     # Logs finales de métricas
     if best_assignments:
         final_results = analyze_results(best_assignments, shifts_coverage, demand_matrix)
@@ -1571,12 +1571,16 @@ def analyze_results(assignments, shifts_coverage, demand_matrix):
     total_demand = demand_matrix.sum()
     total_covered = np.minimum(total_cov, demand_matrix).sum()
     coverage_percentage = (total_covered / total_demand * 100) if total_demand > 0 else 0
+    # --- Nuevo cálculo de cobertura real (puede superar 100%) ---
+    real_cov_units = total_cov.sum()
+    coverage_real = (real_cov_units / total_demand * 100) if total_demand > 0 else 0
     diff = total_cov - demand_matrix
     over = int(np.sum(diff[diff > 0]))
     under = int(np.sum(np.abs(diff[diff < 0])))
     return {
         "total_coverage": total_cov,
         "coverage_percentage": coverage_percentage,
+        "coverage_real": coverage_real,
         "overstaffing": over,
         "understaffing": under,
         "total_agents": total_agents,

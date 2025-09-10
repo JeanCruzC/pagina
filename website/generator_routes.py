@@ -64,6 +64,7 @@ def _cfg_from_request(form):
     excess_pen    = float(form.get("excess_penalty", 5))
     peak_bonus    = float(form.get("peak_bonus", 2))
     critical_bonus= float(form.get("critical_bonus", 2.5))
+    allow_excess = _is_on(form.get("allow_excess"))
 
     return {
         "optimization_profile": optimization_profile,
@@ -84,6 +85,7 @@ def _cfg_from_request(form):
         "excess_penalty": excess_pen,
         "peak_bonus": peak_bonus,
         "critical_bonus": critical_bonus,
+        "allow_excess": allow_excess,
         # Constantes del pipeline (no exponemos opciones que no están en la UI)
         "solver_msg": False,
         "use_pulp": True,
