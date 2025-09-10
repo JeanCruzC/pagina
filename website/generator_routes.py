@@ -1,5 +1,6 @@
 import json
 from flask import Blueprint, render_template, request, jsonify
+import os
 from .scheduler import run_complete_optimization
 from .profiles import apply_profile
 
@@ -123,13 +124,27 @@ def generador():
             raw = request.files["jean_json"].read().decode("utf-8", "ignore")
         elif "jean_json" in request.form:
             raw = request.form.get("jean_json", "").strip()
+        
         if raw:
             cfg["custom_shifts_json"] = raw
             try:
-                user_overrides = json.loads(raw)
-                cfg.update(user_overrides)
-            except Exception:
-                pass
+                template_data = json.loads(raw)
+                # Si tiene estructura de plantilla personalizada
+                if "shifts" in template_data:
+                    import tempfile
+                    fd, temp_path = tempfile.mkstemp(suffix=".json")
+                    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                        json.dump(template_data, f, ensure_ascii=False)
+                    cfg["custom_shifts"] = True
+                    cfg["shift_config_file"] = temp_path
+                    cfg["slot_duration_minutes"] = template_data.get("slot_duration_minutes", 60)
+                    cfg["smart_start_hours"] = template_data.get("smart_start_hours", False)
+                    print(f"[ROUTES] Plantillas personalizadas habilitadas: {len(template_data.get('shifts', []))} turnos")
+                else:
+                    # JSON con parámetros JEAN estándar
+                    cfg.update(template_data)
+            except Exception as e:
+                print(f"[ROUTES] Error procesando JSON: {e}")
 
     # 4) Ejecuta optimización con cfg final (ya con perfil aplicado)
     payload = run_complete_optimization(

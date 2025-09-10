@@ -116,7 +116,7 @@
           <!-- Perfil de optimización (selector “de horarios”) -->
           <div>
             <strong>🎯 Perfil de Optimización</strong>
-            <select class="form-select mt-2" name="optimization_profile">
+            <select class="form-select mt-2" name="optimization_profile" id="optimization_profile">
               <option selected>Equilibrado (Recomendado)</option>
               <option>Conservador</option>
               <option>Agresivo</option>
@@ -131,6 +131,13 @@
               <option>JEAN</option>
               <option>JEAN Personalizado</option>
             </select>
+            
+            <!-- Plantilla JSON para JEAN Personalizado -->
+            <div id="jean_custom_section" class="mt-2" style="display:none;">
+              <label class="form-label">Plantilla JSON (opcional)</label>
+              <input class="form-control" type="file" name="jean_json" accept=".json">
+              <div class="form-text text-muted">Sube un JSON con turnos personalizados</div>
+            </div>
           </div>
 
           <div class="divider"></div>
@@ -171,4 +178,17 @@
     {% endif %}
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('optimization_profile').addEventListener('change', function() {
+  const jeanSection = document.getElementById('jean_custom_section');
+  if (this.value === 'JEAN Personalizado') {
+    jeanSection.style.display = 'block';
+  } else {
+    jeanSection.style.display = 'none';
+  }
+});
+</script>
 {% endblock %}
