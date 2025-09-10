@@ -21,6 +21,11 @@ except Exception:  # pragma: no cover
     current_app = None
 
 try:
+    import psutil
+except ImportError:
+    psutil = None
+
+try:
     from .profiles import PROFILES, resolve_profile_name, apply_profile
 except Exception:  # pragma: no cover
     from website.profiles import PROFILES, resolve_profile_name, apply_profile
@@ -295,7 +300,38 @@ def generate_weekly_pattern_simple(start_hour, duration, working_days):
     """Wrapper para compatibilidad - sin breaks"""
     return _build_pattern(working_days, [duration] * len(working_days), start_hour, 0, 0, 0)
 
-def generate_weekly_pattern_with_break(start_hour, duration, working_days, break_len=1, break_from_start=2.0, break_from_end=2.0):
+def get_valid_break_times(start_hour, duration, cfg):
+    """Obtiene todas las franjas válidas de break para un turno."""
+    valid_breaks = []
+    earliest_break = start_hour + cfg.get("break_from_start", 2.0)
+    latest_break = start_hour + duration - cfg.get("break_from_end", 2.0) - 1
+    current_time = earliest_break
+    while current_time <= latest_break:
+        # Solo permitir breaks en horas en punto o media
+        if current_time % 0.5 == 0:
+            valid_breaks.append(round(current_time, 1))
+        current_time += 0.5
+    return valid_breaks[:7]  # máximo 7 opciones
+
+def generate_weekly_pattern_with_break(start_hour, duration, working_days, dso_day, break_start, break_len=1):
+    """Genera un patrón semanal con un break específico (corrigiendo cruce de medianoche)."""
+    pattern = np.zeros((7, 24), dtype=np.int8)
+    for day in working_days:
+        if day == dso_day:
+            continue
+        # Marcar horas trabajadas
+        for h in range(duration):
+            t = start_hour + h
+            d_off, idx = divmod(int(t), 24)
+            pattern[(day + d_off) % 7, idx] = 1
+        # Insertar break en la hora especificada
+        for b in range(int(break_len)):
+            t = break_start + b
+            d_off, idx = divmod(int(t), 24)
+            pattern[(day + d_off) % 7, idx] = 0
+    return pattern.flatten()
+
+def generate_weekly_pattern_with_break_compat(start_hour, duration, working_days, break_len=1, break_from_start=2.0, break_from_end=2.0):
     """Wrapper para compatibilidad - con breaks"""
     return _build_pattern(working_days, [duration] * len(working_days), start_hour, break_len, break_from_start, break_from_end)
 
@@ -344,23 +380,17 @@ def score_and_filter_patterns(patterns: dict, demand: np.ndarray, keep_percentag
     scores = []
     for name, pat in patterns.items():
         try:
-            cov = np.array(pat).reshape(demand.shape)
-            
-            # Eficiencia: cobertura útil / horas trabajadas
-            covered = np.minimum(cov, demand).sum()
-            hours_worked = cov.sum()
-            efficiency = covered / hours_worked if hours_worked > 0 else 0
-            
-            # Cobertura en picos y críticos
-            peak_cov = cov[:, list(peak_hours)].sum() if peak_hours else 0
-            critical_cov = cov[list(critical_days), :].sum() if critical_days else 0
-            
-            # Puntaje total con bonos
-            score = covered
-            score += peak_bonus * peak_cov
-            score += critical_bonus * critical_cov
-            score += efficiency_bonus * (efficiency * covered)
-            
+            pat_mat = np.array(pat).reshape(demand.shape)
+            coverage = np.minimum(pat_mat, demand)
+            score = coverage.sum()
+            total_hours = pat_mat.sum()
+            if total_hours > 0:
+                efficiency = coverage.sum() / total_hours
+                score += efficiency * efficiency_bonus
+            if peak_hours:
+                score += coverage[:, list(peak_hours)].sum() * peak_bonus
+            if critical_days:
+                score += coverage[list(critical_days), :].sum() * critical_bonus
             scores.append((score, name))
         except Exception:
             # Si hay error, asignar puntaje mínimo
@@ -400,6 +430,17 @@ def generate_shift_patterns(demand_matrix, *, top_k=20, cfg=None):
 
 def generate_shifts_coverage_corrected(demand_matrix=None, *, cfg=None):
     cfg = cfg or {}
+    demand = demand_matrix if demand_matrix is not None else np.zeros((7,24))
+    active_days = [d for d in range(7) if demand[d].sum() > 0]
+    
+    # Determine first and last hour with demand
+    nonzero_hours = np.where(demand.sum(axis=0) > 0)[0]
+    first_hour = int(nonzero_hours[0]) if len(nonzero_hours) > 0 else 0
+    last_hour = int(nonzero_hours[-1] + 1) if len(nonzero_hours) > 0 else 24
+    start_h_min = max(6, first_hour)
+    start_h_max = min(last_hour - 2, 20)
+    base_start_hours = np.arange(start_h_min, start_h_max, 0.5)
+    
     use_ft = cfg.get("use_ft", True)
     use_pt = cfg.get("use_pt", True)
     allow_8h = cfg.get("allow_8h", True)
@@ -407,10 +448,6 @@ def generate_shifts_coverage_corrected(demand_matrix=None, *, cfg=None):
     allow_pt_4h = cfg.get("allow_pt_4h", True)
     allow_pt_6h = cfg.get("allow_pt_6h", True)
     allow_pt_5h = cfg.get("allow_pt_5h", False)
-
-    days = list(range(7))
-    LUN_VIE = [0, 1, 2, 3, 4]
-    LUN_SAB = [0, 1, 2, 3, 4, 5]
     
     shifts = {}
     seen_patterns = set()
@@ -423,63 +460,71 @@ def generate_shifts_coverage_corrected(demand_matrix=None, *, cfg=None):
             return True
         return False
 
-    # FT 8H: 6 días laborales + 1 día libre, cada 30 min entre 8:00-20:30
-    if use_ft and allow_8h:
-        for start_h in range(8, 21):  # 8:00 hasta 20:30
-            for start_m in [0, 30]:
-                start = start_h + start_m/60.0
-                if start > 20.5:  # límite 20:30
-                    break
-                for dso in days:
-                    wd = [d for d in days if d != dso][:6]
-                    pat = _build_pattern(wd, [8]*6, start, 0, 0, 0)  # sin break
-                    add_pattern(f"FT_8H_{start:04.1f}_DSO{dso}", pat)
+    # FT 8H: patterns of 6 working days + 1 day off, including multiple break positions
+    if use_ft and allow_8h and len(active_days) >= 6:
+        for start in base_start_hours:  # every 30 minutes between start_h_min and start_h_max
+            # Generate all 6-day work combinations (one day off)
+            for dso in active_days + ([None] if len(active_days) == 6 else []):
+                wd = [d for d in active_days if d != dso][:6]
+                if len(wd) >= 6:
+                    break_options = get_valid_break_times(start, 8, cfg)
+                    for brk in break_options:
+                        pattern = generate_weekly_pattern_with_break(start, 8, wd, dso, brk)
+                        dso_suffix = f"_DSO{dso}" if dso is not None else ""
+                        shift_name = f"FT8_{start:04.1f}_DAYS{''.join(map(str, wd))}_BRK{brk:04.1f}{dso_suffix}"
+                        add_pattern(shift_name, pattern)
 
-    # FT 10H8: 5 días (Lun-Vie), 4 días de 10h + 1 día de 8h, cada 30 min entre 8:00-19:30
-    if use_ft and allow_10h8:
-        for start_h in range(8, 20):  # 8:00 hasta 19:30
-            for start_m in [0, 30]:
-                start = start_h + start_m/60.0
-                if start > 19.5:  # límite 19:30
-                    break
-                for eight_day in LUN_VIE:
-                    durations = [8 if d == eight_day else 10 for d in LUN_VIE]
-                    pat = _build_pattern(LUN_VIE, durations, start, 1, 
-                                       cfg.get("break_from_start", 2.0),
-                                       cfg.get("break_from_end", 2.0))
-                    add_pattern(f"FT_10H8_{start:04.1f}_8D{eight_day}", pat)
+    # FT 10H8: 5 working days, 4 days of 10h + 1 day of 8h (48h/week), with break
+    if use_ft and allow_10h8 and len(active_days) >= 5:
+        for start in base_start_hours[::2]:  # every 1.0 hour (skip half-hour starts)
+            for dso in active_days:
+                working_days = sorted([d for d in active_days if d != dso])[:5]
+                if len(working_days) >= 5:
+                    for eight_day in working_days:
+                        durations = [8 if d == eight_day else 10 for d in working_days]
+                        pattern = _build_pattern(working_days, durations, start, 1,
+                                                 cfg.get("break_from_start", 2.0),
+                                                 cfg.get("break_from_end", 2.0))
+                        shift_name = f"FT10p8_{start:04.1f}_DSO{dso}_8{eight_day}"
+                        add_pattern(shift_name, pattern)
 
     from itertools import combinations, permutations
     
-    # PT 4H: 6 días (Lun-Sab), cada hora 8:00-20:00
+    # PT 4H: allow 4h shifts with 4-6 working days (<=24h/week)
     if use_pt and allow_pt_4h:
-        for start in range(8, 21):  # 8:00 hasta 20:00
-            for days_combo in combinations(LUN_SAB, 6):
-                pat = _build_pattern(list(days_combo), [4]*6, start, 0, 0, 0)
-                name = f"PT_4H6D_{start:02d}_{''.join(str(d) for d in days_combo)}"
-                add_pattern(name, pat)
+        for start in base_start_hours[::2]:  # every 1 hour
+            for num_days in [4, 5, 6]:
+                if num_days <= len(active_days) and 4 * num_days <= 24:
+                    for days_combo in combinations(active_days, num_days):
+                        pattern = _build_pattern(list(days_combo), [4] * num_days, start, 0, 0, 0)
+                        shift_name = f"PT4_{start:04.1f}_DAYS{''.join(str(d) for d in days_combo)}"
+                        add_pattern(shift_name, pattern)
 
-    # PT 6H: 4 días (Lun-Jue), cada hora 8:00-18:00
+    # PT 6H: 4 working days (24h/week)
     if use_pt and allow_pt_6h:
-        for start in range(8, 19):  # 8:00 hasta 18:00
-            for days_combo in combinations(LUN_SAB, 4):
-                pat = _build_pattern(list(days_combo), [6]*4, start, 0, 0, 0)
-                name = f"PT_6H4D_{start:02d}_{''.join(str(d) for d in days_combo)}"
-                add_pattern(name, pat)
+        for start in base_start_hours[::3]:  # every 1.5 hours
+            num_days = 4
+            if num_days <= len(active_days) and 6 * num_days <= 24:
+                for days_combo in combinations(active_days, num_days):
+                    pattern = _build_pattern(list(days_combo), [6] * num_days, start, 0, 0, 0)
+                    shift_name = f"PT6_{start:04.1f}_DAYS{''.join(str(d) for d in days_combo)}"
+                    add_pattern(shift_name, pattern)
 
-    # PT 5H: múltiples patrones
+    # PT 5H: 5h shifts with 4 or 5 days (up to 25h/week, using one 4h day to cap at 24h)
     if use_pt and allow_pt_5h:
-        for start in range(8, 20):  # 8:00 hasta 19:00
-            # Patrón 1: 4 días de 5h (20h semanales)
-            for days_combo in combinations(LUN_VIE, 4):
-                pat = _build_pattern(list(days_combo), [5]*4, start, 0, 0, 0)
-                name = f"PT_5H4D_{start:02d}_{''.join(str(d) for d in days_combo)}"
-                add_pattern(name, pat)
-            
-            # Patrón 2: 5 días híbrido 4×5h + 1×4h = 24h
-            durations = [5, 5, 5, 5, 4]  # último día 4h
-            pat = _build_pattern(LUN_VIE, durations, start, 0, 0, 0)
-            add_pattern(f"PT_5H5D_{start:02d}", pat)
+        for start in base_start_hours[::3]:  # every 1.5 hours
+            # Pattern 1: 4 days of 5h (20h/week)
+            if len(active_days) >= 4 and 5 * 4 <= 24:
+                for days_combo in combinations(active_days, 4):
+                    pattern = _build_pattern(list(days_combo), [5] * 4, start, 0, 0, 0)
+                    shift_name = f"PT5_{start:04.1f}_DAYS{''.join(str(d) for d in days_combo)}"
+                    add_pattern(shift_name, pattern)
+            # Pattern 2: 5 days of 5h with one day only 4h (24h/week)
+            if len(active_days) >= 5:
+                for days_combo in combinations(active_days, 5):
+                    pattern = generate_weekly_pattern_pt5(start, list(days_combo))
+                    shift_name = f"PT5_{start:04.1f}_DAYS{''.join(str(d) for d in days_combo)}"
+                    add_pattern(shift_name, pattern)
 
     return shifts
 
@@ -684,8 +729,41 @@ def generate_shifts_coverage_optimized(
         yield batch
 
 
-def adaptive_chunk_size(base):
+def memory_limit_patterns(slots_per_day: int) -> int:
+    """Return how many patterns fit in roughly 4GB of RAM."""
+    if slots_per_day <= 0:
+        return 0
+    if psutil is None:
+        return 10000
+    available = psutil.virtual_memory().available
+    cap = min(available, 4 * 1024 ** 3)
+    return int(cap // (7 * slots_per_day))
+
+def monitor_memory_usage() -> float:
+    """Return current memory usage percentage."""
+    if psutil is None:
+        return 0.0
+    return psutil.virtual_memory().percent
+
+def adaptive_chunk_size(base: int = 5000) -> int:
+    """Return dynamic chunk size based on memory pressure."""
+    if psutil is None:
+        return base
+    usage = monitor_memory_usage()
+    if usage > 80:
+        return max(1000, base // 4)
+    if usage > 60:
+        return max(2000, base // 2)
     return base
+
+def emergency_cleanup(threshold: float = 85.0) -> bool:
+    """Trigger garbage collection if memory usage exceeds threshold."""
+    if psutil is None:
+        return False
+    if monitor_memory_usage() >= threshold:
+        gc.collect()
+        return True
+    return False
 
 
 def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, **kwargs):
@@ -1002,6 +1080,103 @@ def optimize_ft_then_pt_strategy(
     )
     return {**ft_ass, **pt_ass}, "FT_PT"
 
+
+def optimize_ft_no_excess(ft_shifts, demand_matrix, cfg=None):
+    """Fase 1: Optimiza FT sin permitir exceso (cobertura <= demanda)."""
+    if not ft_shifts:
+        return {}
+    cfg = cfg or {}
+    prob = pulp.LpProblem("FT_No_Excess", pulp.LpMinimize)
+    # Variables FT con límite dinámico
+    total_demand = demand_matrix.sum()
+    max_ft_per_shift = max(10, int(total_demand / cfg.get("agent_limit_factor", 30)))
+    ft_vars = {shift: pulp.LpVariable(f"ft_{shift}", 0, max_ft_per_shift, pulp.LpInteger) for shift in ft_shifts}
+    # Déficit (no exceso)
+    hours = demand_matrix.shape[1]
+    deficit = {(d, h): pulp.LpVariable(f"ft_def_{d}_{h}", 0, None) for d in range(7) for h in range(hours)}
+    # Objetivo: minimizar déficit + número de agentes
+    total_deficit = pulp.lpSum(deficit.values())
+    total_agents = pulp.lpSum(ft_vars.values())
+    prob += total_deficit * 1000 + total_agents * 1
+    # Restricciones: cobertura + déficit >= demanda, y cobertura <= demanda (no exceso)
+    for d in range(7):
+        for h in range(hours):
+            coverage = pulp.lpSum(ft_vars[s] * (ft_shifts[s][d * hours + h]) for s in ft_shifts)
+            demand = int(demand_matrix[d, h])
+            prob += coverage + deficit[(d, h)] >= demand
+            prob += coverage <= demand
+    # Resolver (mitad del tiempo asignado al solver)
+    solver = _build_cbc_solver({**cfg, "solver_time": int(cfg.get("solver_time", 240)//2)})
+    prob.solve(solver)
+    ft_assignments = {}
+    if prob.status == pulp.LpStatusOptimal:
+        for s, var in ft_vars.items():
+            val = int(var.value() or 0)
+            if val > 0:
+                ft_assignments[s] = val
+    return ft_assignments
+
+def optimize_pt_complete(pt_shifts, remaining_demand, cfg=None):
+    """Fase 2: PT para completar el déficit restante (permite mínimo exceso controlado)."""
+    if not pt_shifts or remaining_demand.sum() == 0:
+        return {}
+    cfg = cfg or {}
+    prob = pulp.LpProblem("PT_Complete", pulp.LpMinimize)
+    # Variables PT con límite dinámico
+    total_rem = remaining_demand.sum()
+    max_pt_per_shift = max(10, int(total_rem / max(1, cfg.get("agent_limit_factor", 30))))
+    pt_vars = {shift: pulp.LpVariable(f"pt_{shift}", 0, max_pt_per_shift, pulp.LpInteger) for shift in pt_shifts}
+    # Variables de déficit y exceso
+    hours = remaining_demand.shape[1]
+    deficit = {(d, h): pulp.LpVariable(f"pt_def_{d}_{h}", 0, None) for d in range(7) for h in range(hours)}
+    excess = {(d, h): pulp.LpVariable(f"pt_exc_{d}_{h}", 0, None) for d in range(7) for h in range(hours)}
+    # Objetivo: minimizar déficit, penalizar exceso, minimizar agentes
+    total_deficit = pulp.lpSum(deficit.values())
+    total_excess = pulp.lpSum(excess.values())
+    total_agents = pulp.lpSum(pt_vars.values())
+    excess_pen = cfg.get("excess_penalty", 5.0)
+    prob += total_deficit * 1000 + total_excess * (excess_pen * 20) + total_agents * 1
+    # Prohibir exceso para perfil JEAN
+    profile = (cfg.get("optimization_profile") or "").upper()
+    if profile.startswith("JEAN"):
+        prob += total_excess == 0
+    # Restricciones: cubrir demanda con posible déficit/exceso
+    for d in range(7):
+        for h in range(hours):
+            cov = pulp.lpSum(pt_vars[s] * (pt_shifts[s][d * hours + h]) for s in pt_shifts)
+            demand = int(remaining_demand[d, h])
+            prob += cov + deficit[(d, h)] >= demand
+            prob += cov - excess[(d, h)] <= demand
+    # Resolver (segunda mitad del tiempo)
+    solver = _build_cbc_solver({**cfg, "solver_time": int(cfg.get("solver_time", 240)//2)})
+    prob.solve(solver)
+    pt_assignments = {}
+    if prob.status == pulp.LpStatusOptimal:
+        for s, var in pt_vars.items():
+            val = int(var.value() or 0)
+            if val > 0:
+                pt_assignments[s] = val
+    return pt_assignments
+
+def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=None):
+    """Estrategia en 2 fases: primero FT sin exceso, luego PT para déficit."""
+    cfg = cfg or {}
+    # Separar patrones FT y PT
+    ft_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('FT')}
+    pt_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('PT')}
+    # Fase 1: asignación FT sin exceso
+    ft_assignments = optimize_ft_no_excess(ft_shifts, demand_matrix, cfg)
+    # Calcular cobertura FT obtenida
+    ft_coverage = np.zeros_like(demand_matrix, dtype=int)
+    for name, count in ft_assignments.items():
+        pattern = np.array(ft_shifts[name]).reshape(7, -1)
+        ft_coverage += pattern * count
+    # Fase 2: asignación PT para cubrir déficit restante
+    remaining = np.maximum(0, demand_matrix - ft_coverage)
+    pt_assignments = optimize_pt_complete(pt_shifts, remaining, cfg)
+    # Combinar resultados
+    assignments = {**ft_assignments, **pt_assignments}
+    return assignments, "FT_NO_EXCESS_THEN_PT"
 
 def optimize_jean_search(
     shifts_coverage,
@@ -1655,6 +1830,10 @@ def run_complete_optimization(
             cfg=cfg,
         )
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
+    elif use_ft and use_pt and optimization_profile not in ("JEAN", "JEAN Personalizado", "Aprendizaje Adaptativo"):
+        # Default to two-phase optimization for combined FT/PT (Equilibrado)
+        assignments, pulp_status = optimize_ft_then_pt_strategy(patterns, demand_matrix, cfg=cfg)
+        assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
     else:
         normalized = resolve_profile_name(optimization_profile or "") or optimization_profile
         print(
@@ -1668,21 +1847,25 @@ def run_complete_optimization(
             )
         except Exception as e:
             print(
-                f"[SCHEDULER] Error en optimizador de perfil: {e} -> fallback a chunks"
+                f"[SCHEDULER] Error en optimizador de perfil: {e} -> fallback a two-phase"
             )
-            assignments = solve_in_chunks_optimized(
-                patterns,
-                demand_matrix,
-                optimization_profile=normalized,
-                use_ft=use_ft,
-                use_pt=use_pt,
-                TARGET_COVERAGE=TARGET_COVERAGE,
-                agent_limit_factor=agent_limit_factor,
-                excess_penalty=excess_penalty,
-                peak_bonus=peak_bonus,
-                critical_bonus=critical_bonus,
-            )
-            status = f"CHUNKS_OPTIMIZED_{normalized.upper().replace(' ', '_')}"
+            try:
+                assignments, status = optimize_ft_then_pt_strategy(patterns, demand_matrix, cfg=cfg)
+            except Exception as e2:
+                print(f"[SCHEDULER] Error en two-phase: {e2} -> fallback a chunks")
+                assignments = solve_in_chunks_optimized(
+                    patterns,
+                    demand_matrix,
+                    optimization_profile=normalized,
+                    use_ft=use_ft,
+                    use_pt=use_pt,
+                    TARGET_COVERAGE=TARGET_COVERAGE,
+                    agent_limit_factor=agent_limit_factor,
+                    excess_penalty=excess_penalty,
+                    peak_bonus=peak_bonus,
+                    critical_bonus=critical_bonus,
+                )
+                status = "CHUNKS_FALLBACK"
         pulp_status = status
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
 
