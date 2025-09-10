@@ -1008,12 +1008,12 @@ def optimize_jean_search(
     demand_matrix,
     *,
     target_coverage=98.0,
-    agent_limit_factor=30,
-    excess_penalty=0.0,
-    peak_bonus=0.0,
-    critical_bonus=0.0,
+    agent_limit_factor=25,
+    excess_penalty=5.0,
+    peak_bonus=2.0,
+    critical_bonus=2.5,
     iteration_time_limit=None,
-    max_iterations=30,
+    max_iterations=10,
     verbose=False,
     cfg=None,
     job_id=None,
@@ -1070,11 +1070,22 @@ def optimize_jean_search(
     else:
         print("[JEAN] No se encontró solución base sin exceso")
     
-    # Factores exactos del original: 30, 27, 24 como divisores
+    # Factores progresivos con más iteraciones para mejor cobertura
     start_time = time.time()
     max_time = 180  # Máximo 3 minutos para JEAN
     
-    for factor in [30, 27, 24]:
+    # Generar secuencia de factores más agresiva
+    factors = []
+    current_factor = agent_limit_factor
+    for _ in range(max_iterations):
+        factors.append(int(current_factor))
+        current_factor *= 0.85  # Factor más agresivo (0.85 vs 0.9)
+        if current_factor < 5:
+            break
+    
+    print(f"[JEAN] Secuencia de factores: {factors}")
+    
+    for iteration, factor in enumerate(factors):
         # Verificar timeout
         if time.time() - start_time > max_time:
             print(f"[JEAN] Timeout alcanzado ({max_time}s)")
@@ -1117,21 +1128,24 @@ def optimize_jean_search(
                 
                 print(f"[JEAN] Factor {factor}: cobertura {cov:.1f}%, score {score:.1f}, agentes {results['total_agents']}")
                 
-                # Criterio de selección exacto del original
-                if cov >= target_coverage:
-                    if score < best_score or not best_assignments:
-                        best_assignments = trial_assignments
-                        best_method = f"JEAN_F{factor}"
-                        best_score = score
-                        best_coverage = cov
-                        print(f"[JEAN] Nueva mejor solución: score {score:.1f}, agentes {results['total_agents']}")
-                elif cov > best_coverage:
-                    # Actualizar si es mejor cobertura
+                # Actualizar mejor solución si cobertura es mayor
+                if cov > best_coverage:
                     best_assignments = trial_assignments
                     best_method = f"JEAN_F{factor}"
                     best_score = score
                     best_coverage = cov
-                    print(f"[JEAN] Mejor cobertura parcial: {cov:.1f}%, agentes {results['total_agents']}")
+                    print(f"[JEAN] Nueva mejor solución: cobertura {cov:.1f}%, score {score:.1f}, agentes {results['total_agents']}")
+                # Si cobertura igual, preferir menor score
+                elif cov == best_coverage and score < best_score:
+                    best_assignments = trial_assignments
+                    best_method = f"JEAN_F{factor}"
+                    best_score = score
+                    print(f"[JEAN] Mejor score con misma cobertura: {score:.1f}, agentes {results['total_agents']}")
+                
+                # Parar si alcanzamos el objetivo
+                if cov >= target_coverage:
+                    print(f"[JEAN] Objetivo alcanzado: {cov:.1f}% >= {target_coverage}%")
+                    break
     
     elapsed = time.time() - start_time
     print(f"[JEAN] Completado en {elapsed:.1f}s: score final {best_score:.1f}, cobertura {best_coverage:.1f}%")
@@ -1624,12 +1638,12 @@ def run_complete_optimization(
                 patterns,
                 demand_matrix,
                 target_coverage=TARGET_COVERAGE,
-                agent_limit_factor=cfg.get("agent_limit_factor", 30),
+                agent_limit_factor=cfg.get("agent_limit_factor", 25),
                 excess_penalty=cfg.get("excess_penalty", 5.0),
                 peak_bonus=cfg.get("peak_bonus", 2.0),
                 critical_bonus=cfg.get("critical_bonus", 2.5),
                 iteration_time_limit=cfg.get("solver_time", 240),
-                max_iterations=cfg.get("search_iterations", cfg.get("iterations", 30)),
+                max_iterations=cfg.get("search_iterations", cfg.get("iterations", 10)),
                 cfg=cfg
             )
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
