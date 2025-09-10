@@ -24,13 +24,25 @@ PROFILES = {
         "hybrid": False
     },
     "JEAN": {
-        "agent_limit_factor": 25,
+        "agent_limit_factor": 15,
         "excess_penalty": 5.0,
         "peak_hours": [11, 12, 13, 14, 15, 16],
         "peak_bonus": 2.0,
         "critical_days": [2, 4],
         "critical_bonus": 2.5,
-        "hybrid": True
+        "hybrid": True,
+        "TARGET_COVERAGE": 100.0
+    },
+    "Cobertura Máxima (Completo)": {
+        "agent_limit_factor": 15,
+        "excess_penalty": 1.0,
+        "peak_hours": [11, 12, 13, 14, 15, 16],
+        "peak_bonus": 3.0,
+        "critical_days": [2, 4],
+        "critical_bonus": 4.0,
+        "hybrid": False,
+        "TARGET_COVERAGE": 100.0,
+        "deficit_penalty": 1000.0
     },
 }
 
@@ -38,9 +50,12 @@ PROFILE_ALIASES = {
     "Jean": "JEAN",
     "jean": "JEAN",
     "JEAN BCR=100% + Greedy": "JEAN",
+    "JEAN Personalizado": "JEAN",
     "100% exacto": "100% Exacto",
     "Exacto": "100% Exacto",
     "Cobertura eficiente": "Equilibrado (Recomendado)",
+    "MAX_COBERTURA": "Cobertura Máxima (Completo)",
+    "Máxima Cobertura": "Cobertura Máxima (Completo)",
 }
 
 def apply_profile(cfg: dict) -> dict:

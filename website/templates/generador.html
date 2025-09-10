@@ -36,7 +36,7 @@
           <!-- Cobertura objetivo -->
           <div class="mt-3">
             <label class="form-label">Cobertura objetivo (%)</label>
-            <input class="form-control" type="number" name="coverage" value="98" min="80" max="110" />
+            <input class="form-control" type="number" name="coverage" value="100" min="80" max="110" />
           </div>
 
           <!-- Verbose -->
@@ -130,6 +130,7 @@
               <option>Aprendizaje Adaptativo</option>
               <option>JEAN</option>
               <option>JEAN Personalizado</option>
+              <option>Cobertura Máxima (Completo)</option>
             </select>
             
             <!-- Plantilla JSON para JEAN Personalizado -->
@@ -182,7 +183,7 @@
 
 {% block scripts %}
 <script>
-// Persist form values in localStorage
+// Persist form values in localStorage with JEAN-specific handling
 function saveFormState() {
   const form = document.querySelector('form');
   const formData = new FormData(form);
@@ -197,25 +198,49 @@ function saveFormState() {
     }
   }
   
+  // Special handling for JEAN and maximum coverage profiles - ensure all patterns enabled
+  if (state.optimization_profile && 
+      (state.optimization_profile.includes('JEAN') || 
+       state.optimization_profile.includes('Cobertura Máxima') ||
+       state.optimization_profile.includes('100%'))) {
+    state.use_ft = true;
+    state.use_pt = true;
+    state.allow_8h = true;
+    state.allow_pt_4h = true;
+    state.allow_pt_6h = true;
+    state.coverage = 100;  // Forzar cobertura 100% para estos perfiles
+  }
+  
   localStorage.setItem('generatorFormState', JSON.stringify(state));
+  localStorage.setItem('lastSaveTime', new Date().toISOString());
 }
 
 function loadFormState() {
   const saved = localStorage.getItem('generatorFormState');
   if (!saved) return;
   
-  const state = JSON.parse(saved);
-  const form = document.querySelector('form');
-  
-  for (let [key, value] of Object.entries(state)) {
-    const element = form.elements[key];
-    if (!element) continue;
+  try {
+    const state = JSON.parse(saved);
+    const form = document.querySelector('form');
     
-    if (element.type === 'checkbox') {
-      element.checked = value;
-    } else if (element.type !== 'file') {
-      element.value = value;
+    for (let [key, value] of Object.entries(state)) {
+      const element = form.elements[key];
+      if (!element) continue;
+      
+      if (element.type === 'checkbox') {
+        element.checked = value;
+      } else if (element.type !== 'file') {
+        element.value = value;
+      }
     }
+    
+    // Show last save time
+    const lastSave = localStorage.getItem('lastSaveTime');
+    if (lastSave) {
+      console.log('Configuración cargada desde:', new Date(lastSave).toLocaleString());
+    }
+  } catch (e) {
+    console.warn('Error cargando configuración guardada:', e);
   }
 }
 
@@ -223,14 +248,22 @@ function loadFormState() {
 document.addEventListener('DOMContentLoaded', function() {
   loadFormState();
   
-  // Save state on form changes
+  // Save state on form changes with debouncing
   const form = document.querySelector('form');
-  form.addEventListener('change', saveFormState);
-  form.addEventListener('input', saveFormState);
+  let saveTimeout;
   
-  // Handle JEAN Personalizado section
+  function debouncedSave() {
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(saveFormState, 300);
+  }
+  
+  form.addEventListener('change', saveFormState);
+  form.addEventListener('input', debouncedSave);
+  
+  // Handle JEAN Personalizado section and coverage updates
   const profileSelect = document.getElementById('optimization_profile');
   const jeanSection = document.getElementById('jean_custom_section');
+  const coverageInput = document.querySelector('input[name="coverage"]');
   
   function toggleJeanSection() {
     if (profileSelect.value === 'JEAN Personalizado') {
@@ -238,9 +271,19 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
       jeanSection.style.display = 'none';
     }
+    
+    // Auto-update coverage for specific profiles
+    if (profileSelect.value.includes('JEAN') || 
+        profileSelect.value.includes('Cobertura Máxima') ||
+        profileSelect.value.includes('100%')) {
+      coverageInput.value = 100;
+    }
   }
   
-  profileSelect.addEventListener('change', toggleJeanSection);
+  profileSelect.addEventListener('change', function() {
+    toggleJeanSection();
+    saveFormState(); // Save immediately on profile change
+  });
   toggleJeanSection(); // Initial check
 });
 </script>

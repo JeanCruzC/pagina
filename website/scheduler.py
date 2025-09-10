@@ -977,6 +977,11 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
             break
             
     print(f"[CHUNKS] Completado: {total_agents} agentes asignados")
+    # Logs de métricas para chunks
+    if assignments_total:
+        chunk_results = analyze_results(assignments_total, {n: p for n, p, _ in scored}, demand_matrix)
+        if chunk_results:
+            print(f"[MÉTRICAS CHUNKS] Cobertura_real={chunk_results.get('coverage_real', 0):.1f}%, Cobertura_pura={chunk_results['coverage_percentage']:.1f}%, Exceso={chunk_results['overstaffing']}, Déficit={chunk_results['understaffing']}, Agentes={chunk_results['total_agents']}")
     return assignments_total
 
 
@@ -1138,6 +1143,11 @@ def optimize_with_precision_targeting(
             v = int(shift_vars[s].varValue or 0)
             if v > 0:
                 assignments[s] = v
+        # Logs de métricas para precision targeting
+        if assignments:
+            pt_results = analyze_results(assignments, shifts_coverage, demand_matrix)
+            if pt_results:
+                print(f"[MÉTRICAS PT] Cobertura_real={pt_results.get('coverage_real', 0):.1f}%, Cobertura_pura={pt_results['coverage_percentage']:.1f}%, Exceso={pt_results['overstaffing']}, Déficit={pt_results['understaffing']}, Agentes={pt_results['total_agents']}")
         return assignments, "PRECISION_TARGETING"
     return {}, f"STATUS_{prob.status}"
 
@@ -1320,12 +1330,80 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=None):
     assignments = {**ft_assignments, **pt_assignments}
     return assignments, "FT_NO_EXCESS_THEN_PT"
 
+def optimize_maximum_coverage(shifts_coverage, demand_matrix, cfg=None):
+    """Optimizador de cobertura máxima que elimina el déficit ante todo."""
+    if not PULP_AVAILABLE:
+        return {}, "NO_PULP"
+    
+    cfg = cfg or {}
+    shifts_list = list(shifts_coverage.keys())
+    prob = pulp.LpProblem("MaximumCoverage", pulp.LpMinimize)
+    
+    D, H = demand_matrix.shape
+    total_dem = int(demand_matrix.sum())
+    
+    # Variables de turnos con límites más conservadores
+    shift_vars = {}
+    for i, s in enumerate(shifts_list):
+        pat = np.array(shifts_coverage[s])
+        pat_2d = pat.reshape(D, len(pat) // D)
+        pat_hours = int(pat_2d.sum())
+        
+        # Límite conservador para controlar exceso
+        ub = max(1, int(np.ceil(total_dem / max(pat_hours, 1) / cfg.get("agent_limit_factor", 15))))
+        shift_vars[s] = pulp.LpVariable(f"x_{i}", 0, ub, pulp.LpInteger)
+    
+    # Variables de déficit y exceso
+    deficit_vars = {(d, h): pulp.LpVariable(f"def_{d}_{h}", 0, None) for d in range(D) for h in range(H)}
+    excess_vars = {(d, h): pulp.LpVariable(f"exc_{d}_{h}", 0, None) for d in range(D) for h in range(H)}
+    
+    # Objetivo: eliminar déficit ante todo (peso enorme), minimizar exceso y agentes
+    total_deficit = pulp.lpSum(deficit_vars.values())
+    total_excess = pulp.lpSum(excess_vars.values())
+    total_agents = pulp.lpSum(shift_vars.values())
+    
+    deficit_penalty = cfg.get("deficit_penalty", 1000.0)
+    excess_penalty = cfg.get("excess_penalty", 1.0)
+    
+    prob += (total_deficit * deficit_penalty + 
+             total_excess * excess_penalty + 
+             total_agents * 0.01)
+    
+    # Restricciones de cobertura
+    for d in range(D):
+        for h in range(H):
+            cov = pulp.lpSum([
+                shift_vars[s] * np.array(shifts_coverage[s]).reshape(D, len(shifts_coverage[s]) // D)[d, h]
+                for s in shifts_list
+            ])
+            prob += cov + deficit_vars[(d, h)] - excess_vars[(d, h)] == int(demand_matrix[d, h])
+    
+    # Resolver
+    solver = _build_cbc_solver(cfg)
+    prob.solve(solver)
+    
+    assignments = {}
+    if prob.status == pulp.LpStatusOptimal:
+        for s in shifts_list:
+            v = int(shift_vars[s].varValue or 0)
+            if v > 0:
+                assignments[s] = v
+        # Logs de métricas para maximum coverage
+        if assignments:
+            mc_results = analyze_results(assignments, shifts_coverage, demand_matrix)
+            if mc_results:
+                print(f"[MÉTRICAS MC] Cobertura_real={mc_results.get('coverage_real', 0):.1f}%, Cobertura_pura={mc_results['coverage_percentage']:.1f}%, Exceso={mc_results['overstaffing']}, Déficit={mc_results['understaffing']}, Agentes={mc_results['total_agents']}")
+        return assignments, "MAXIMUM_COVERAGE"
+    
+    return {}, f"STATUS_{prob.status}"
+
+
 def optimize_jean_search(
     shifts_coverage,
     demand_matrix,
     *,
-    target_coverage=98.0,
-    agent_limit_factor=25,
+    target_coverage=100.0,  # Cambio a 100% para priorizar cobertura real
+    agent_limit_factor=15,
     excess_penalty=5.0,
     peak_bonus=2.0,
     critical_bonus=2.5,
@@ -1340,9 +1418,9 @@ def optimize_jean_search(
     import math
     cfg = {**(cfg or {}), **kwargs}
     
-    # Verificar que el perfil JEAN tenga agent_limit_factor correcto (25 por defecto)
+    # Verificar que el perfil JEAN tenga agent_limit_factor correcto (15 por defecto)
     if cfg.get("agent_limit_factor") is None:
-        cfg["agent_limit_factor"] = 25  # Valor por defecto JEAN
+        cfg["agent_limit_factor"] = 15  # Valor por defecto JEAN
     
     print("[JEAN] Iniciando búsqueda JEAN de 2 fases (exacta del original)")
     
@@ -1389,6 +1467,8 @@ def optimize_jean_search(
                 best_target_score = best_score
                 got_target_solution = True
             print(f"[JEAN] Base solution without excess: coverage {best_coverage:.1f}%, score {best_score:.1f}")
+            # Logs de métricas clave
+            print(f"[MÉTRICAS] Cobertura_real={base_results.get('coverage_real', best_coverage):.1f}%, Cobertura_pura={best_coverage:.1f}%, Exceso={base_results['overstaffing']}, Déficit={base_results['understaffing']}, Agentes={base_results['total_agents']}")
     else:
         print("[JEAN] No base solution found without excess")
     
@@ -1442,35 +1522,35 @@ def optimize_jean_search(
             )
         
         if trial_assignments:
-            results = analyze_results(trial_assignments, shifts_coverage, demand_matrix)
-            if results:
-                # Score JEAN: overstaffing + understaffing (exacto del original)
-                score = results["overstaffing"] + results["understaffing"]
-                cov = results["coverage_percentage"]
+            trial_results = analyze_results(trial_assignments, shifts_coverage, demand_matrix)
+            if trial_results:
+                # Score JEAN ajustado: |100 - cobertura| + overstaffing + understaffing
+                cov = trial_results["coverage_percentage"]
+                score = abs(100.0 - cov) + trial_results["overstaffing"] + trial_results["understaffing"]
                 
-                print(f"[JEAN] Factor {factor}: coverage {cov:.1f}%, score {score:.1f}, agents {results['total_agents']}")
+                print(f"[JEAN] Factor {factor}: coverage {cov:.1f}%, score {score:.1f}, agents {trial_results['total_agents']}")
                 
-                if cov >= target_coverage:
-                    # Solution meets coverage target: evaluate quality
-                    if not got_target_solution or score < best_target_score:
-                        best_assignments = trial_assignments
-                        best_method = f"JEAN_F{factor}"
-                        best_target_score = score
-                        print(f"[JEAN] New best target solution: coverage {cov:.1f}%, score {score:.1f}, agents {results['total_agents']}")
-                    got_target_solution = True
-                else:
-                    # Solution below target: keep highest coverage
-                    if not got_target_solution and cov > best_coverage:
-                        best_assignments = trial_assignments
-                        best_method = f"JEAN_F{factor}"
-                        best_score = score
-                        best_coverage = cov
-                        print(f"[JEAN] New best coverage: {cov:.1f}%, score {score:.1f}, agents {results['total_agents']}")
+                # Usar score ajustado para todas las comparaciones
+                if not got_target_solution or score < best_target_score:
+                    best_assignments = trial_assignments
+                    best_method = f"JEAN_F{factor}"
+                    best_target_score = score
+                    best_coverage = cov
+                    print(f"[JEAN] New best solution: coverage {cov:.1f}%, score {score:.1f}, agents {trial_results['total_agents']}")
+                    # Logs de métricas clave para cada iteración
+                    print(f"[MÉTRICAS] Cobertura_real={trial_results.get('coverage_real', cov):.1f}%, Cobertura_pura={cov:.1f}%, Exceso={trial_results['overstaffing']}, Déficit={trial_results['understaffing']}, Agentes={trial_results['total_agents']}")
+                    if cov >= target_coverage:
+                        got_target_solution = True
     
     elapsed = time.time() - start_time
     final_score = best_target_score if got_target_solution else best_score
     final_coverage = best_coverage if not got_target_solution else (analyze_results(best_assignments, shifts_coverage, demand_matrix) or {}).get("coverage_percentage", 0)
     print(f"[JEAN] Completed in {elapsed:.1f}s: final score {final_score:.1f}, coverage {final_coverage:.1f}%")
+    # Logs finales de métricas
+    if best_assignments:
+        final_results = analyze_results(best_assignments, shifts_coverage, demand_matrix)
+        if final_results:
+            print(f"[MÉTRICAS FINALES] Cobertura_real={final_results.get('coverage_real', final_coverage):.1f}%, Cobertura_pura={final_coverage:.1f}%, Exceso={final_results['overstaffing']}, Déficit={final_results['understaffing']}, Agentes={final_results['total_agents']}")
     return best_assignments, best_method or "JEAN_NO_SOLUTION"
 
 
@@ -1925,7 +2005,7 @@ def run_complete_optimization(
             )
         return {"assignments": {}}
 
-    TARGET_COVERAGE = cfg.get("TARGET_COVERAGE", 98.0)
+    TARGET_COVERAGE = cfg.get("TARGET_COVERAGE", 100.0)  # Cambio a 100% para priorizar cobertura real
     agent_limit_factor = cfg.get("agent_limit_factor", 30)
     excess_penalty = cfg.get("excess_penalty", 0)
     peak_bonus = cfg.get("peak_bonus", 0)
@@ -1935,9 +2015,9 @@ def run_complete_optimization(
         # Apply JEAN profile parameters before optimizing
         cfg = apply_profile(cfg)
         
-        # Ensure JEAN uses correct default agent_limit_factor (25, not 30)
+        # Ensure JEAN uses correct default agent_limit_factor (15, not 30)
         if cfg.get("agent_limit_factor") is None or cfg.get("agent_limit_factor") == 30:
-            cfg["agent_limit_factor"] = 25
+            cfg["agent_limit_factor"] = 15
         
         if optimization_profile == "JEAN Personalizado":
             try:
@@ -1953,7 +2033,7 @@ def run_complete_optimization(
                     patterns,
                     demand_matrix,
                     target_coverage=TARGET_COVERAGE,
-                    agent_limit_factor=cfg.get("agent_limit_factor", 25),
+                    agent_limit_factor=cfg.get("agent_limit_factor", 15),
                     excess_penalty=cfg.get("excess_penalty", 5.0),
                     peak_bonus=cfg.get("peak_bonus", 2.0),
                     critical_bonus=cfg.get("critical_bonus", 2.5),
@@ -1965,7 +2045,7 @@ def run_complete_optimization(
                 patterns,
                 demand_matrix,
                 target_coverage=TARGET_COVERAGE,
-                agent_limit_factor=cfg.get("agent_limit_factor", 25),
+                agent_limit_factor=cfg.get("agent_limit_factor", 15),
                 excess_penalty=cfg.get("excess_penalty", 5.0),
                 peak_bonus=cfg.get("peak_bonus", 2.0),
                 critical_bonus=cfg.get("critical_bonus", 2.5),
@@ -2030,34 +2110,39 @@ def run_complete_optimization(
         print(
             f"[SCHEDULER] Executing standard profile with dedicated optimizer: {normalized}"
         )
-        opt_fn = get_profile_optimizer(normalized)
-        cfg["optimization_profile"] = normalized
-        try:
-            assignments, status = opt_fn(
-                patterns, demand_matrix, cfg=cfg, job_id=job_id
-            )
-        except Exception as e:
-            print(
-                f"[SCHEDULER] Error in profile optimizer: {e} -> fallback to two-phase"
-            )
+        
+        # Usar optimize_maximum_coverage para el nuevo perfil
+        if normalized == "Cobertura Máxima (Completo)":
+            assignments, pulp_status = optimize_maximum_coverage(patterns, demand_matrix, cfg=cfg)
+        else:
+            opt_fn = get_profile_optimizer(normalized)
+            cfg["optimization_profile"] = normalized
             try:
-                assignments, status = optimize_ft_then_pt_strategy(patterns, demand_matrix, cfg=cfg)
-            except Exception as e2:
-                print(f"[SCHEDULER] Error in two-phase: {e2} -> fallback to chunks")
-                assignments = solve_in_chunks_optimized(
-                    patterns,
-                    demand_matrix,
-                    optimization_profile=normalized,
-                    use_ft=use_ft,
-                    use_pt=use_pt,
-                    TARGET_COVERAGE=TARGET_COVERAGE,
-                    agent_limit_factor=agent_limit_factor,
-                    excess_penalty=excess_penalty,
-                    peak_bonus=peak_bonus,
-                    critical_bonus=critical_bonus,
+                assignments, status = opt_fn(
+                    patterns, demand_matrix, cfg=cfg, job_id=job_id
                 )
-                status = "CHUNKS_FALLBACK"
-        pulp_status = status
+            except Exception as e:
+                print(
+                    f"[SCHEDULER] Error in profile optimizer: {e} -> fallback to two-phase"
+                )
+                try:
+                    assignments, status = optimize_ft_then_pt_strategy(patterns, demand_matrix, cfg=cfg)
+                except Exception as e2:
+                    print(f"[SCHEDULER] Error in two-phase: {e2} -> fallback to chunks")
+                    assignments = solve_in_chunks_optimized(
+                        patterns,
+                        demand_matrix,
+                        optimization_profile=normalized,
+                        use_ft=use_ft,
+                        use_pt=use_pt,
+                        TARGET_COVERAGE=TARGET_COVERAGE,
+                        agent_limit_factor=agent_limit_factor,
+                        excess_penalty=excess_penalty,
+                        peak_bonus=peak_bonus,
+                        critical_bonus=critical_bonus,
+                    )
+                    status = "CHUNKS_FALLBACK"
+            pulp_status = status
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
 
     jean_iters = []
