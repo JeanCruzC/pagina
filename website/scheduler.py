@@ -877,6 +877,12 @@ def optimize_with_precision_targeting(
                 )
                 prob += cov <= int(demand_matrix[d, h])  # Sin exceso
     
+    # Restricción de exceso máximo para JEAN (10% de demanda total)
+    profile_name = cfg.get("optimization_profile", "")
+    if "JEAN" in profile_name:
+        total_excess = pulp.lpSum(excess_vars.values())
+        prob += total_excess <= demand_matrix.sum() * 0.10
+    
     # Límite de agentes total si está configurado
     if cfg.get("agent_cap"):
         prob += total_agents <= int(cfg["agent_cap"])
@@ -1017,31 +1023,41 @@ def optimize_jean_search(
     import math
     cfg = {**(cfg or {}), **kwargs}
     
+    # Verificar que el perfil JEAN tenga agent_limit_factor correcto (25 por defecto)
+    if cfg.get("agent_limit_factor") is None:
+        cfg["agent_limit_factor"] = 25  # Valor por defecto JEAN
+    
     print("[JEAN] Iniciando búsqueda JEAN de 2 fases (exacta del original)")
     
-    # 1) FASE BASE: solución permisiva con exceso permitido
-    print("[JEAN] Fase 1: Solución base con exceso permitido")
+    # 1) FASE BASE: solución sin exceso para establecer baseline
+    print("[JEAN] Fase 1: Solución base sin exceso")
     base_cfg = cfg.copy()
-    base_cfg["allow_excess"] = True
+    base_cfg["allow_excess"] = False  # Sin exceso en fase 1
     base_cfg["allow_deficit"] = True
+    base_cfg["optimization_profile"] = cfg.get("optimization_profile", "JEAN")
     
     if PULP_AVAILABLE:
         base_assignments, _ = optimize_with_precision_targeting(
-            shifts_coverage, demand_matrix, cfg=base_cfg
+            shifts_coverage, demand_matrix, 
+            cfg=base_cfg,
+            excess_penalty=cfg.get("excess_penalty", 5.0),
+            peak_bonus=cfg.get("peak_bonus", 2.0),
+            critical_bonus=cfg.get("critical_bonus", 2.5)
         )
     else:
         base_assignments = solve_in_chunks_optimized(
             shifts_coverage, demand_matrix, **base_cfg
         )
     
-    # 2) FASE PRECISIÓN: caps progresivos con exceso controlado
+    # 2) FASE PRECISIÓN: caps progresivos con exceso controlado (<=10%)
     total_demand = float(demand_matrix.sum())
     peak_demand = float(demand_matrix.max())
     
-    print(f"[JEAN] Fase 2: Búsqueda con exceso controlado")
+    print(f"[JEAN] Fase 2: Búsqueda con exceso controlado (<=10%)")
     
     # Inicializar con solución base
     best_assignments = base_assignments
+    best_method = ""
     best_score = float("inf")
     best_coverage = 0
     
@@ -1050,26 +1066,37 @@ def optimize_jean_search(
         if base_results:
             best_score = base_results["overstaffing"] + base_results["understaffing"]
             best_coverage = base_results["coverage_percentage"]
-            print(f"[JEAN] Solución base: cobertura {best_coverage:.1f}%, score {best_score:.1f}")
+            print(f"[JEAN] Solución base sin exceso: cobertura {best_coverage:.1f}%, score {best_score:.1f}")
+    else:
+        print("[JEAN] No se encontró solución base sin exceso")
     
     # Factores exactos del original: 30, 27, 24 como divisores
+    start_time = time.time()
+    max_time = 180  # Máximo 3 minutos para JEAN
+    
     for factor in [30, 27, 24]:
+        # Verificar timeout
+        if time.time() - start_time > max_time:
+            print(f"[JEAN] Timeout alcanzado ({max_time}s)")
+            break
+            
         agent_cap = max(1, int(total_demand / factor), int(peak_demand * 1.1))
         print(f"[JEAN] Iteración: factor {factor}, cap agentes {agent_cap}")
         
-        # Configuración con exceso controlado (no prohibido)
+        # Configuración con exceso controlado (<=10% de demanda)
         temp_cfg = cfg.copy()
-        temp_cfg["allow_excess"] = True  # Permitir exceso pero penalizado
+        temp_cfg["allow_excess"] = True  # Permitir exceso controlado
         temp_cfg["allow_deficit"] = True
         temp_cfg["agent_cap"] = agent_cap
         temp_cfg["agent_limit_factor"] = max(5, agent_limit_factor // 2)
+        temp_cfg["optimization_profile"] = cfg.get("optimization_profile", "JEAN")
         
         if PULP_AVAILABLE:
             trial_assignments, _ = optimize_with_precision_targeting(
                 shifts_coverage, demand_matrix, 
                 cfg=temp_cfg,
                 agent_limit_factor=temp_cfg["agent_limit_factor"],
-                excess_penalty=excess_penalty * 10,  # Penalizar fuertemente exceso
+                excess_penalty=excess_penalty,
                 peak_bonus=peak_bonus,
                 critical_bonus=critical_bonus
             )
@@ -1088,24 +1115,27 @@ def optimize_jean_search(
                 score = results["overstaffing"] + results["understaffing"]
                 cov = results["coverage_percentage"]
                 
-                print(f"[JEAN] Factor {factor}: cobertura {cov:.1f}%, score {score:.1f}")
+                print(f"[JEAN] Factor {factor}: cobertura {cov:.1f}%, score {score:.1f}, agentes {results['total_agents']}")
                 
                 # Criterio de selección exacto del original
                 if cov >= target_coverage:
                     if score < best_score or not best_assignments:
                         best_assignments = trial_assignments
+                        best_method = f"JEAN_F{factor}"
                         best_score = score
                         best_coverage = cov
-                        print(f"[JEAN] Nueva mejor solución: score {score:.1f}")
-                elif cov > best_coverage and best_coverage < target_coverage:
-                    # Solo actualizar si no hemos alcanzado el target aún
+                        print(f"[JEAN] Nueva mejor solución: score {score:.1f}, agentes {results['total_agents']}")
+                elif cov > best_coverage:
+                    # Actualizar si es mejor cobertura
                     best_assignments = trial_assignments
+                    best_method = f"JEAN_F{factor}"
                     best_score = score
                     best_coverage = cov
-                    print(f"[JEAN] Mejor cobertura parcial: {cov:.1f}%")
+                    print(f"[JEAN] Mejor cobertura parcial: {cov:.1f}%, agentes {results['total_agents']}")
     
-    print(f"[JEAN] Completado: score final {best_score:.1f}, cobertura {best_coverage:.1f}%")
-    return best_assignments, "JEAN"
+    elapsed = time.time() - start_time
+    print(f"[JEAN] Completado en {elapsed:.1f}s: score final {best_score:.1f}, cobertura {best_coverage:.1f}%")
+    return best_assignments, best_method or "JEAN_NO_SOLUTION"
 
 
 def analyze_results(assignments, shifts_coverage, demand_matrix):
