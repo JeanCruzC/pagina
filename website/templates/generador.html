@@ -182,13 +182,66 @@
 
 {% block scripts %}
 <script>
-document.getElementById('optimization_profile').addEventListener('change', function() {
-  const jeanSection = document.getElementById('jean_custom_section');
-  if (this.value === 'JEAN Personalizado') {
-    jeanSection.style.display = 'block';
-  } else {
-    jeanSection.style.display = 'none';
+// Persist form values in localStorage
+function saveFormState() {
+  const form = document.querySelector('form');
+  const formData = new FormData(form);
+  const state = {};
+  
+  // Save all form inputs
+  for (let [key, value] of formData.entries()) {
+    if (form.elements[key].type === 'checkbox') {
+      state[key] = form.elements[key].checked;
+    } else if (form.elements[key].type !== 'file') {
+      state[key] = value;
+    }
   }
+  
+  localStorage.setItem('generatorFormState', JSON.stringify(state));
+}
+
+function loadFormState() {
+  const saved = localStorage.getItem('generatorFormState');
+  if (!saved) return;
+  
+  const state = JSON.parse(saved);
+  const form = document.querySelector('form');
+  
+  for (let [key, value] of Object.entries(state)) {
+    const element = form.elements[key];
+    if (!element) continue;
+    
+    if (element.type === 'checkbox') {
+      element.checked = value;
+    } else if (element.type !== 'file') {
+      element.value = value;
+    }
+  }
+}
+
+// Load state on page load
+document.addEventListener('DOMContentLoaded', function() {
+  loadFormState();
+  
+  // Save state on form changes
+  const form = document.querySelector('form');
+  form.addEventListener('change', saveFormState);
+  form.addEventListener('input', saveFormState);
+  
+  // Handle JEAN Personalizado section
+  const profileSelect = document.getElementById('optimization_profile');
+  const jeanSection = document.getElementById('jean_custom_section');
+  
+  function toggleJeanSection() {
+    if (profileSelect.value === 'JEAN Personalizado') {
+      jeanSection.style.display = 'block';
+    } else {
+      jeanSection.style.display = 'none';
+    }
+  }
+  
+  profileSelect.addEventListener('change', toggleJeanSection);
+  toggleJeanSection(); // Initial check
 });
 </script>
 {% endblock %}

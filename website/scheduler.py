@@ -726,14 +726,17 @@ def generate_shifts_coverage_optimized(
     
     print(f"[GEN] Patrones únicos generados: {len(quality_patterns)}")
     
-    # Aplicar filtrado inteligente por puntaje
-    filtered_patterns = score_and_filter_patterns(
-        quality_patterns, demand_matrix, 
-        keep_percentage=keep_percentage,
-        peak_bonus=peak_bonus,
-        critical_bonus=critical_bonus,
-        efficiency_bonus=efficiency_bonus
-    )
+    # Apply intelligent score filtering only if keep_percentage < 1.0
+    if keep_percentage < 1.0:
+        filtered_patterns = score_and_filter_patterns(
+            quality_patterns, demand_matrix, 
+            keep_percentage=keep_percentage,
+            peak_bonus=peak_bonus,
+            critical_bonus=critical_bonus,
+            efficiency_bonus=efficiency_bonus
+        )
+    else:
+        filtered_patterns = quality_patterns
     
     # Entregar en batches
     selected = 0
@@ -1901,6 +1904,7 @@ def run_complete_optimization(
             allow_pt_5h=use_pt and cfg.get("allow_pt_5h", False),
             allow_pt_6h=use_pt and cfg.get("allow_pt_6h", False),
             keep_percentage=1.0,
+            max_patterns=None,
             peak_bonus=cfg.get("peak_bonus", 1.5),
             critical_bonus=cfg.get("critical_bonus", 2.0),
             efficiency_bonus=cfg.get("efficiency_bonus", 1.0),
