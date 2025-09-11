@@ -1346,7 +1346,16 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=None):
     return assignments, "FT_NO_EXCESS_THEN_PT"
 
 def optimize_cobertura_real_jean(shifts_coverage, demand_matrix, cfg=None):
-    """Sistema multi-solver con búsqueda automática de hiperparámetros."""
+    """Sistema multi-solver que invoca CBC/PuLP, Greedy y Portfolio para comparar resultados.
+    
+    Ejecuta tres solvers:
+    1. CBC/PuLP: optimize_maximum_coverage (minimiza déficit con penalización de exceso)
+    2. Greedy: optimize_schedule_greedy_enhanced (algoritmo voraz mejorado)
+    3. Portfolio: optimize_portfolio (búsqueda de hiperparámetros)
+    
+    Selecciona la mejor solución usando: score = |coverage_real - 100| + α*(exceso + déficit)
+    Descarta soluciones con coverage_real > 102% según perfil "Cobertura Real_Jean".
+    """
     cfg = cfg or {}
     profile = cfg.get("optimization_profile", "")
     
@@ -1365,65 +1374,63 @@ def optimize_cobertura_real_jean(shifts_coverage, demand_matrix, cfg=None):
         return best_solution, f"GRIDSEARCH_{solver_name}"
     else:
         print("[Cobertura Real_Jean] Sistema multi-solver iniciado")
-        return _multi_solver_optimization(shifts_coverage, demand_matrix, cfg)
+        candidates = []
+        
+        # Solver 1: CBC/PuLP con máxima cobertura
+        try:
+            print("[Multi-Solver] Ejecutando CBC/PuLP (optimize_maximum_coverage)...")
+            assignments_cbc, _ = optimize_maximum_coverage(shifts_coverage, demand_matrix, cfg)
+            if assignments_cbc:
+                results = analyze_results(assignments_cbc, shifts_coverage, demand_matrix)
+                if results and results['coverage_real'] <= 102.0:  # Restricción 2% exceso
+                    score = abs(results['coverage_real'] - 100.0) + 0.1 * (results['overstaffing'] + results['understaffing'])
+                    candidates.append((score, assignments_cbc, "CBC_MAXCOV", results))
+                    print(f"[Multi-Solver] CBC: Cobertura_real {results['coverage_real']:.1f}%, Score {score:.2f}")
+        except Exception as e:
+            print(f"[Multi-Solver] CBC failed: {e}")
+        
+        # Solver 2: Greedy mejorado
+        try:
+            print("[Multi-Solver] Ejecutando Greedy (optimize_schedule_greedy_enhanced)...")
+            assignments_greedy = solve_in_chunks_optimized(shifts_coverage, demand_matrix, **cfg)
+            if assignments_greedy:
+                results = analyze_results(assignments_greedy, shifts_coverage, demand_matrix)
+                if results and results['coverage_real'] <= 102.0:  # Restricción 2% exceso
+                    score = abs(results['coverage_real'] - 100.0) + 0.1 * (results['overstaffing'] + results['understaffing'])
+                    candidates.append((score, assignments_greedy, "GREEDY_ENHANCED", results))
+                    print(f"[Multi-Solver] Greedy: Cobertura_real {results['coverage_real']:.1f}%, Score {score:.2f}")
+        except Exception as e:
+            print(f"[Multi-Solver] Greedy failed: {e}")
+        
+        # Solver 3: Portfolio con hiperparámetros
+        try:
+            print("[Multi-Solver] Ejecutando Portfolio (optimize_portfolio)...")
+            assignments_portfolio, _ = optimize_portfolio(shifts_coverage, demand_matrix, cfg)
+            if assignments_portfolio:
+                results = analyze_results(assignments_portfolio, shifts_coverage, demand_matrix)
+                if results and results['coverage_real'] <= 102.0:  # Restricción 2% exceso
+                    score = abs(results['coverage_real'] - 100.0) + 0.1 * (results['overstaffing'] + results['understaffing'])
+                    candidates.append((score, assignments_portfolio, "PORTFOLIO_HYPERPARAMS", results))
+                    print(f"[Multi-Solver] Portfolio: Cobertura_real {results['coverage_real']:.1f}%, Score {score:.2f}")
+        except Exception as e:
+            print(f"[Multi-Solver] Portfolio failed: {e}")
+        
+        # Seleccionar mejor solución
+        if not candidates:
+            print("[Multi-Solver] No valid solutions found")
+            return {}, "NO_SOLUTION"
+        
+        # Ordenar por score: menor es mejor (más cerca de 100% + menor exceso/déficit)
+        candidates.sort(key=lambda x: x[0])
+        best_score, best_assignments, best_solver, best_results = candidates[0]
+        
+        print(f"[Multi-Solver] Ganador: {best_solver} con score {best_score:.2f}")
+        print(f"[MÉTRICAS MULTI] Cobertura_real={best_results['coverage_real']:.1f}%, Exceso={best_results['overstaffing']}, Déficit={best_results['understaffing']}, Agentes={best_results['total_agents']}")
+        
+        return best_assignments, f"MULTISOLVER_{best_solver}"
 
 
-def _multi_solver_optimization(shifts_coverage, demand_matrix, cfg):
-    """Sistema multi-solver que compara CBC/PuLP, Greedy y Portfolio."""
-    candidates = []
-    
-    # Solver 1: CBC/PuLP con máxima cobertura
-    try:
-        print("[Multi-Solver] Ejecutando CBC/PuLP...")
-        assignments_cbc = optimize_maximum_coverage(shifts_coverage, demand_matrix, cfg)
-        if assignments_cbc:
-            results = analyze_results(assignments_cbc, shifts_coverage, demand_matrix)
-            if results and results['coverage_real'] <= 102.0:
-                score = abs(results['coverage_real'] - 100.0) + 0.1 * (results['overstaffing'] + results['understaffing'])
-                candidates.append((score, assignments_cbc, "CBC_MAXCOV", results))
-                print(f"[Multi-Solver] CBC: Cobertura {results['coverage_real']:.1f}%, Score {score:.2f}")
-    except Exception as e:
-        print(f"[Multi-Solver] CBC failed: {e}")
-    
-    # Solver 2: Greedy mejorado
-    try:
-        print("[Multi-Solver] Ejecutando Greedy...")
-        assignments_greedy = solve_in_chunks_optimized(shifts_coverage, demand_matrix, **cfg)
-        if assignments_greedy:
-            results = analyze_results(assignments_greedy, shifts_coverage, demand_matrix)
-            if results and results['coverage_real'] <= 102.0:
-                score = abs(results['coverage_real'] - 100.0) + 0.1 * (results['overstaffing'] + results['understaffing'])
-                candidates.append((score, assignments_greedy, "GREEDY_CHUNKS", results))
-                print(f"[Multi-Solver] Greedy: Cobertura {results['coverage_real']:.1f}%, Score {score:.2f}")
-    except Exception as e:
-        print(f"[Multi-Solver] Greedy failed: {e}")
-    
-    # Solver 3: Portfolio con hiperparámetros
-    try:
-        print("[Multi-Solver] Ejecutando Portfolio...")
-        assignments_portfolio, _ = optimize_portfolio(shifts_coverage, demand_matrix, cfg)
-        if assignments_portfolio:
-            results = analyze_results(assignments_portfolio, shifts_coverage, demand_matrix)
-            if results and results['coverage_real'] <= 102.0:
-                score = abs(results['coverage_real'] - 100.0) + 0.1 * (results['overstaffing'] + results['understaffing'])
-                candidates.append((score, assignments_portfolio, "PORTFOLIO", results))
-                print(f"[Multi-Solver] Portfolio: Cobertura {results['coverage_real']:.1f}%, Score {score:.2f}")
-    except Exception as e:
-        print(f"[Multi-Solver] Portfolio failed: {e}")
-    
-    # Seleccionar mejor solución
-    if not candidates:
-        print("[Multi-Solver] No valid solutions found")
-        return {}, "NO_SOLUTION"
-    
-    # Ordenar por score (menor es mejor: más cerca de 100% + menor exceso/déficit)
-    candidates.sort(key=lambda x: x[0])
-    best_score, best_assignments, best_solver, best_results = candidates[0]
-    
-    print(f"[Multi-Solver] Ganador: {best_solver} con score {best_score:.2f}")
-    print(f"[MÉTRICAS MULTI] Cobertura_real={best_results['coverage_real']:.1f}%, Exceso={best_results['overstaffing']}, Déficit={best_results['understaffing']}, Agentes={best_results['total_agents']}")
-    
-    return best_assignments, f"MULTISOLVER_{best_solver}"
+
 
 
 def _search_hyperparameters(shifts_coverage, demand_matrix, cfg_defaults):
