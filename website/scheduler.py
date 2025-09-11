@@ -78,34 +78,49 @@ except Exception:
     PULP_AVAILABLE = False
 
 
-def _build_cbc_solver(cfg):
+def _build_solver(cfg):
     """
-    Construye un PULP_CBC_CMD compatible con PuLP>=2.7/2.8.
-    - timeLimit: respeta cfg['solver_time'] (0 => sin límite -> None)
-    - msg: respeta cfg['solver_msg']
-    - options: pasa 'randomSeed 42', 'threads N' como CADENAS
+    Construye el mejor solver disponible: HiGHS > CBC.
     """
     time_limit = int(cfg.get("solver_time", 120))
     msg = bool(cfg.get("solver_msg", True))
-
-    # Opcional: si manejas hilos desde config; si no, se ignora.
+    
+    # Intentar HiGHS primero
+    try:
+        solver = pulp.HiGHS_CMD(
+            msg=msg,
+            timeLimit=(time_limit if time_limit > 0 else None)
+        )
+        test_prob = pulp.LpProblem("test", pulp.LpMinimize)
+        x = pulp.LpVariable("x", 0, 1)
+        test_prob += x
+        test_prob += x == 0
+        if test_prob.solve(solver) == pulp.LpStatusOptimal:
+            print("[SOLVER] Usando HiGHS")
+            return solver
+    except Exception:
+        pass
+    
+    # Fallback a CBC
+    print("[SOLVER] Usando CBC")
     threads = int(cfg.get("solver_threads", 1))
-
-    # Semilla determinística (misma que usabas): 42 por defecto
     seed = int(cfg.get("random_seed", 42))
-
+    
     opts = []
-    # IMPORTANTE: options deben ser strings tipo "clave valor"
     if seed is not None:
         opts.append(f"randomSeed {seed}")
     if threads and threads > 1:
         opts.append(f"threads {threads}")
-
+    
     return pulp.PULP_CBC_CMD(
         msg=msg,
         timeLimit=(time_limit if time_limit > 0 else None),
         options=opts,
     )
+
+# Mantener compatibilidad
+def _build_cbc_solver(cfg):
+    return _build_solver(cfg)
 
 
 def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
@@ -1330,6 +1345,105 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=None):
     assignments = {**ft_assignments, **pt_assignments}
     return assignments, "FT_NO_EXCESS_THEN_PT"
 
+def optimize_cobertura_real_jean(shifts_coverage, demand_matrix, cfg=None):
+    """Perfil Cobertura Real_Jean: FT sin exceso, luego PT con restricción exceso/déficit ≤ 2%."""
+    if not PULP_AVAILABLE:
+        return {}, "NO_PULP"
+    
+    cfg = cfg or {}
+    print("[Cobertura Real_Jean] Iniciando optimización FT→PT con restricción ±2%")
+    
+    # Separar patrones FT y PT
+    ft_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('FT')}
+    pt_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('PT')}
+    
+    total_demand = demand_matrix.sum()
+    max_deviation = total_demand * 0.02  # Máximo 2% de desviación
+    
+    # Fase 1: FT sin exceso
+    ft_assignments = optimize_ft_no_excess(ft_shifts, demand_matrix, cfg)
+    
+    # Calcular cobertura FT
+    ft_coverage = np.zeros_like(demand_matrix, dtype=int)
+    for name, count in ft_assignments.items():
+        pattern = np.array(ft_shifts[name]).reshape(7, -1)
+        ft_coverage += pattern * count
+    
+    # Fase 2: PT con restricción ±2%
+    remaining = np.maximum(0, demand_matrix - ft_coverage)
+    
+    if pt_shifts and remaining.sum() > 0:
+        prob = pulp.LpProblem("CoberturaReal_PT", pulp.LpMinimize)
+        
+        # Variables PT
+        pt_vars = {s: pulp.LpVariable(f"pt_{s}", 0, None, pulp.LpInteger) for s in pt_shifts}
+        
+        # Variables de exceso y déficit
+        D, H = demand_matrix.shape
+        excess_vars = {(d, h): pulp.LpVariable(f"exc_{d}_{h}", 0, None) for d in range(D) for h in range(H)}
+        deficit_vars = {(d, h): pulp.LpVariable(f"def_{d}_{h}", 0, None) for d in range(D) for h in range(H)}
+        
+        # Objetivo: eliminar déficit y penalizar exceso fuertemente
+        total_excess = pulp.lpSum(excess_vars.values())
+        total_deficit = pulp.lpSum(deficit_vars.values())
+        total_agents = pulp.lpSum(pt_vars.values())
+        
+        excess_penalty = cfg.get("excess_penalty", 10.0)
+        prob += total_deficit * 100000 + total_excess * excess_penalty * 1000 + total_agents * 1
+        
+        # Restricciones de cobertura con bonos por picos y días críticos
+        peak_hours = cfg.get("peak_hours", [])
+        critical_days = cfg.get("critical_days", [])
+        peak_bonus = cfg.get("peak_bonus", 2.0)
+        critical_bonus = cfg.get("critical_bonus", 2.0)
+        
+        for d in range(D):
+            for h in range(H):
+                pt_cov = pulp.lpSum(pt_vars[s] * pt_shifts[s][d * H + h] for s in pt_shifts)
+                total_cov = ft_coverage[d, h] + pt_cov
+                demand = int(demand_matrix[d, h])
+                
+                prob += total_cov + deficit_vars[(d, h)] >= demand
+                prob += total_cov - excess_vars[(d, h)] <= demand
+                
+                # Bonos por horas pico y días críticos
+                if h in peak_hours:
+                    prob += deficit_vars[(d, h)] * peak_bonus
+                if d in critical_days:
+                    prob += deficit_vars[(d, h)] * critical_bonus
+        
+        # Forzar cobertura completa (no déficit) si allow_deficit=False
+        if not cfg.get("allow_deficit", True):
+            prob += total_deficit == 0
+        
+        # Restricción de exceso máximo (2%)
+        prob += total_excess <= max_deviation
+        
+        # Resolver
+        solver = _build_solver(cfg)
+        prob.solve(solver)
+        
+        pt_assignments = {}
+        if prob.status == pulp.LpStatusOptimal:
+            for s, var in pt_vars.items():
+                val = int(var.value() or 0)
+                if val > 0:
+                    pt_assignments[s] = val
+    else:
+        pt_assignments = {}
+    
+    # Combinar resultados
+    assignments = {**ft_assignments, **pt_assignments}
+    
+    # Logs de métricas
+    if assignments:
+        results = analyze_results(assignments, shifts_coverage, demand_matrix)
+        if results:
+            print(f"[MÉTRICAS CRJ] Cobertura_real={results['coverage_real']:.1f}%, Exceso={results['overstaffing']}, Déficit={results['understaffing']}, Agentes={results['total_agents']}")
+    
+    return assignments, "COBERTURA_REAL_JEAN"
+
+
 def optimize_maximum_coverage(shifts_coverage, demand_matrix, cfg=None):
     """Optimizador de cobertura máxima que elimina el déficit ante todo."""
     if not PULP_AVAILABLE:
@@ -2115,9 +2229,11 @@ def run_complete_optimization(
             f"[SCHEDULER] Executing standard profile with dedicated optimizer: {normalized}"
         )
         
-        # Usar optimize_maximum_coverage para el nuevo perfil
+        # Usar optimizadores específicos para nuevos perfiles
         if normalized == "Cobertura Máxima (Completo)":
             assignments, pulp_status = optimize_maximum_coverage(patterns, demand_matrix, cfg=cfg)
+        elif normalized == "Cobertura Real_Jean":
+            assignments, pulp_status = optimize_cobertura_real_jean(patterns, demand_matrix, cfg=cfg)
         else:
             opt_fn = get_profile_optimizer(normalized)
             cfg["optimization_profile"] = normalized

@@ -1,0 +1,11 @@
+# Solvers gratuitos para optimización avanzada
+
+# HiGHS - Solver moderno y gratuito (MIT license)
+# Instalación: pip install highspy
+# Uso: Automático si está disponible, fallback a CBC
+highspy>=1.5.0
+
+# Notas de instalación:
+# 1. CBC viene incluido con PuLP (no requiere instalación adicional)
+# 2. HiGHS es gratuito y moderno: pip install highspy
+# 3. El sistema detecta automáticamente qué solver usar: HiGHS > CBC
