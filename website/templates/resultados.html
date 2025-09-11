@@ -13,6 +13,9 @@
     <span class="kpi-label">Perfil:
       <strong>{{ payload.effective_profile or (payload.config and payload.config.optimization_profile) or "—" }}</strong>
     </span>
+    {% if payload.multi_solver %}
+      <span class="badge text-bg-info">Multi-Solver: {{ payload.solver_used or "AUTO" }}</span>
+    {% endif %}
     {% if payload.export_b64 %}
       <a class="btn btn-success btn-sm ms-auto"
          download="turnos.xlsx"

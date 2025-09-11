@@ -57,6 +57,19 @@ PROFILES = {
         "solver_time": 300,
         "hybrid": False
     },
+    "Grid Search Automático": {
+        "agent_limit_factor": 15,
+        "excess_penalty": 5.0,
+        "peak_hours": [11, 12, 13, 14, 15, 16],
+        "peak_bonus": 2.0,
+        "critical_days": [2, 4],
+        "critical_bonus": 2.0,
+        "TARGET_COVERAGE": 100.0,
+        "max_excess_ratio": 0.02,
+        "allow_deficit": False,
+        "solver_time": 60,
+        "hybrid": False
+    },
 }
 
 PROFILE_ALIASES = {

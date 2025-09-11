@@ -1346,19 +1346,231 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=None):
     return assignments, "FT_NO_EXCESS_THEN_PT"
 
 def optimize_cobertura_real_jean(shifts_coverage, demand_matrix, cfg=None):
-    """Perfil Cobertura Real_Jean: FT sin exceso, luego PT con restricción exceso/déficit ≤ 2%."""
-    if not PULP_AVAILABLE:
-        return {}, "NO_PULP"
-    
+    """Sistema multi-solver con búsqueda automática de hiperparámetros."""
     cfg = cfg or {}
-    print("[Cobertura Real_Jean] Iniciando optimización FT→PT con restricción ±2%")
+    profile = cfg.get("optimization_profile", "")
     
-    # Separar patrones FT y PT
+    if "Grid Search" in profile:
+        print("[Grid Search] Búsqueda exhaustiva de hiperparámetros iniciada")
+        best_solution, best_metrics = _search_hyperparameters(shifts_coverage, demand_matrix, cfg)
+        
+        if not best_solution:
+            print("[Grid Search] No valid solutions found")
+            return {}, "NO_SOLUTION"
+        
+        solver_name = best_metrics["solver"]
+        print(f"[Grid Search] Ganador: {solver_name}")
+        print(f"[MÉTRICAS FINAL] Cobertura_real={best_metrics['coverage_real']:.1f}%, Exceso={best_metrics['excess']}, Déficit={best_metrics['deficit']}, Agentes={best_metrics['total_agents']}")
+        
+        return best_solution, f"GRIDSEARCH_{solver_name}"
+    else:
+        print("[Cobertura Real_Jean] Sistema multi-solver iniciado")
+        return _multi_solver_optimization(shifts_coverage, demand_matrix, cfg)
+
+
+def _multi_solver_optimization(shifts_coverage, demand_matrix, cfg):
+    """Sistema multi-solver que compara CBC/PuLP, Greedy y Portfolio."""
+    candidates = []
+    
+    # Solver 1: CBC/PuLP con máxima cobertura
+    try:
+        print("[Multi-Solver] Ejecutando CBC/PuLP...")
+        assignments_cbc = optimize_maximum_coverage(shifts_coverage, demand_matrix, cfg)
+        if assignments_cbc:
+            results = analyze_results(assignments_cbc, shifts_coverage, demand_matrix)
+            if results and results['coverage_real'] <= 102.0:
+                score = abs(results['coverage_real'] - 100.0) + 0.1 * (results['overstaffing'] + results['understaffing'])
+                candidates.append((score, assignments_cbc, "CBC_MAXCOV", results))
+                print(f"[Multi-Solver] CBC: Cobertura {results['coverage_real']:.1f}%, Score {score:.2f}")
+    except Exception as e:
+        print(f"[Multi-Solver] CBC failed: {e}")
+    
+    # Solver 2: Greedy mejorado
+    try:
+        print("[Multi-Solver] Ejecutando Greedy...")
+        assignments_greedy = solve_in_chunks_optimized(shifts_coverage, demand_matrix, **cfg)
+        if assignments_greedy:
+            results = analyze_results(assignments_greedy, shifts_coverage, demand_matrix)
+            if results and results['coverage_real'] <= 102.0:
+                score = abs(results['coverage_real'] - 100.0) + 0.1 * (results['overstaffing'] + results['understaffing'])
+                candidates.append((score, assignments_greedy, "GREEDY_CHUNKS", results))
+                print(f"[Multi-Solver] Greedy: Cobertura {results['coverage_real']:.1f}%, Score {score:.2f}")
+    except Exception as e:
+        print(f"[Multi-Solver] Greedy failed: {e}")
+    
+    # Solver 3: Portfolio con hiperparámetros
+    try:
+        print("[Multi-Solver] Ejecutando Portfolio...")
+        assignments_portfolio, _ = optimize_portfolio(shifts_coverage, demand_matrix, cfg)
+        if assignments_portfolio:
+            results = analyze_results(assignments_portfolio, shifts_coverage, demand_matrix)
+            if results and results['coverage_real'] <= 102.0:
+                score = abs(results['coverage_real'] - 100.0) + 0.1 * (results['overstaffing'] + results['understaffing'])
+                candidates.append((score, assignments_portfolio, "PORTFOLIO", results))
+                print(f"[Multi-Solver] Portfolio: Cobertura {results['coverage_real']:.1f}%, Score {score:.2f}")
+    except Exception as e:
+        print(f"[Multi-Solver] Portfolio failed: {e}")
+    
+    # Seleccionar mejor solución
+    if not candidates:
+        print("[Multi-Solver] No valid solutions found")
+        return {}, "NO_SOLUTION"
+    
+    # Ordenar por score (menor es mejor: más cerca de 100% + menor exceso/déficit)
+    candidates.sort(key=lambda x: x[0])
+    best_score, best_assignments, best_solver, best_results = candidates[0]
+    
+    print(f"[Multi-Solver] Ganador: {best_solver} con score {best_score:.2f}")
+    print(f"[MÉTRICAS MULTI] Cobertura_real={best_results['coverage_real']:.1f}%, Exceso={best_results['overstaffing']}, Déficit={best_results['understaffing']}, Agentes={best_results['total_agents']}")
+    
+    return best_assignments, f"MULTISOLVER_{best_solver}"
+
+
+def _search_hyperparameters(shifts_coverage, demand_matrix, cfg_defaults):
+    """Grid Search exhaustivo con itertools.product y registro completo."""
+    import time
+    import itertools
+    import pandas as pd
+    
+    # Definir param_grid exhaustivo
+    param_grid = {
+        'agent_limit_factor': [5, 10, 15, 20, 25, 30, 35],
+        'excess_penalty': [0.001, 0.01, 0.1, 1.0, 5.0, 10.0],
+        'peak_bonus': [1.0, 2.0, 3.0, 4.0, 5.0],
+        'critical_bonus': [1.0, 2.0, 3.0, 4.0, 5.0],
+        'efficiency_bonus': [0.5, 1.0, 1.5, 2.0, 2.5],
+        'keep_percentage': [0.1, 0.2, 0.3, 0.4, 0.5]
+    }
+    
+    solvers = ["ILP_CBC", "Greedy"]
+    
+    # Generar todas las combinaciones
+    param_names = list(param_grid.keys())
+    param_values = list(param_grid.values())
+    combinations = list(itertools.product(*param_values))
+    
+    total_evals = len(combinations) * len(solvers)
+    print(f"[Grid Search] Iniciando búsqueda exhaustiva: {total_evals} evaluaciones")
+    
+    results_data = []
+    best_solution = None
+    best_score = float('inf')
+    current = 0
+    
+    for combo in combinations:
+        params_dict = dict(zip(param_names, combo))
+        params_dict.update(cfg_defaults)
+        
+        for solver_name in solvers:
+            current += 1
+            print(f"[Grid Search] {current}/{total_evals}: {solver_name} - {params_dict['agent_limit_factor']}/{params_dict['excess_penalty']:.3f}")
+            
+            start_time = time.time()
+            assignments = None
+            
+            try:
+                if solver_name == "ILP_CBC":
+                    assignments, _ = optimize_with_precision_targeting(
+                        shifts_coverage, demand_matrix,
+                        cfg=params_dict,
+                        agent_limit_factor=params_dict['agent_limit_factor'],
+                        excess_penalty=params_dict['excess_penalty'],
+                        peak_bonus=params_dict['peak_bonus'],
+                        critical_bonus=params_dict['critical_bonus'],
+                        TIME_SOLVER=60
+                    )
+                else:  # Greedy
+                    params_dict['allow_excess'] = False
+                    assignments = solve_in_chunks_optimized(
+                        shifts_coverage, demand_matrix, **params_dict
+                    )
+            except Exception as e:
+                print(f"[Grid Search] Error en {solver_name}: {e}")
+            
+            elapsed = time.time() - start_time
+            
+            # Calcular métricas
+            if assignments:
+                results = analyze_results(assignments, shifts_coverage, demand_matrix)
+                if results:
+                    cov_real = results['coverage_real']
+                    cov_pure = results['coverage_percentage']
+                    excess = results['overstaffing']
+                    deficit = results['understaffing']
+                    total_agents = results['total_agents']
+                    
+                    # Score: |cobertura_real - 100| + penalización por exceso >102%
+                    score = abs(cov_real - 100.0)
+                    if cov_real > 102.0:
+                        score += (cov_real - 102.0) * 10  # Penalización fuerte
+                    
+                    # Registrar resultado
+                    result_row = {
+                        'solver': solver_name,
+                        'coverage_real': cov_real,
+                        'coverage_pure': cov_pure,
+                        'excess': excess,
+                        'deficit': deficit,
+                        'total_agents': total_agents,
+                        'ft_agents': results['ft_agents'],
+                        'pt_agents': results['pt_agents'],
+                        'execution_time': elapsed,
+                        'score': score,
+                        **params_dict
+                    }
+                    results_data.append(result_row)
+                    
+                    # Actualizar mejor solución (solo si cobertura ≤ 102%)
+                    if cov_real <= 102.0 and score < best_score:
+                        best_score = score
+                        best_solution = assignments
+                        best_metrics = {
+                            'coverage_real': cov_real,
+                            'coverage_pura': cov_pure,
+                            'excess': excess,
+                            'deficit': deficit,
+                            'ft_agents': results['ft_agents'],
+                            'pt_agents': results['pt_agents'],
+                            'total_agents': total_agents,
+                            'solver': solver_name,
+                            'hyperparams': params_dict,
+                            'score': score
+                        }
+                    
+                    # Guardar para aprendizaje adaptativo
+                    save_execution_result(
+                        demand_matrix, params_dict, cov_pure, total_agents,
+                        elapsed, overstaffing=excess, understaffing=deficit
+                    )
+    
+    # Exportar resultados completos
+    if results_data:
+        df = pd.DataFrame(results_data)
+        df_sorted = df.sort_values('score')
+        
+        # Guardar CSV para análisis
+        try:
+            df_sorted.to_csv('data/grid_search_results.csv', index=False)
+            print(f"[Grid Search] Resultados guardados en data/grid_search_results.csv")
+        except Exception as e:
+            print(f"[Grid Search] Error guardando CSV: {e}")
+        
+        # Mostrar top 5 resultados
+        print("[Grid Search] Top 5 mejores configuraciones:")
+        for i, row in df_sorted.head(5).iterrows():
+            print(f"  {i+1}. {row['solver']} - Score: {row['score']:.2f} - Cobertura: {row['coverage_real']:.1f}%")
+    
+    return best_solution, best_metrics if best_solution else (None, None)
+
+
+def _solve_ilp_strict(shifts_coverage, demand_matrix, cfg):
+    """Solver ILP con restricción estricta para Cobertura Real_Jean."""
+    if not PULP_AVAILABLE:
+        return {}
+    
+    # Separar FT y PT
     ft_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('FT')}
     pt_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('PT')}
-    
-    total_demand = demand_matrix.sum()
-    max_deviation = total_demand * 0.02  # Máximo 2% de desviación
     
     # Fase 1: FT sin exceso
     ft_assignments = optimize_ft_no_excess(ft_shifts, demand_matrix, cfg)
@@ -1369,33 +1581,23 @@ def optimize_cobertura_real_jean(shifts_coverage, demand_matrix, cfg=None):
         pattern = np.array(ft_shifts[name]).reshape(7, -1)
         ft_coverage += pattern * count
     
-    # Fase 2: PT con restricción ±2%
+    # Fase 2: PT con restricción 2%
     remaining = np.maximum(0, demand_matrix - ft_coverage)
+    pt_assignments = {}
     
     if pt_shifts and remaining.sum() > 0:
-        prob = pulp.LpProblem("CoberturaReal_PT", pulp.LpMinimize)
-        
-        # Variables PT
-        pt_vars = {s: pulp.LpVariable(f"pt_{s}", 0, None, pulp.LpInteger) for s in pt_shifts}
-        
-        # Variables de exceso y déficit
+        prob = pulp.LpProblem("ILP_Strict", pulp.LpMinimize)
         D, H = demand_matrix.shape
+        
+        pt_vars = {s: pulp.LpVariable(f"pt_{s}", 0, None, pulp.LpInteger) for s in pt_shifts}
         excess_vars = {(d, h): pulp.LpVariable(f"exc_{d}_{h}", 0, None) for d in range(D) for h in range(H)}
         deficit_vars = {(d, h): pulp.LpVariable(f"def_{d}_{h}", 0, None) for d in range(D) for h in range(H)}
         
-        # Objetivo: eliminar déficit y penalizar exceso fuertemente
         total_excess = pulp.lpSum(excess_vars.values())
         total_deficit = pulp.lpSum(deficit_vars.values())
         total_agents = pulp.lpSum(pt_vars.values())
         
-        excess_penalty = cfg.get("excess_penalty", 10.0)
-        prob += total_deficit * 100000 + total_excess * excess_penalty * 1000 + total_agents * 1
-        
-        # Restricciones de cobertura con bonos por picos y días críticos
-        peak_hours = cfg.get("peak_hours", [])
-        critical_days = cfg.get("critical_days", [])
-        peak_bonus = cfg.get("peak_bonus", 2.0)
-        critical_bonus = cfg.get("critical_bonus", 2.0)
+        prob += total_deficit * 100000 + total_excess * 10000 + total_agents
         
         for d in range(D):
             for h in range(H):
@@ -1405,43 +1607,22 @@ def optimize_cobertura_real_jean(shifts_coverage, demand_matrix, cfg=None):
                 
                 prob += total_cov + deficit_vars[(d, h)] >= demand
                 prob += total_cov - excess_vars[(d, h)] <= demand
-                
-                # Bonos por horas pico y días críticos
-                if h in peak_hours:
-                    prob += deficit_vars[(d, h)] * peak_bonus
-                if d in critical_days:
-                    prob += deficit_vars[(d, h)] * critical_bonus
         
-        # Forzar cobertura completa (no déficit) si allow_deficit=False
+        # Restricción 2%
+        prob += total_excess <= demand_matrix.sum() * 0.02
         if not cfg.get("allow_deficit", True):
             prob += total_deficit == 0
         
-        # Restricción de exceso máximo (2%)
-        prob += total_excess <= max_deviation
-        
-        # Resolver
         solver = _build_solver(cfg)
         prob.solve(solver)
         
-        pt_assignments = {}
         if prob.status == pulp.LpStatusOptimal:
             for s, var in pt_vars.items():
                 val = int(var.value() or 0)
                 if val > 0:
                     pt_assignments[s] = val
-    else:
-        pt_assignments = {}
     
-    # Combinar resultados
-    assignments = {**ft_assignments, **pt_assignments}
-    
-    # Logs de métricas
-    if assignments:
-        results = analyze_results(assignments, shifts_coverage, demand_matrix)
-        if results:
-            print(f"[MÉTRICAS CRJ] Cobertura_real={results['coverage_real']:.1f}%, Exceso={results['overstaffing']}, Déficit={results['understaffing']}, Agentes={results['total_agents']}")
-    
-    return assignments, "COBERTURA_REAL_JEAN"
+    return {**ft_assignments, **pt_assignments}
 
 
 def optimize_maximum_coverage(shifts_coverage, demand_matrix, cfg=None):
@@ -2234,6 +2415,8 @@ def run_complete_optimization(
             assignments, pulp_status = optimize_maximum_coverage(patterns, demand_matrix, cfg=cfg)
         elif normalized == "Cobertura Real_Jean":
             assignments, pulp_status = optimize_cobertura_real_jean(patterns, demand_matrix, cfg=cfg)
+        elif normalized == "Grid Search Automático":
+            assignments, pulp_status = optimize_cobertura_real_jean(patterns, demand_matrix, cfg=cfg)
         else:
             opt_fn = get_profile_optimizer(normalized)
             cfg["optimization_profile"] = normalized
@@ -2293,6 +2476,14 @@ def run_complete_optimization(
         payload["effective_profile"] = cfg.get("optimization_profile", "")
         payload["insights"] = _insights_from_analysis(analysis, cfg)
         payload["jean_iterations"] = jean_iters
+        
+        # Añadir información del solver para multi-solver
+        if "MULTI_SOLVER" in pulp_status:
+            solver_name = pulp_status.split("_", 2)[-1] if "_" in pulp_status else "UNKNOWN"
+            payload["solver_used"] = solver_name
+            payload["multi_solver"] = True
+        else:
+            payload["multi_solver"] = False
 
         # --- Exportable ---
         b64, err = _export_xlsx_b64(assignments or {}, payload)
