@@ -66,9 +66,7 @@ def _cfg_from_request(form):
     critical_bonus= float(form.get("critical_bonus", 2.5))
     allow_excess = _is_on(form.get("allow_excess"))
     
-    # Nuevos parámetros para cálculo de cobertura
-    coverage_method = form.get("coverage_method", "efficiency")
-    penalty_factor = float(form.get("penalty_factor", 1.0))
+
 
     return {
         "optimization_profile": optimization_profile,
@@ -96,9 +94,7 @@ def _cfg_from_request(form):
         "use_greedy": True,
         "export_files": True,
         "ft_first_pt_last": True,
-        # Nuevos parámetros de cobertura
-        "coverage_method": coverage_method,
-        "penalty_factor": penalty_factor,
+
         "TARGET_COVERAGE": coverage,
     }
 
@@ -168,13 +164,13 @@ def generador():
     # Log final del resultado con nuevas métricas
     if payload and payload.get('metrics'):
         m = payload['metrics']
-        coverage_method = cfg.get('coverage_method', 'original')
+        coverage_method = 'efficiency'  # Always use efficiency method
         cov_pct = m.get('coverage_percentage', 0)
         cov_real = m.get('coverage_real', 0)
         exceso = m.get('overstaffing', 0)
         agents = m.get('total_agents', 0)
         
         print(f"[ROUTES] Resultado: {agents} agentes, cobertura pura {cov_pct:.1f}%, real {cov_real:.1f}%")
-        if exceso > 0 and coverage_method != 'original':
-            print(f"[ROUTES] Exceso detectado: {exceso} unidades - Cobertura ajustada por nueva fórmula ({coverage_method})")
+        if exceso > 0:
+            print(f"[ROUTES] Exceso detectado: {exceso} unidades - Cobertura ajustada por fórmula de eficiencia")
     return render_template("generador.html", payload=payload, mode="sync")

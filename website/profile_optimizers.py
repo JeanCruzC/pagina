@@ -497,8 +497,8 @@ def optimize_perfect_coverage(shifts_coverage, demand_matrix, *, cfg=None):
         total_excess = pl.lpSum([excess_vars[(day, hour)] for day in range(7) for hour in range(hours)])
         total_agents = pl.lpSum([shift_vars[shift] for shift in shifts_list])
         
-        if profile in ("100% Exacto", "Cobertura Exacta"):
-            # Prohibir cualquier déficit o exceso
+        if profile in ("100% Exacto", "Cobertura Exacta", "HPO + Cascada 100%"):
+            # Prohibir cualquier déficit o exceso - 100% exacto
             prob += total_deficit * 1000000 + total_excess * 1000000 + total_agents * 1
             # Restricciones estrictas
             prob += total_deficit == 0
@@ -802,18 +802,22 @@ def optimize_personalizado(shifts_coverage, demand_matrix, *, cfg=None):
 # --- HPO + Cascada 100% Implementation ---
 import random
 
-def _score_result_hpo(assignments, shifts_coverage, demand_matrix, target=100.0, coverage_method="original", penalty_factor=1.0):
-    """Score unificado: |100 - cobertura_real| + (exceso + déficit) normalizados."""
-    res = analyze_results(assignments, shifts_coverage, demand_matrix, coverage_method, penalty_factor)
+def _score_result_hpo(assignments, shifts_coverage, demand_matrix, target=100.0):
+    """Score unificado: penaliza fuertemente el exceso para lograr 100% exacto."""
+    res = analyze_results(assignments, shifts_coverage, demand_matrix, "efficiency", 1.0)
     if not res:
         return float("inf")
-    # Usar coverage_real que ahora puede ser con penalización según el método
+    # Usar coverage_real con fórmula de eficiencia
     cov = res.get("coverage_real", 0.0)
     over = float(res.get("overstaffing", 0.0))
     under = float(res.get("understaffing", 0.0))
-    total_dem = float(demand_matrix.sum() or 1.0)
-    penalty_balance = (over + under) / total_dem * 100.0
-    return abs(target - cov) + 0.25 * penalty_balance, res
+    
+    # Penalizar fuertemente cualquier desviación del 100% exacto
+    coverage_penalty = abs(target - cov) * 10.0
+    excess_penalty = over * 100.0  # Penalizar exceso muy fuerte
+    deficit_penalty = under * 1000.0  # Penalizar déficit aún más
+    
+    return coverage_penalty + excess_penalty + deficit_penalty, res
 
 def _sample_space_hpo():
     """Espacio pequeño y estable (rápido). Ajusta rangos si lo necesitas."""
@@ -851,9 +855,7 @@ def _hpo_unico(shifts_coverage, demand_matrix, base_cfg, n_trials=12, job_id=Non
             # Import tardío para evitar ciclos en import
             from .scheduler import solve_in_chunks_optimized
             assign = solve_in_chunks_optimized(shifts_coverage, demand_matrix, **cand)
-        coverage_method = cand.get("coverage_method", "original")
-        penalty_factor = cand.get("penalty_factor", 1.0)
-        score, _ = _score_result_hpo(assign, shifts_coverage, demand_matrix, target=cand.get("TARGET_COVERAGE", 100.0), coverage_method=coverage_method, penalty_factor=penalty_factor)
+        score, _ = _score_result_hpo(assign, shifts_coverage, demand_matrix, target=cand.get("TARGET_COVERAGE", 100.0))
         return score, cand
 
     # --- Ruta A: Optuna si está disponible (TPE) ---
@@ -912,9 +914,7 @@ def optimize_hpo_then_solve(shifts_coverage, demand_matrix, *, cfg=None, job_id=
         from .optimizer_pulp import optimize_with_pulp
         a_pulp, s_pulp = optimize_with_pulp(shifts_coverage, demand_matrix, cfg=run_cfg, job_id=job_id)
         if a_pulp:
-            coverage_method = run_cfg.get("coverage_method", "original")
-            penalty_factor = run_cfg.get("penalty_factor", 1.0)
-            sc, m = _score_result_hpo(a_pulp, shifts_coverage, demand_matrix, target=target, coverage_method=coverage_method, penalty_factor=penalty_factor)
+            sc, m = _score_result_hpo(a_pulp, shifts_coverage, demand_matrix, target=target)
             candidates.append(("PULP", sc, a_pulp, m))
     except Exception:
         pass
@@ -924,9 +924,7 @@ def optimize_hpo_then_solve(shifts_coverage, demand_matrix, *, cfg=None, job_id=
         from .optimizer_greedy import optimize_with_greedy
         a_greedy, s_gr = optimize_with_greedy(shifts_coverage, demand_matrix, cfg=run_cfg, job_id=job_id)
         if a_greedy:
-            coverage_method = run_cfg.get("coverage_method", "original")
-            penalty_factor = run_cfg.get("penalty_factor", 1.0)
-            sc, m = _score_result_hpo(a_greedy, shifts_coverage, demand_matrix, target=target, coverage_method=coverage_method, penalty_factor=penalty_factor)
+            sc, m = _score_result_hpo(a_greedy, shifts_coverage, demand_matrix, target=target)
             candidates.append(("GREEDY", sc, a_greedy, m))
     except Exception:
         pass
@@ -936,9 +934,7 @@ def optimize_hpo_then_solve(shifts_coverage, demand_matrix, *, cfg=None, job_id=
         from .scheduler import solve_in_chunks_optimized  # import tardío evita ciclos
         a_chunks = solve_in_chunks_optimized(shifts_coverage, demand_matrix, **run_cfg)
         if a_chunks:
-            coverage_method = run_cfg.get("coverage_method", "original")
-            penalty_factor = run_cfg.get("penalty_factor", 1.0)
-            sc, m = _score_result_hpo(a_chunks, shifts_coverage, demand_matrix, target=target, coverage_method=coverage_method, penalty_factor=penalty_factor)
+            sc, m = _score_result_hpo(a_chunks, shifts_coverage, demand_matrix, target=target)
             candidates.append(("CHUNKS", sc, a_chunks, m))
     except Exception:
         pass
