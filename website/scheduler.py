@@ -1891,6 +1891,17 @@ def analyze_results(assignments, shifts_coverage, demand_matrix, coverage_method
     # Nuevos cÃ¡lculos con penalizaciÃ³n por exceso
     coverage_option1 = calculate_coverage_with_penalty(total_cov, demand_matrix, "option1", penalty_factor)
     coverage_option2 = calculate_coverage_with_penalty(total_cov, demand_matrix, "option2")
+    # Normalizar aliases del método de cobertura para compatibilidad ('efficiency'/'linear')
+    try:
+        _m = str(coverage_method or "").strip().lower()
+        if _m in ("linear", "opt1"):
+            coverage_method = "option1"
+        elif _m in ("efficiency", "opt2", "simetrica", "simétrica"):
+            coverage_method = "option2"
+        elif _m in ("original", "base", "puro", "pure"):
+            coverage_method = "original"
+    except Exception:
+        pass
     
     # Seleccionar mÃ©todo de cobertura principal
     if coverage_method == "option1":
@@ -2161,6 +2172,18 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
 
     coverage_pure = (pure_cov_units / total_dem * 100.0) if total_dem > 0 else 0.0   # <=100
     coverage_real = (min(real_cov_units, total_dem) / total_dem * 100.0) if total_dem > 0 else 0.0   # <=100
+    # Ajuste opcional: aplicar nuevas fórmulas para "cobertura real"
+    try:
+        _cfg_local = cfg or {}
+        _method = str(_cfg_local.get("coverage_method", "efficiency")).strip().lower()
+        _factor = float(_cfg_local.get("penalty_factor", 1.0) or 1.0)
+        if _method in ("linear", "opt1", "option1"):
+            coverage_real = calculate_coverage_with_penalty(cov, dem, "option1", _factor)
+        elif _method in ("efficiency", "opt2", "option2", "simetrica", "simétrica"):
+            coverage_real = calculate_coverage_with_penalty(cov, dem, "option2", _factor)
+        # "original" mantiene el cálculo con límite 100%
+    except Exception:
+        pass
 
     ft = sum(c for p, c in counts.items() if str(p).upper().startswith("FT"))
     pt = sum(c for p, c in counts.items() if str(p).upper().startswith("PT"))
@@ -2177,6 +2200,8 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
             "pt": pt,
             "coverage_pure": round(coverage_pure, 1),
             "coverage_real": round(coverage_real, 1),
+            "coverage_percentage": round(coverage_pure, 1),
+            "coverage_method": str((cfg or {}).get('coverage_method', 'efficiency')).strip().lower(),
             "excess": excess,
             "deficit": deficit,
         },
