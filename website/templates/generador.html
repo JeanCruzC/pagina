@@ -140,7 +140,7 @@
               <option>JEAN Personalizado</option>
               <option>Cobertura Máxima (Completo)</option>
               <option>Cobertura Real_Jean</option>
-              <option>Grid Search Automático</option>
+
             </select>
             
             <!-- Plantilla JSON para JEAN Personalizado -->
@@ -285,7 +285,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Auto-update coverage for specific profiles
     if (profileSelect.value.includes('JEAN') || 
         profileSelect.value.includes('Cobertura Máxima') ||
-        profileSelect.value.includes('Grid Search') ||
         profileSelect.value.includes('100%')) {
       coverageInput.value = 100;
     }
