@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Funciones core del scheduler - versión core (rápida)
+Funciones core del scheduler
 """
 
 def merge_config(cfg):
@@ -15,8 +15,6 @@ def merge_config(cfg):
         "allow_excess": True,
         "solver_time": 180,
         "hpo_trials": 12,
-        "coverage_method": "original",  # "original", "option1", "option2"
-        "penalty_factor": 1.0  # Factor de penalización para option1
     }
     
     if cfg:
@@ -24,8 +22,8 @@ def merge_config(cfg):
     
     return base_config
 
-# Re-export analyze_results from scheduler with new coverage methods
-def analyze_results(assignments, shifts_coverage, demand_matrix, coverage_method="original", penalty_factor=1.0):
-    """Wrapper para analyze_results del scheduler con nuevos métodos de cobertura"""
+# Re-export analyze_results from scheduler
+def analyze_results(assignments, shifts_coverage, demand_matrix):
+    """Wrapper para analyze_results del scheduler"""
     from .scheduler import analyze_results as _analyze_results
-    return _analyze_results(assignments, shifts_coverage, demand_matrix, coverage_method, penalty_factor)
+    return _analyze_results(assignments, shifts_coverage, demand_matrix)

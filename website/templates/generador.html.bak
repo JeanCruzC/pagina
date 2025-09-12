@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+{% block title %}Generador de Turnos v6.2 — Sistema Corregido{% endblock %}
+{% block body %}
+
+<h1 class="section-title">Generador de Turnos v6.2 — Sistema Corregido</h1>
+
+<div class="row g-3">
+  <!-- SIDEBAR -->
+  <div class="col-12 col-lg-3">
+    <div class="card sidebar">
+      <div class="card-header">
+        <strong>⚙️ Configuración</strong>
+      </div>
+      <div class="card-body">
+        <form action="/generador" method="POST" enctype="multipart/form-data">
+          <!-- Iteraciones máximas -->
+          <label class="form-label">Iteraciones máximas</label>
+          <input class="form-control" type="number" name="iterations" value="30" min="1" />
+
+          <!-- Tiempo solver -->
+          <div class="mt-3">
+            <label class="form-label">Tiempo solver (s)</label>
+            <input class="form-control" type="number" name="solver_time" value="240" min="0" />
+            <div class="form-text text-muted">0 = sin límite (no recomendado en modo síncrono)</div>
+          </div>
+
+          <!-- Mostrar progreso solver -->
+          <div class="mt-3">
+            <label class="form-label">Mostrar progreso solver</label>
+            <select class="form-select" name="solver_msg">
+              <option value="1" selected>1</option>
+              <option value="0">0</option>
+            </select>
+          </div>
+
+          <!-- Cobertura objetivo -->
+          <div class="mt-3">
+            <label class="form-label">Cobertura objetivo (%)</label>
+            <input class="form-control" type="number" name="coverage" value="100" min="80" max="110" />
+          </div>
+
+
+
+          <!-- Permitir exceso -->
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" id="allow_excess" name="allow_excess">
+            <label class="form-check-label" for="allow_excess">
+              Permitir exceder 100% cobertura real
+            </label>
+          </div>
+
+          <!-- Verbose -->
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" id="verbose" name="verbose" checked>
+            <label class="form-check-label" for="verbose">Modo verbose/debug</label>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Tipos de contrato -->
+          <div class="mt-1">
+            <strong>📑 Tipos de Contrato</strong>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="ft48" name="use_ft" checked>
+              <label class="form-check-label" for="ft48">Full Time (48h)</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="pt24" name="use_pt" checked>
+              <label class="form-check-label" for="pt24">Part Time (24h)</label>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Turnos FT permitidos -->
+          <div>
+            <strong>👥 Turnos FT Permitidos</strong>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="allow8" name="allow_8h" checked>
+              <label class="form-check-label" for="allow8">8 horas (6 días)</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="allow10_8" name="allow_10h8" checked>
+              <label class="form-check-label" for="allow10_8">10h + día de 8h (5 días)</label>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Breaks -->
+          <div>
+            <strong>🧩 Configuración de Breaks</strong>
+            <div class="row g-2 mt-2">
+              <div class="col-6">
+                <label class="form-label">Break desde inicio (horas)</label>
+                <input class="form-control" type="number" step="0.5" name="break_from_start" value="2.5">
+              </div>
+              <div class="col-6">
+                <label class="form-label">Break antes del fin (horas)</label>
+                <input class="form-control" type="number" step="0.5" name="break_from_end" value="2.5">
+              </div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Turnos PT permitidos -->
+          <div>
+            <strong>👤 Turnos PT Permitidos</strong>
+            <div class="form-check mt-2">
+              <input class="form-check-input" type="checkbox" id="pt4_6" name="allow_pt_4h" checked>
+              <label class="form-check-label" for="pt4_6">4 horas (6 días)</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="pt6_4" name="allow_pt_6h" checked>
+              <label class="form-check-label" for="pt6_4">6 horas (4 días)</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="pt5_5" name="allow_pt_5h">
+              <label class="form-check-label" for="pt5_5">5 horas (5 días)</label>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Perfil de optimización (selector “de horarios”) -->
+          <div>
+            <strong>🎯 Perfil de Optimización</strong>
+            <select class="form-select mt-2" name="optimization_profile" id="optimization_profile">
+              <option selected>Equilibrado (Recomendado)</option>
+              <option>Conservador</option>
+              <option>Agresivo</option>
+              <option>Máxima Cobertura</option>
+              <option>Mínimo Costo</option>
+              <option>100% Cobertura Eficiente</option>
+              <option>100% Cobertura Total</option>
+              <option>Cobertura Perfecta</option>
+              <option>100% Exacto</option>
+              <option>Personalizado</option>
+              <option>Aprendizaje Adaptativo</option>
+              <option>JEAN</option>
+              <option>JEAN Personalizado</option>
+              <option>Cobertura Máxima (Completo)</option>
+              <option>Cobertura Real_Jean</option>
+              <option>HPO + Cascada 100%</option>
+
+            </select>
+            
+            <!-- Plantilla JSON para JEAN Personalizado -->
+            <div id="jean_custom_section" class="mt-2" style="display:none;">
+              <label class="form-label">Plantilla JSON (opcional)</label>
+              <input class="form-control" type="file" name="jean_json" accept=".json">
+              <div class="form-text text-muted">Sube un JSON con turnos personalizados</div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Archivo -->
+          <div>
+            <label class="form-label">Archivo de demanda (.xlsx)</label>
+            <div class="d-flex gap-2">
+              <input class="form-control" type="file" name="file" accept=".xlsx,.xls" required>
+            </div>
+          </div>
+
+          <button class="btn btn-execute mt-3" type="submit">
+            <i class="bi bi-rocket-takeoff"></i> Ejecutar Optimización
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- PANEL DERECHO (info/tip, resultados se pintan en resultados.html) -->
+  <div class="col-12 col-lg-9">
+    <div class="card">
+      <div class="card-header">
+        <span class="badge text-bg-secondary">Modo Streamlit (síncrono)</span>
+      </div>
+      <div class="card-body">
+        <p class="text-muted mb-0">
+          Sube tu Excel y se calculará todo en esta misma página (sin jobs ni polling).
+          <br><span class="text-info">Tip:</span> también puedes arrastrar el archivo y presionar
+          <i class="bi bi-rocket-takeoff"></i> <em>“Ejecutar Optimización”</em>.
+        </p>
+      </div>
+    </div>
+
+    {% if payload %}
+      {% include "resultados.html" %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Persist form values in localStorage with JEAN-specific handling
+function saveFormState() {
+  const form = document.querySelector('form');
+  const formData = new FormData(form);
+  const state = {};
+  
+  // Save all form inputs
+  for (let [key, value] of formData.entries()) {
+    if (form.elements[key].type === 'checkbox') {
+      state[key] = form.elements[key].checked;
+    } else if (form.elements[key].type !== 'file') {
+      state[key] = value;
+    }
+  }
+  
+  // Special handling for JEAN and maximum coverage profiles - ensure all patterns enabled
+  if (state.optimization_profile && 
+      (state.optimization_profile.includes('JEAN') || 
+       state.optimization_profile.includes('Cobertura Máxima') ||
+       state.optimization_profile.includes('HPO') ||
+       state.optimization_profile.includes('100%'))) {
+    state.use_ft = true;
+    state.use_pt = true;
+    state.allow_8h = true;
+    state.allow_pt_4h = true;
+    state.allow_pt_6h = true;
+    state.coverage = 100;  // Forzar cobertura 100% para estos perfiles
+  }
+  
+  localStorage.setItem('generatorFormState', JSON.stringify(state));
+  localStorage.setItem('lastSaveTime', new Date().toISOString());
+}
+
+function loadFormState() {
+  const saved = localStorage.getItem('generatorFormState');
+  if (!saved) return;
+  
+  try {
+    const state = JSON.parse(saved);
+    const form = document.querySelector('form');
+    
+    for (let [key, value] of Object.entries(state)) {
+      const element = form.elements[key];
+      if (!element) continue;
+      
+      if (element.type === 'checkbox') {
+        element.checked = value;
+      } else if (element.type !== 'file') {
+        element.value = value;
+      }
+    }
+    
+    // Show last save time
+    const lastSave = localStorage.getItem('lastSaveTime');
+    if (lastSave) {
+      console.log('Configuración cargada desde:', new Date(lastSave).toLocaleString());
+    }
+  } catch (e) {
+    console.warn('Error cargando configuración guardada:', e);
+  }
+}
+
+// Load state on page load
+document.addEventListener('DOMContentLoaded', function() {
+  loadFormState();
+  
+  // Save state on form changes with debouncing
+  const form = document.querySelector('form');
+  let saveTimeout;
+  
+  function debouncedSave() {
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(saveFormState, 300);
+  }
+  
+  form.addEventListener('change', saveFormState);
+  form.addEventListener('input', debouncedSave);
+  
+  // Handle JEAN Personalizado section and coverage updates
+  const profileSelect = document.getElementById('optimization_profile');
+  const jeanSection = document.getElementById('jean_custom_section');
+  const coverageInput = document.querySelector('input[name="coverage"]');
+  
+  function toggleJeanSection() {
+    if (profileSelect.value === 'JEAN Personalizado') {
+      jeanSection.style.display = 'block';
+    } else {
+      jeanSection.style.display = 'none';
+    }
+    
+    // Auto-update coverage for specific profiles
+    if (profileSelect.value.includes('JEAN') || 
+        profileSelect.value.includes('Cobertura Máxima') ||
+        profileSelect.value.includes('HPO') ||
+        profileSelect.value.includes('100%')) {
+      coverageInput.value = 100;
+    }
+  }
+  
+  profileSelect.addEventListener('change', function() {
+    toggleJeanSection();
+    saveFormState(); // Save immediately on profile change
+  });
+  toggleJeanSection(); // Initial check
+  
+
+});
+</script>
+{% endblock %}
