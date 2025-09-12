@@ -2351,7 +2351,21 @@ def run_complete_optimization(
             assignments, pulp_status = optimize_maximum_coverage(patterns, demand_matrix, cfg=cfg)
         elif normalized == "Cobertura Real_Jean":
             assignments, pulp_status = optimize_cobertura_real_jean(patterns, demand_matrix, cfg=cfg)
-
+        elif normalized == "HPO + Cascada 100%":
+            # Usar el optimizador HPO + Cascada específico
+            opt_fn = get_profile_optimizer(normalized)
+            cfg["optimization_profile"] = normalized
+            try:
+                assignments, pulp_status = opt_fn(
+                    patterns, demand_matrix, cfg=cfg, job_id=job_id
+                )
+                print(f"[SCHEDULER] HPO + Cascada ejecutado: {pulp_status}")
+            except Exception as e:
+                print(f"[SCHEDULER] Error en HPO + Cascada: {e} -> fallback")
+                assignments = solve_in_chunks_optimized(
+                    patterns, demand_matrix, **cfg
+                )
+                pulp_status = "HPO_FALLBACK_CHUNKS"
         else:
             opt_fn = get_profile_optimizer(normalized)
             cfg["optimization_profile"] = normalized

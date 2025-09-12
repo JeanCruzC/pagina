@@ -140,6 +140,7 @@
               <option>JEAN Personalizado</option>
               <option>Cobertura Máxima (Completo)</option>
               <option>Cobertura Real_Jean</option>
+              <option>HPO + Cascada 100%</option>
 
             </select>
             
@@ -212,6 +213,7 @@ function saveFormState() {
   if (state.optimization_profile && 
       (state.optimization_profile.includes('JEAN') || 
        state.optimization_profile.includes('Cobertura Máxima') ||
+       state.optimization_profile.includes('HPO') ||
        state.optimization_profile.includes('100%'))) {
     state.use_ft = true;
     state.use_pt = true;
@@ -285,6 +287,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Auto-update coverage for specific profiles
     if (profileSelect.value.includes('JEAN') || 
         profileSelect.value.includes('Cobertura Máxima') ||
+        profileSelect.value.includes('HPO') ||
         profileSelect.value.includes('100%')) {
       coverageInput.value = 100;
     }

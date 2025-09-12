@@ -58,6 +58,20 @@ PROFILES = {
         "solver_time": 300,
         "hybrid": False
     },
+    "HPO + Cascada 100%": {
+        "agent_limit_factor": 15,
+        "excess_penalty": 5.0,
+        "peak_hours": [11, 12, 13, 14, 15, 16],
+        "peak_bonus": 2.0,
+        "critical_days": [2, 4],
+        "critical_bonus": 2.0,
+        "TARGET_COVERAGE": 100.0,
+        "hpo_trials": 12,
+        "solver_time": 180,
+        "allow_deficit": False,
+        "allow_excess": True,
+        "hybrid": False
+    },
 
 }
 
@@ -71,6 +85,7 @@ PROFILE_ALIASES = {
     "Cobertura eficiente": "Equilibrado (Recomendado)",
     "MAX_COBERTURA": "Cobertura Máxima (Completo)",
     "Máxima Cobertura": "Cobertura Máxima (Completo)",
+    "HPO y Cascada": "HPO + Cascada 100%",
 }
 
 def apply_profile(cfg: dict) -> dict:
