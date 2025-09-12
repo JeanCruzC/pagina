@@ -1,4 +1,4 @@
-import io, base64, time, gc, hashlib
+﻿import io, base64, time, gc, hashlib
 import numpy as np
 try:
     import pandas as pd
@@ -44,7 +44,7 @@ except Exception:
 def get_profile_optimizer(profile_name: str):
     """
     Devuelve un optimizador callable. Nunca lanza ImportError.
-    Si no hay módulo, hace fallback a solve_in_chunks_optimized.
+    Si no hay mÃ³dulo, hace fallback a solve_in_chunks_optimized.
     """
 
     if _get_profile_optimizer is not None:
@@ -125,26 +125,26 @@ def _build_cbc_solver(cfg):
 
 def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
     """
-    Carga una matriz 7x24 desde un DataFrame con columnas de día y hora.
-    Acepta día como nombre (Lunes..Domingo) o número (1..7) y hora como 11 o '11:00'.
-    También intenta varios nombres de columna habituales.
+    Carga una matriz 7x24 desde un DataFrame con columnas de dÃ­a y hora.
+    Acepta dÃ­a como nombre (Lunes..Domingo) o nÃºmero (1..7) y hora como 11 o '11:00'.
+    TambiÃ©n intenta varios nombres de columna habituales.
     """
     import numpy as np
     days_idx = {
         "lunes": 0,
         "martes": 1,
-        "miércoles": 2,
+        "miÃ©rcoles": 2,
         "miercoles": 2,
         "jueves": 3,
         "viernes": 4,
-        "sábado": 5,
+        "sÃ¡bado": 5,
         "sabado": 5,
         "domingo": 6,
     }
     mat = np.zeros((7, 24), dtype=float)
 
     cols = {c.lower(): c for c in df.columns}
-    day_col = cols.get("día") or cols.get("dia") or cols.get("day") or list(df.columns)[0]
+    day_col = cols.get("dÃ­a") or cols.get("dia") or cols.get("day") or list(df.columns)[0]
     time_col = cols.get("horario") or cols.get("hora") or cols.get("hour") or list(df.columns)[1]
     val_col = (
         cols.get("suma de agentes requeridos erlang")
@@ -160,7 +160,7 @@ def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
         if pd.isna(d_raw) or pd.isna(t_raw) or pd.isna(v_raw):
             continue
 
-        # Día -> índice 0..6
+        # DÃ­a -> Ã­ndice 0..6
         if isinstance(d_raw, (int, float)):
             d_idx = int(d_raw) - 1
         else:
@@ -187,7 +187,7 @@ def load_demand_matrix_from_df(df: pd.DataFrame) -> np.ndarray:
     return np.rint(mat).astype(int)
 
 
-# Utilidad para validar patrones según los toggles del perfil
+# Utilidad para validar patrones segÃºn los toggles del perfil
 def _allowed_by_toggles(name: str, cfg: dict) -> bool:
     # Bloques por familia
     if name.startswith('FT') and not cfg.get('use_ft', True):
@@ -195,7 +195,7 @@ def _allowed_by_toggles(name: str, cfg: dict) -> bool:
     if name.startswith('PT') and not cfg.get('use_pt', True):
         return False
 
-    # Compatibilidad de prefijos (nueva y “legacy”)
+    # Compatibilidad de prefijos (nueva y â€œlegacyâ€)
     FT8  = name.startswith(('FT8_', 'FT_8H_'))
     FT10 = name.startswith(('FT10p8_', 'FT_10H_', 'FT_10H8_'))
     PT4  = name.startswith(('PT4_', 'PT_4H_'))
@@ -208,7 +208,7 @@ def _allowed_by_toggles(name: str, cfg: dict) -> bool:
     if PT6:  return bool(cfg.get('allow_pt_6h', False))
     if PT5:  return bool(cfg.get('allow_pt_5h', False))
 
-    # Si no matchea ningún formato conocido, lo bloqueamos.
+    # Si no matchea ningÃºn formato conocido, lo bloqueamos.
     return False
 
 
@@ -246,7 +246,7 @@ def _allow_pid(pid, cfg):
 
 def _filter_patterns_by_cfg(patterns, cfg):
     """
-    patterns: dict[str, dict|array]  (id -> patrón)
+    patterns: dict[str, dict|array]  (id -> patrÃ³n)
     Devuelve solo los patrones permitidos por cfg (familias/FT-PT).
     """
     if not patterns:
@@ -287,7 +287,7 @@ def _is_allowed_pid(pid: str, cfg: dict) -> bool:
 
 
 def _build_pattern(days, durations, start_hour, break_len, break_from_start, break_from_end, slot_factor=1):
-    """Construye matriz semanal con breaks usando lógica original exacta"""
+    """Construye matriz semanal con breaks usando lÃ³gica original exacta"""
     slots_per_day = 24 * slot_factor
     pattern = np.zeros((7, slots_per_day), dtype=np.int8)
     
@@ -316,7 +316,7 @@ def generate_weekly_pattern_simple(start_hour, duration, working_days):
     return _build_pattern(working_days, [duration] * len(working_days), start_hour, 0, 0, 0)
 
 def get_valid_break_times(start_hour, duration, cfg):
-    """Obtiene todas las franjas válidas de break para un turno."""
+    """Obtiene todas las franjas vÃ¡lidas de break para un turno."""
     valid_breaks = []
     earliest_break = start_hour + cfg.get("break_from_start", 2.0)
     latest_break = start_hour + duration - cfg.get("break_from_end", 2.0) - 1
@@ -326,10 +326,10 @@ def get_valid_break_times(start_hour, duration, cfg):
         if current_time % 0.5 == 0:
             valid_breaks.append(round(current_time, 1))
         current_time += 0.5
-    return valid_breaks[:7]  # máximo 7 opciones
+    return valid_breaks[:7]  # mÃ¡ximo 7 opciones
 
 def generate_weekly_pattern_with_break(start_hour, duration, working_days, dso_day, break_start, break_len=1):
-    """Genera un patrón semanal con un break específico (corrigiendo cruce de medianoche)."""
+    """Genera un patrÃ³n semanal con un break especÃ­fico (corrigiendo cruce de medianoche)."""
     pattern = np.zeros((7, 24), dtype=np.int8)
     for day in working_days:
         if day == dso_day:
@@ -352,7 +352,7 @@ def generate_weekly_pattern_with_break_compat(start_hour, duration, working_days
 
 
 def generate_weekly_pattern_pt5(start_hour, working_days):
-    """PT5H: 4 días de 5h + 1 día de 4h (24h/sem)"""
+    """PT5H: 4 dÃ­as de 5h + 1 dÃ­a de 4h (24h/sem)"""
     if not working_days:
         return np.zeros(7 * 24, dtype=np.int8)
     four_hour_day = working_days[-1]
@@ -360,7 +360,7 @@ def generate_weekly_pattern_pt5(start_hour, working_days):
     return _build_pattern(working_days, durations, start_hour, 0, 0, 0)
 
 def generate_weekly_pattern_10h8(start_hour, working_days, eight_hour_day, break_len=1, break_from_start=2.0, break_from_end=2.0):
-    """FT 10h8: 4 días de 10h + 1 día de 8h con breaks"""
+    """FT 10h8: 4 dÃ­as de 10h + 1 dÃ­a de 8h con breaks"""
     durations = [8 if d == eight_hour_day else 10 for d in working_days]
     return _build_pattern(working_days, durations, start_hour, break_len, break_from_start, break_from_end)
 
@@ -563,7 +563,7 @@ def generate_shifts_coverage_corrected(demand_matrix=None, *, cfg=None):
 
 
 def load_shift_patterns(template_cfg, demand_matrix=None, *, max_patterns=None, keep_percentage=0.3, slot_duration_minutes=60, smart_start_hours=False, cfg=None):
-    """Carga patrones personalizados desde configuración JSON JEAN Personalizado"""
+    """Carga patrones personalizados desde configuraciÃ³n JSON JEAN Personalizado"""
     cfg = cfg or {}
     shifts = template_cfg.get("shifts", [])
     if not shifts:
@@ -606,19 +606,19 @@ def load_shift_patterns(template_cfg, demand_matrix=None, *, max_patterns=None, 
         if shift_name.startswith("PT") and not cfg.get("use_pt", True):
             continue
         
-        # Días de trabajo
+        # DÃ­as de trabajo
         work_days_def = pattern_def.get("work_days", [])
         if isinstance(work_days_def, int):
-            # Generar todas las combinaciones de N días
+            # Generar todas las combinaciones de N dÃ­as
             work_days_combos = list(combinations(range(7), work_days_def))
         else:
-            # Usar días específicos
+            # Usar dÃ­as especÃ­ficos
             work_days_combos = [work_days_def]
         
-        # Segmentos de duración
+        # Segmentos de duraciÃ³n
         segments = pattern_def.get("segments", [])
         if isinstance(segments, list) and segments:
-            # Si segments es lista de números, usar directamente
+            # Si segments es lista de nÃºmeros, usar directamente
             if all(isinstance(s, (int, float)) for s in segments):
                 duration_combos = [segments]
             # Si segments es lista de dicts con "hours" y "count"
@@ -635,13 +635,13 @@ def load_shift_patterns(template_cfg, demand_matrix=None, *, max_patterns=None, 
             # Fallback: 8 horas por defecto
             duration_combos = [[8] * len(work_days_combos[0]) if work_days_combos else [8]]
         
-        # Configuración de break
+        # ConfiguraciÃ³n de break
         break_enabled = break_def.get("enabled", True) if isinstance(break_def, dict) else bool(break_def)
         break_len = break_def.get("length_minutes", 60) / 60.0 if break_enabled else 0
         break_from_start = break_def.get("earliest_after_start", 120) / 60.0
         break_from_end = break_def.get("latest_before_end", 120) / 60.0
         
-        # Generar patrones para cada combinación
+        # Generar patrones para cada combinaciÃ³n
         pattern_count = 0
         for work_days in work_days_combos:
             for durations in duration_combos:
@@ -719,7 +719,7 @@ def generate_shifts_coverage_optimized(
     critical_bonus=2.0,
     efficiency_bonus=1.0,
 ):
-    """Genera patrones optimizados usando _build_pattern con detección de duplicados"""
+    """Genera patrones optimizados usando _build_pattern con detecciÃ³n de duplicados"""
     cfg = {
         "use_ft": allow_8h or allow_10h8,
         "use_pt": allow_pt_4h or allow_pt_5h or allow_pt_6h,
@@ -730,16 +730,16 @@ def generate_shifts_coverage_optimized(
         "allow_pt_6h": allow_pt_6h,
     }
     
-    # Generar patrones con detección de duplicados integrada
+    # Generar patrones con detecciÃ³n de duplicados integrada
     raw = generate_shifts_coverage_corrected(demand_matrix, cfg=cfg)
     
-    # Filtrar por calidad mínima
+    # Filtrar por calidad mÃ­nima
     quality_patterns = {}
     for name, pat in raw.items():
         if score_pattern(pat, demand_matrix) >= quality_threshold:
             quality_patterns[name] = pat
     
-    print(f"[GEN] Patrones únicos generados: {len(quality_patterns)}")
+    print(f"[GEN] Patrones Ãºnicos generados: {len(quality_patterns)}")
     
     # Apply intelligent score filtering only if keep_percentage < 1.0
     if keep_percentage < 1.0:
@@ -886,7 +886,7 @@ def get_adaptive_params(demand_matrix):
     if not history:
         return default_params
     
-    # Find similar demand patterns (±20% total demand)
+    # Find similar demand patterns (Â±20% total demand)
     current_total = demand_matrix.sum()
     current_peak = demand_matrix.max()
     
@@ -922,7 +922,7 @@ def get_adaptive_params(demand_matrix):
 
 
 def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10000, **kwargs):
-    """Optimización por chunks con soporte para restricciones JEAN"""
+    """OptimizaciÃ³n por chunks con soporte para restricciones JEAN"""
     cfg = kwargs
     agent_cap = cfg.get("agent_cap")
     allow_excess = cfg.get("allow_excess", True)
@@ -949,9 +949,9 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
     idx = 0
     
     while idx < len(scored):
-        # Verificar límite de agentes JEAN
+        # Verificar lÃ­mite de agentes JEAN
         if agent_cap and total_agents >= agent_cap:
-            print(f"[CHUNKS] Límite de agentes alcanzado: {total_agents}/{agent_cap}")
+            print(f"[CHUNKS] LÃ­mite de agentes alcanzado: {total_agents}/{agent_cap}")
             break
             
         chunk_size = adaptive_chunk_size(base_chunk_size)
@@ -967,7 +967,7 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
         if not np.any(remaining):
             break
             
-        # Configuración para el chunk
+        # ConfiguraciÃ³n para el chunk
         chunk_cfg = cfg.copy()
         if agent_cap:
             chunk_cfg["agent_limit_factor"] = max(5, (agent_cap - total_agents) // max(1, len(chunk)))
@@ -980,23 +980,25 @@ def solve_in_chunks_optimized(shifts_coverage, demand_matrix, base_chunk_size=10
             coverage += chunk[n].reshape(days, slots) * v
             total_agents += v
             
-            # Verificar límite de agentes
+            # Verificar lÃ­mite de agentes
             if agent_cap and total_agents >= agent_cap:
                 break
                 
         idx += chunk_size
         gc.collect()
         
-        # Verificar si se completó la cobertura
+        # Verificar si se completÃ³ la cobertura
         if not np.any(np.maximum(0, demand_matrix - coverage)):
             break
             
     print(f"[CHUNKS] Completado: {total_agents} agentes asignados")
-    # Logs de métricas para chunks
+    # Logs de mÃ©tricas para chunks
     if assignments_total:
-        chunk_results = analyze_results(assignments_total, {n: p for n, p, _ in scored}, demand_matrix)
+        coverage_method = cfg.get("coverage_method", "efficiency")
+        penalty_factor = cfg.get("penalty_factor", 1.0)
+        chunk_results = analyze_results(assignments_total, {n: p for n, p, _ in scored}, demand_matrix, coverage_method, penalty_factor)
         if chunk_results:
-            print(f"[MÉTRICAS CHUNKS] Cobertura_real={chunk_results.get('coverage_real', 0):.1f}%, Cobertura_pura={chunk_results['coverage_percentage']:.1f}%, Exceso={chunk_results['overstaffing']}, Déficit={chunk_results['understaffing']}, Agentes={chunk_results['total_agents']}")
+            print(f"[MÃ‰TRICAS CHUNKS] Cobertura_real={chunk_results.get('coverage_real', 0):.1f}%, Cobertura_pura={chunk_results['coverage_percentage']:.1f}%, Exceso={chunk_results['overstaffing']}, DÃ©ficit={chunk_results['understaffing']}, Agentes={chunk_results['total_agents']}")
     return assignments_total
 
 
@@ -1028,9 +1030,9 @@ def optimize_with_precision_targeting(
         pat_2d = pat.reshape(D, len(pat) // D)
         pat_hours = int(pat_2d.sum())
         
-        # Límite dinámico por patrón
+        # LÃ­mite dinÃ¡mico por patrÃ³n
         if cfg.get("agent_cap"):
-            # En modo JEAN, límite más restrictivo
+            # En modo JEAN, lÃ­mite mÃ¡s restrictivo
             ub = max(1, min(cfg["agent_cap"] // max(1, len(shifts_list) // 10), 
                            int(np.ceil(total_dem / max(pat_hours, 1)))))
         else:
@@ -1104,7 +1106,7 @@ def optimize_with_precision_targeting(
             )
             prob += cov + deficit_vars[(d, h)] - excess_vars[(d, h)] == int(demand_matrix[d, h])
     
-    # Restricciones JEAN: sin exceso si está configurado
+    # Restricciones JEAN: sin exceso si estÃ¡ configurado
     if cfg.get("allow_excess") == False:
         for d in range(D):
             for h in range(H):
@@ -1117,13 +1119,13 @@ def optimize_with_precision_targeting(
                 )
                 prob += cov <= int(demand_matrix[d, h])  # Sin exceso
     
-    # Control de exceso global más flexible – permitir hasta 15% de exceso
+    # Control de exceso global mÃ¡s flexible â€“ permitir hasta 15% de exceso
     profile_name = cfg.get("optimization_profile", "")
     if "JEAN" in profile_name:
         total_excess = pulp.lpSum(excess_vars.values())
         prob += total_excess <= demand_matrix.sum() * 0.15  # 15% exceso permitido
     
-    # Límite de agentes total si está configurado
+    # LÃ­mite de agentes total si estÃ¡ configurado
     if cfg.get("agent_cap"):
         prob += total_agents <= int(cfg["agent_cap"])
 
@@ -1146,7 +1148,7 @@ def optimize_with_precision_targeting(
             except Exception:
                 nodes = None
     if nodes == 0:
-        print("[DIAG] CBC devolvió 0 nodos. Posible objetivo plano/relajación trivial.")
+        print("[DIAG] CBC devolviÃ³ 0 nodos. Posible objetivo plano/relajaciÃ³n trivial.")
         print(f"[DIAG] pesos: ex_pen={excess_penalty}, peak={peak_bonus}, critical={critical_bonus}")
         print(
             f"[DIAG] demanda total={int(demand_matrix.sum())}, pico={int(demand_matrix.max())}"
@@ -1158,11 +1160,13 @@ def optimize_with_precision_targeting(
             v = int(shift_vars[s].varValue or 0)
             if v > 0:
                 assignments[s] = v
-        # Logs de métricas para precision targeting
+        # Logs de mÃ©tricas para precision targeting
         if assignments:
-            pt_results = analyze_results(assignments, shifts_coverage, demand_matrix)
+            coverage_method = cfg.get("coverage_method", "efficiency")
+            penalty_factor = cfg.get("penalty_factor", 1.0)
+            pt_results = analyze_results(assignments, shifts_coverage, demand_matrix, coverage_method, penalty_factor)
             if pt_results:
-                print(f"[MÉTRICAS PT] Cobertura_real={pt_results.get('coverage_real', 0):.1f}%, Cobertura_pura={pt_results['coverage_percentage']:.1f}%, Exceso={pt_results['overstaffing']}, Déficit={pt_results['understaffing']}, Agentes={pt_results['total_agents']}")
+                print(f"[MÃ‰TRICAS PT] Cobertura_real={pt_results.get('coverage_real', 0):.1f}%, Cobertura_pura={pt_results['coverage_percentage']:.1f}%, Exceso={pt_results['overstaffing']}, DÃ©ficit={pt_results['understaffing']}, Agentes={pt_results['total_agents']}")
         return assignments, "PRECISION_TARGETING"
     return {}, f"STATUS_{prob.status}"
 
@@ -1254,18 +1258,18 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, cfg=None):
         return {}
     cfg = cfg or {}
     prob = pulp.LpProblem("FT_No_Excess", pulp.LpMinimize)
-    # Variables FT con límite dinámico
+    # Variables FT con lÃ­mite dinÃ¡mico
     total_demand = demand_matrix.sum()
     max_ft_per_shift = max(10, int(total_demand / cfg.get("agent_limit_factor", 30)))
     ft_vars = {shift: pulp.LpVariable(f"ft_{shift}", 0, max_ft_per_shift, pulp.LpInteger) for shift in ft_shifts}
-    # Déficit (no exceso)
+    # DÃ©ficit (no exceso)
     hours = demand_matrix.shape[1]
     deficit = {(d, h): pulp.LpVariable(f"ft_def_{d}_{h}", 0, None) for d in range(7) for h in range(hours)}
-    # Objetivo: minimizar déficit + número de agentes
+    # Objetivo: minimizar dÃ©ficit + nÃºmero de agentes
     total_deficit = pulp.lpSum(deficit.values())
     total_agents = pulp.lpSum(ft_vars.values())
     prob += total_deficit * 1000 + total_agents * 1
-    # Restricciones: cobertura + déficit >= demanda, y cobertura <= demanda (no exceso)
+    # Restricciones: cobertura + dÃ©ficit >= demanda, y cobertura <= demanda (no exceso)
     for d in range(7):
         for h in range(hours):
             coverage = pulp.lpSum(ft_vars[s] * (ft_shifts[s][d * hours + h]) for s in ft_shifts)
@@ -1284,20 +1288,20 @@ def optimize_ft_no_excess(ft_shifts, demand_matrix, cfg=None):
     return ft_assignments
 
 def optimize_pt_complete(pt_shifts, remaining_demand, cfg=None):
-    """Fase 2: PT para completar el déficit restante (permite mínimo exceso controlado)."""
+    """Fase 2: PT para completar el dÃ©ficit restante (permite mÃ­nimo exceso controlado)."""
     if not pt_shifts or remaining_demand.sum() == 0:
         return {}
     cfg = cfg or {}
     prob = pulp.LpProblem("PT_Complete", pulp.LpMinimize)
-    # Variables PT con límite dinámico
+    # Variables PT con lÃ­mite dinÃ¡mico
     total_rem = remaining_demand.sum()
     max_pt_per_shift = max(10, int(total_rem / max(1, cfg.get("agent_limit_factor", 30))))
     pt_vars = {shift: pulp.LpVariable(f"pt_{shift}", 0, max_pt_per_shift, pulp.LpInteger) for shift in pt_shifts}
-    # Variables de déficit y exceso
+    # Variables de dÃ©ficit y exceso
     hours = remaining_demand.shape[1]
     deficit = {(d, h): pulp.LpVariable(f"pt_def_{d}_{h}", 0, None) for d in range(7) for h in range(hours)}
     excess = {(d, h): pulp.LpVariable(f"pt_exc_{d}_{h}", 0, None) for d in range(7) for h in range(hours)}
-    # Objetivo: minimizar déficit, penalizar exceso, minimizar agentes
+    # Objetivo: minimizar dÃ©ficit, penalizar exceso, minimizar agentes
     total_deficit = pulp.lpSum(deficit.values())
     total_excess = pulp.lpSum(excess.values())
     total_agents = pulp.lpSum(pt_vars.values())
@@ -1307,7 +1311,7 @@ def optimize_pt_complete(pt_shifts, remaining_demand, cfg=None):
     profile = (cfg.get("optimization_profile") or "").upper()
     if profile.startswith("JEAN"):
         prob += total_excess == 0
-    # Restricciones: cubrir demanda con posible déficit/exceso
+    # Restricciones: cubrir demanda con posible dÃ©ficit/exceso
     for d in range(7):
         for h in range(hours):
             cov = pulp.lpSum(pt_vars[s] * (pt_shifts[s][d * hours + h]) for s in pt_shifts)
@@ -1326,19 +1330,19 @@ def optimize_pt_complete(pt_shifts, remaining_demand, cfg=None):
     return pt_assignments
 
 def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=None):
-    """Estrategia en 2 fases: primero FT sin exceso, luego PT para déficit."""
+    """Estrategia en 2 fases: primero FT sin exceso, luego PT para dÃ©ficit."""
     cfg = cfg or {}
     # Separar patrones FT y PT
     ft_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('FT')}
     pt_shifts = {k: v for k, v in shifts_coverage.items() if k.startswith('PT')}
-    # Fase 1: asignación FT sin exceso
+    # Fase 1: asignaciÃ³n FT sin exceso
     ft_assignments = optimize_ft_no_excess(ft_shifts, demand_matrix, cfg)
     # Calcular cobertura FT obtenida
     ft_coverage = np.zeros_like(demand_matrix, dtype=int)
     for name, count in ft_assignments.items():
         pattern = np.array(ft_shifts[name]).reshape(7, -1)
         ft_coverage += pattern * count
-    # Fase 2: asignación PT para cubrir déficit restante
+    # Fase 2: asignaciÃ³n PT para cubrir dÃ©ficit restante
     remaining = np.maximum(0, demand_matrix - ft_coverage)
     pt_assignments = optimize_pt_complete(pt_shifts, remaining, cfg)
     # Combinar resultados
@@ -1346,16 +1350,16 @@ def optimize_ft_then_pt_strategy(shifts_coverage, demand_matrix, cfg=None):
     return assignments, "FT_NO_EXCESS_THEN_PT"
 
 def optimize_cobertura_real_jean(shifts_coverage, demand_matrix, cfg=None):
-    """Cobertura Real_Jean con búsqueda automática de hiperparámetros."""
+    """Cobertura Real_Jean con bÃºsqueda automÃ¡tica de hiperparÃ¡metros."""
     cfg = cfg or {}
-    print("[Grid Search] Búsqueda exhaustiva de hiperparámetros iniciada")
+    print("[Grid Search] BÃºsqueda exhaustiva de hiperparÃ¡metros iniciada")
     best_solution, best_metrics = _search_hyperparameters(shifts_coverage, demand_matrix, cfg)
     if not best_solution:
-        print("[Grid Search] No se encontraron soluciones válidas")
+        print("[Grid Search] No se encontraron soluciones vÃ¡lidas")
         return {}, "NO_SOLUTION"
     solver_name = best_metrics["solver"]
     print(f"[Grid Search] Ganador: {solver_name}")
-    print(f"[MÉTRICAS FINAL] Cobertura_real={best_metrics['coverage_real']:.1f}%, Exceso={best_metrics['excess']}, Déficit={best_metrics['deficit']}, Agentes={best_metrics['total_agents']}")
+    print(f"[MÃ‰TRICAS FINAL] Cobertura_real={best_metrics['coverage_real']:.1f}%, Exceso={best_metrics['excess']}, DÃ©ficit={best_metrics['deficit']}, Agentes={best_metrics['total_agents']}")
     return best_solution, f"GRIDSEARCH_{solver_name}"
 
 
@@ -1386,7 +1390,7 @@ def _search_hyperparameters(shifts_coverage, demand_matrix, cfg_defaults):
     combinations = list(itertools.product(*param_values))
     
     total_evals = len(combinations) * len(solvers)
-    print(f"[Grid Search] Iniciando búsqueda exhaustiva: {total_evals} evaluaciones")
+    print(f"[Grid Search] Iniciando bÃºsqueda exhaustiva: {total_evals} evaluaciones")
     
     results_data = []
     best_solution = None
@@ -1425,9 +1429,11 @@ def _search_hyperparameters(shifts_coverage, demand_matrix, cfg_defaults):
             
             elapsed = time.time() - start_time
             
-            # Calcular métricas
+            # Calcular mÃ©tricas
             if assignments:
-                results = analyze_results(assignments, shifts_coverage, demand_matrix)
+                coverage_method = params_dict.get("coverage_method", "efficiency")
+                penalty_factor = params_dict.get("penalty_factor", 1.0)
+                results = analyze_results(assignments, shifts_coverage, demand_matrix, coverage_method, penalty_factor)
                 if results:
                     cov_real = results['coverage_real']
                     cov_pure = results['coverage_percentage']
@@ -1435,10 +1441,10 @@ def _search_hyperparameters(shifts_coverage, demand_matrix, cfg_defaults):
                     deficit = results['understaffing']
                     total_agents = results['total_agents']
                     
-                    # Score: |cobertura_real - 100| + penalización por exceso >100%
+                    # Score: |cobertura_real - 100| + penalizaciÃ³n por exceso >100%
                     score = abs(cov_real - 100.0)
                     if cov_real > 100.0:
-                        score += (cov_real - 100.0) * 10  # Penalización fuerte
+                        score += (cov_real - 100.0) * 10  # PenalizaciÃ³n fuerte
                     
                     # Registrar resultado
                     result_row = {
@@ -1456,7 +1462,7 @@ def _search_hyperparameters(shifts_coverage, demand_matrix, cfg_defaults):
                     }
                     results_data.append(result_row)
                     
-                    # Actualizar mejor solución (solo si cobertura ≤ 100%)
+                    # Actualizar mejor soluciÃ³n (solo si cobertura â‰¤ 100%)
                     if cov_real <= 100.0 and score < best_score:
                         best_score = score
                         best_solution = assignments
@@ -1484,7 +1490,7 @@ def _search_hyperparameters(shifts_coverage, demand_matrix, cfg_defaults):
         df = pd.DataFrame(results_data)
         df_sorted = df.sort_values('score')
         
-        # Guardar CSV para análisis
+        # Guardar CSV para anÃ¡lisis
         try:
             df_sorted.to_csv('data/grid_search_results.csv', index=False)
             print(f"[Grid Search] Resultados guardados en data/grid_search_results.csv")
@@ -1500,7 +1506,7 @@ def _search_hyperparameters(shifts_coverage, demand_matrix, cfg_defaults):
 
 
 def _solve_ilp_strict(shifts_coverage, demand_matrix, cfg):
-    """Solver ILP con restricción estricta para Cobertura Real_Jean."""
+    """Solver ILP con restricciÃ³n estricta para Cobertura Real_Jean."""
     if not PULP_AVAILABLE:
         return {}
     
@@ -1517,7 +1523,7 @@ def _solve_ilp_strict(shifts_coverage, demand_matrix, cfg):
         pattern = np.array(ft_shifts[name]).reshape(7, -1)
         ft_coverage += pattern * count
     
-    # Fase 2: PT con restricción 2%
+    # Fase 2: PT con restricciÃ³n 2%
     remaining = np.maximum(0, demand_matrix - ft_coverage)
     pt_assignments = {}
     
@@ -1544,7 +1550,7 @@ def _solve_ilp_strict(shifts_coverage, demand_matrix, cfg):
                 prob += total_cov + deficit_vars[(d, h)] >= demand
                 prob += total_cov - excess_vars[(d, h)] <= demand
         
-        # Restricción 2%
+        # RestricciÃ³n 2%
         prob += total_excess <= demand_matrix.sum() * 0.02
         if not cfg.get("allow_deficit", True):
             prob += total_deficit == 0
@@ -1562,7 +1568,7 @@ def _solve_ilp_strict(shifts_coverage, demand_matrix, cfg):
 
 
 def optimize_maximum_coverage(shifts_coverage, demand_matrix, cfg=None):
-    """Optimizador de cobertura máxima que elimina el déficit ante todo."""
+    """Optimizador de cobertura mÃ¡xima que elimina el dÃ©ficit ante todo."""
     if not PULP_AVAILABLE:
         return {}, "NO_PULP"
     
@@ -1573,22 +1579,22 @@ def optimize_maximum_coverage(shifts_coverage, demand_matrix, cfg=None):
     D, H = demand_matrix.shape
     total_dem = int(demand_matrix.sum())
     
-    # Variables de turnos con límites más conservadores
+    # Variables de turnos con lÃ­mites mÃ¡s conservadores
     shift_vars = {}
     for i, s in enumerate(shifts_list):
         pat = np.array(shifts_coverage[s])
         pat_2d = pat.reshape(D, len(pat) // D)
         pat_hours = int(pat_2d.sum())
         
-        # Límite conservador para controlar exceso
+        # LÃ­mite conservador para controlar exceso
         ub = max(1, int(np.ceil(total_dem / max(pat_hours, 1) / cfg.get("agent_limit_factor", 15))))
         shift_vars[s] = pulp.LpVariable(f"x_{i}", 0, ub, pulp.LpInteger)
     
-    # Variables de déficit y exceso
+    # Variables de dÃ©ficit y exceso
     deficit_vars = {(d, h): pulp.LpVariable(f"def_{d}_{h}", 0, None) for d in range(D) for h in range(H)}
     excess_vars = {(d, h): pulp.LpVariable(f"exc_{d}_{h}", 0, None) for d in range(D) for h in range(H)}
     
-    # Objetivo: eliminar déficit ante todo (peso enorme), minimizar exceso y agentes
+    # Objetivo: eliminar dÃ©ficit ante todo (peso enorme), minimizar exceso y agentes
     total_deficit = pulp.lpSum(deficit_vars.values())
     total_excess = pulp.lpSum(excess_vars.values())
     total_agents = pulp.lpSum(shift_vars.values())
@@ -1619,11 +1625,13 @@ def optimize_maximum_coverage(shifts_coverage, demand_matrix, cfg=None):
             v = int(shift_vars[s].varValue or 0)
             if v > 0:
                 assignments[s] = v
-        # Logs de métricas para maximum coverage
+        # Logs de mÃ©tricas para maximum coverage
         if assignments:
-            mc_results = analyze_results(assignments, shifts_coverage, demand_matrix)
+            coverage_method = cfg.get("coverage_method", "efficiency")
+            penalty_factor = cfg.get("penalty_factor", 1.0)
+            mc_results = analyze_results(assignments, shifts_coverage, demand_matrix, coverage_method, penalty_factor)
             if mc_results:
-                print(f"[MÉTRICAS MC] Cobertura_real={mc_results.get('coverage_real', 0):.1f}%, Cobertura_pura={mc_results['coverage_percentage']:.1f}%, Exceso={mc_results['overstaffing']}, Déficit={mc_results['understaffing']}, Agentes={mc_results['total_agents']}")
+                print(f"[MÃ‰TRICAS MC] Cobertura_real={mc_results.get('coverage_real', 0):.1f}%, Cobertura_pura={mc_results['coverage_percentage']:.1f}%, Exceso={mc_results['overstaffing']}, DÃ©ficit={mc_results['understaffing']}, Agentes={mc_results['total_agents']}")
         return assignments, "MAXIMUM_COVERAGE"
     
     return {}, f"STATUS_{prob.status}"
@@ -1645,7 +1653,7 @@ def optimize_jean_search(
     job_id=None,
     **kwargs,
 ):
-    """Búsqueda JEAN exacta del original: 2 fases con caps progresivos"""
+    """BÃºsqueda JEAN exacta del original: 2 fases con caps progresivos"""
     import math
     cfg = {**(cfg or {}), **kwargs}
     
@@ -1653,10 +1661,10 @@ def optimize_jean_search(
     if cfg.get("agent_limit_factor") is None:
         cfg["agent_limit_factor"] = 15  # Valor por defecto JEAN
     
-    print("[JEAN] Iniciando búsqueda JEAN de 2 fases (exacta del original)")
+    print("[JEAN] Iniciando bÃºsqueda JEAN de 2 fases (exacta del original)")
     
-    # 1) FASE BASE: solución sin exceso para establecer baseline
-    print("[JEAN] Fase 1: Solución base sin exceso")
+    # 1) FASE BASE: soluciÃ³n sin exceso para establecer baseline
+    print("[JEAN] Fase 1: SoluciÃ³n base sin exceso")
     base_cfg = cfg.copy()
     base_cfg["allow_excess"] = False  # Sin exceso en fase 1
     base_cfg["allow_deficit"] = True
@@ -1675,11 +1683,11 @@ def optimize_jean_search(
             shifts_coverage, demand_matrix, **base_cfg
         )
     
-    # 2) FASE PRECISIÓN: caps progresivos con exceso controlado (<=10%)
+    # 2) FASE PRECISIÃ“N: caps progresivos con exceso controlado (<=10%)
     total_demand = float(demand_matrix.sum())
     peak_demand = float(demand_matrix.max())
     
-    print(f"[JEAN] Fase 2: Búsqueda con exceso controlado (<=10%)")
+    print(f"[JEAN] Fase 2: BÃºsqueda con exceso controlado (<=10%)")
     
     # Initialize tracking variables for complete iteration
     best_assignments = base_assignments
@@ -1690,7 +1698,9 @@ def optimize_jean_search(
     got_target_solution = False
     
     if base_assignments:
-        base_results = analyze_results(base_assignments, shifts_coverage, demand_matrix)
+        coverage_method = cfg.get("coverage_method", "efficiency")
+        penalty_factor = cfg.get("penalty_factor", 1.0)
+        base_results = analyze_results(base_assignments, shifts_coverage, demand_matrix, coverage_method, penalty_factor)
         if base_results:
             best_score = base_results["overstaffing"] + base_results["understaffing"]
             best_coverage = base_results["coverage_real"]
@@ -1698,21 +1708,21 @@ def optimize_jean_search(
                 best_target_score = best_score
                 got_target_solution = True
             print(f"[JEAN] Base solution without excess: coverage_real {best_coverage:.1f}%, score {best_score:.1f}")
-            # Logs de métricas clave
-            print(f"[MÉTRICAS] Cobertura_real={base_results.get('coverage_real', best_coverage):.1f}%, Cobertura_pura={best_coverage:.1f}%, Exceso={base_results['overstaffing']}, Déficit={base_results['understaffing']}, Agentes={base_results['total_agents']}")
+            # Logs de mÃ©tricas clave
+            print(f"[MÃ‰TRICAS] Cobertura_real={base_results.get('coverage_real', best_coverage):.1f}%, Cobertura_pura={best_coverage:.1f}%, Exceso={base_results['overstaffing']}, DÃ©ficit={base_results['understaffing']}, Agentes={base_results['total_agents']}")
     else:
         print("[JEAN] No base solution found without excess")
     
-    # Factores progresivos con más iteraciones para mejor cobertura
+    # Factores progresivos con mÃ¡s iteraciones para mejor cobertura
     start_time = time.time()
-    max_time = 180  # Máximo 3 minutos para JEAN
+    max_time = 180  # MÃ¡ximo 3 minutos para JEAN
     
-    # Generar secuencia de factores más agresiva
+    # Generar secuencia de factores mÃ¡s agresiva
     factors = []
     current_factor = agent_limit_factor
     for _ in range(max_iterations):
         factors.append(int(current_factor))
-        current_factor *= 0.85  # Factor más agresivo (0.85 vs 0.9)
+        current_factor *= 0.85  # Factor mÃ¡s agresivo (0.85 vs 0.9)
         if current_factor < 5:
             break
     
@@ -1725,9 +1735,9 @@ def optimize_jean_search(
             break
             
         agent_cap = max(1, int(total_demand / factor), int(peak_demand * 1.1))
-        print(f"[JEAN] Iteración: factor {factor}, cap agentes {agent_cap}")
+        print(f"[JEAN] IteraciÃ³n: factor {factor}, cap agentes {agent_cap}")
         
-        # Configuración con exceso controlado (<=10% de demanda)
+        # ConfiguraciÃ³n con exceso controlado (<=10% de demanda)
         temp_cfg = cfg.copy()
         temp_cfg["allow_excess"] = True  # Permitir exceso controlado
         temp_cfg["allow_deficit"] = True
@@ -1745,7 +1755,7 @@ def optimize_jean_search(
                 critical_bonus=critical_bonus
             )
         else:
-            # Fallback greedy con límite de agentes
+            # Fallback greedy con lÃ­mite de agentes
             trial_assignments = solve_in_chunks_optimized(
                 shifts_coverage, demand_matrix, 
                 base_chunk_size=min(5000, agent_cap * 50),
@@ -1753,7 +1763,9 @@ def optimize_jean_search(
             )
         
         if trial_assignments:
-            trial_results = analyze_results(trial_assignments, shifts_coverage, demand_matrix)
+            coverage_method = cfg.get("coverage_method", "efficiency")
+            penalty_factor = cfg.get("penalty_factor", 1.0)
+            trial_results = analyze_results(trial_assignments, shifts_coverage, demand_matrix, coverage_method, penalty_factor)
             if trial_results:
                 # Score JEAN ajustado: |100 - cobertura_real| + overstaffing + understaffing
                 cov_real = trial_results["coverage_real"]
@@ -1768,24 +1780,90 @@ def optimize_jean_search(
                     best_target_score = score
                     best_coverage = cov_real
                     print(f"[JEAN] New best solution: coverage_real {cov_real:.1f}%, score {score:.1f}, agents {trial_results['total_agents']}")
-                    # Logs de métricas clave para cada iteración
-                    print(f"[MÉTRICAS] Cobertura_real={cov_real:.1f}%, Cobertura_pura={trial_results['coverage_percentage']:.1f}%, Exceso={trial_results['overstaffing']}, Déficit={trial_results['understaffing']}, Agentes={trial_results['total_agents']}")
+                    # Logs de mÃ©tricas clave para cada iteraciÃ³n
+                    print(f"[MÃ‰TRICAS] Cobertura_real={cov_real:.1f}%, Cobertura_pura={trial_results['coverage_percentage']:.1f}%, Exceso={trial_results['overstaffing']}, DÃ©ficit={trial_results['understaffing']}, Agentes={trial_results['total_agents']}")
                     if cov_real >= target_coverage:
                         got_target_solution = True
     
     elapsed = time.time() - start_time
     final_score = best_target_score if got_target_solution else best_score
-    final_coverage = best_coverage if not got_target_solution else (analyze_results(best_assignments, shifts_coverage, demand_matrix) or {}).get("coverage_real", best_coverage)
+    coverage_method = cfg.get("coverage_method", "efficiency")
+    penalty_factor = cfg.get("penalty_factor", 1.0)
+    final_coverage = best_coverage if not got_target_solution else (analyze_results(best_assignments, shifts_coverage, demand_matrix, coverage_method, penalty_factor) or {}).get("coverage_real", best_coverage)
     print(f"[JEAN] Completed in {elapsed:.1f}s: final score {final_score:.1f}, coverage_real {final_coverage:.1f}%")
-    # Logs finales de métricas
+    # Logs finales de mÃ©tricas
     if best_assignments:
-        final_results = analyze_results(best_assignments, shifts_coverage, demand_matrix)
+        coverage_method = cfg.get("coverage_method", "efficiency")
+        penalty_factor = cfg.get("penalty_factor", 1.0)
+        final_results = analyze_results(best_assignments, shifts_coverage, demand_matrix, coverage_method, penalty_factor)
         if final_results:
-            print(f"[MÉTRICAS FINALES] Cobertura_real={final_results.get('coverage_real', final_coverage):.1f}%, Cobertura_pura={final_coverage:.1f}%, Exceso={final_results['overstaffing']}, Déficit={final_results['understaffing']}, Agentes={final_results['total_agents']}")
+            print(f"[MÃ‰TRICAS FINALES] Cobertura_real={final_results.get('coverage_real', final_coverage):.1f}%, Cobertura_pura={final_coverage:.1f}%, Exceso={final_results['overstaffing']}, DÃ©ficit={final_results['understaffing']}, Agentes={final_results['total_agents']}")
     return best_assignments, best_method or "JEAN_NO_SOLUTION"
 
 
-def analyze_results(assignments, shifts_coverage, demand_matrix):
+def calculate_coverage_with_penalty(total_cov, demand_matrix, penalty_method="option2", penalty_factor=1.0):
+    """
+    Calcula cobertura con penalizaciÃ³n por exceso segÃºn las nuevas fÃ³rmulas propuestas.
+    
+    Parameters:
+    -----------
+    total_cov : np.ndarray
+        Matriz de cobertura asignada
+    demand_matrix : np.ndarray
+        Matriz de demanda requerida
+    penalty_method : str
+        "option1" para penalizaciÃ³n lineal, "option2" para eficiencia de staffing
+    penalty_factor : float
+        Factor de penalizaciÃ³n para option1 (default=1.0)
+    
+    Returns:
+    --------
+    float
+        Cobertura con penalizaciÃ³n por exceso
+    """
+    total_assigned = total_cov.sum()
+    total_required = demand_matrix.sum()
+    
+    if total_required == 0:
+        return 0.0
+    
+    if penalty_method == "option1":
+        # OpciÃ³n 1: PenalizaciÃ³n lineal
+        # Cobertura = min(100, (Asignado/Requerido)Ã—100) - max(0, (Asignado-Requerido)/RequeridoÃ—Factor_PenalizaciÃ³n)
+        basic_coverage = min(100.0, (total_assigned / total_required) * 100.0)
+        excess_penalty = 0.0
+        if total_assigned > total_required:
+            excess_penalty = ((total_assigned - total_required) / total_required) * penalty_factor * 100.0
+        return max(0.0, basic_coverage - excess_penalty)
+    
+    elif penalty_method == "option2":
+        # OpciÃ³n 2: Eficiencia de staffing
+        # Cobertura = min(Asignado/Requerido, Requerido/Asignado) Ã— 100
+        if total_assigned == 0:
+            return 0.0
+        ratio1 = total_assigned / total_required
+        ratio2 = total_required / total_assigned
+        return min(ratio1, ratio2) * 100.0
+    
+    else:
+        # MÃ©todo original (sin penalizaciÃ³n)
+        total_covered = np.minimum(total_cov, demand_matrix).sum()
+        return (total_covered / total_required * 100.0) if total_required > 0 else 0.0
+
+
+def analyze_results(assignments, shifts_coverage, demand_matrix, coverage_method="efficiency", penalty_factor=1.0):
+    """
+    Analiza resultados de asignaciÃ³n con mÃºltiples mÃ©todos de cÃ¡lculo de cobertura.
+    
+    Parameters:
+    -----------
+    coverage_method : str
+        "original" - mÃ©todo actual (sin penalizaciÃ³n por exceso)
+        "option1" - penalizaciÃ³n lineal por exceso
+        "option2" - eficiencia de staffing (simÃ©trica)
+    penalty_factor : float
+        Factor de penalizaciÃ³n para option1 (default=1.0)
+    """
     if not assignments:
         return None
     slots = len(next(iter(shifts_coverage.values()))) // 7
@@ -1799,24 +1877,47 @@ def analyze_results(assignments, shifts_coverage, demand_matrix):
             ft_agents += cnt
         else:
             pt_agents += cnt
+    
     total_demand = demand_matrix.sum()
+    
+    # CÃ¡lculo original (cobertura pura - limitada al 100%)
     total_covered = np.minimum(total_cov, demand_matrix).sum()
     coverage_percentage = (total_covered / total_demand * 100) if total_demand > 0 else 0
-    # --- Nuevo cálculo de cobertura real (limitado al 100%) ---
+    
+    # CÃ¡lculo de cobertura real original (limitado al 100%)
     real_cov_units = total_cov.sum()
     coverage_real = (min(real_cov_units, total_demand) / total_demand * 100) if total_demand > 0 else 0
+    
+    # Nuevos cÃ¡lculos con penalizaciÃ³n por exceso
+    coverage_option1 = calculate_coverage_with_penalty(total_cov, demand_matrix, "option1", penalty_factor)
+    coverage_option2 = calculate_coverage_with_penalty(total_cov, demand_matrix, "option2")
+    
+    # Seleccionar mÃ©todo de cobertura principal
+    if coverage_method == "option1":
+        main_coverage = coverage_option1
+    elif coverage_method == "option2":
+        main_coverage = coverage_option2
+    else:
+        main_coverage = coverage_real  # mÃ©todo original
+    
     diff = total_cov - demand_matrix
     over = int(np.sum(diff[diff > 0]))
     under = int(np.sum(np.abs(diff[diff < 0])))
+    
     return {
         "total_coverage": total_cov,
-        "coverage_percentage": coverage_percentage,
-        "coverage_real": coverage_real,
+        "coverage_percentage": coverage_percentage,  # Cobertura pura original
+        "coverage_real": main_coverage,  # Cobertura principal segÃºn mÃ©todo seleccionado
+        "coverage_original": coverage_real,  # Cobertura real original (para comparaciÃ³n)
+        "coverage_option1": coverage_option1,  # PenalizaciÃ³n lineal
+        "coverage_option2": coverage_option2,  # Eficiencia de staffing
         "overstaffing": over,
         "understaffing": under,
         "total_agents": total_agents,
         "ft_agents": ft_agents,
         "pt_agents": pt_agents,
+        "coverage_method": coverage_method,
+        "penalty_factor": penalty_factor,
     }
 
 
@@ -1884,7 +1985,7 @@ def _export_xlsx_b64(assignments, payload):
         "cobertura_pura_%": m.get("coverage_pure", 0.0),
         "cobertura_real_%": m.get("coverage_real", 0.0),
         "exceso": m.get("excess", 0),
-        "déficit": m.get("deficit", 0),
+        "dÃ©ficit": m.get("deficit", 0),
         "perfil": (payload.get("config") or {}).get("optimization_profile", ""),
     }])
 
@@ -1912,12 +2013,12 @@ def _heatmap(matrix, title, day_labels=None, hour_labels=None,
     M = np.asarray(matrix)
     D, H = M.shape
 
-    # Tamaño “wide” cómodo en UI oscura
+    # TamaÃ±o â€œwideâ€ cÃ³modo en UI oscura
     fig, ax = plt.subplots(figsize=(18, 6), dpi=110)
 
     im = ax.imshow(M, aspect="auto", cmap=cmap, interpolation="nearest")
 
-    # Ejes y título
+    # Ejes y tÃ­tulo
     ax.set_title(title, fontsize=14, pad=12)
     if hour_labels is not None:
         ax.set_xticks(range(H))
@@ -1931,12 +2032,12 @@ def _heatmap(matrix, title, day_labels=None, hour_labels=None,
         ax.set_yticklabels(day_labels, fontsize=10)
     else:
         ax.set_yticks(range(D))
-        ax.set_yticklabels([f"Día {i+1}" for i in range(D)], fontsize=10)
+        ax.set_yticklabels([f"DÃ­a {i+1}" for i in range(D)], fontsize=10)
 
-    ax.set_xlabel("Hora del día", labelpad=8)
-    ax.set_ylabel("Día de la semana", labelpad=8)
+    ax.set_xlabel("Hora del dÃ­a", labelpad=8)
+    ax.set_ylabel("DÃ­a de la semana", labelpad=8)
 
-    # Números legibles (blanco o negro según el fondo)
+    # NÃºmeros legibles (blanco o negro segÃºn el fondo)
     if annotate:
         norm = im.norm
         for i in range(D):
@@ -1966,31 +2067,31 @@ def _insights_from_analysis(analysis, cfg):
     avg = analysis.get("avg_per_active_day", analysis.get("avg", 0))
     peak = analysis.get("peak", 0)
     ins["demanda"] += [
-        f"Días activos: {analysis.get('days_names','Lunes, Martes, Miércoles, Jueves, Viernes, Sábado')} ({dias} días)",
+        f"DÃ­as activos: {analysis.get('days_names','Lunes, Martes, MiÃ©rcoles, Jueves, Viernes, SÃ¡bado')} ({dias} dÃ­as)",
         f"Horario operativo: {horas_ini:02d}:00 - {horas_fin:02d}:00 ({horas_fin - horas_ini} horas)",
         f"Demanda total semanal: {weekly} agentes-hora",
-        f"Demanda promedio (días activos): {avg} agentes-hora/día",
-        f"Pico de demanda: {peak} agentes simultáneos",
+        f"Demanda promedio (dÃ­as activos): {avg} agentes-hora/dÃ­a",
+        f"Pico de demanda: {peak} agentes simultÃ¡neos",
         f"Break configurado: {cfg.get('break_start_from',2.0)}h desde inicio, {cfg.get('break_before_end',2.0)}h antes del fin",
     ]
 
     pt = []
     if cfg.get("use_pt", True) and cfg.get("allow_pt_4h"):
-        pt.append("4h×6días")
+        pt.append("4hÃ—6dÃ­as")
     if cfg.get("use_pt", True) and cfg.get("allow_pt_6h"):
-        pt.append("6h×4días")
+        pt.append("6hÃ—4dÃ­as")
     if cfg.get("use_pt", True) and cfg.get("allow_pt_5h"):
-        pt.append("5h×5días")
-    ins["pt_habilitados"].append(", ".join(pt) if pt else "—")
+        pt.append("5hÃ—5dÃ­as")
+    ins["pt_habilitados"].append(", ".join(pt) if pt else "â€”")
 
     ins["realista"] += [
-        f"Agentes simultáneos máximos: {analysis.get('peak',0)}",
+        f"Agentes simultÃ¡neos mÃ¡ximos: {analysis.get('peak',0)}",
         f"Total agentes estimados: ~{analysis.get('agents_estimate','?')} para {weekly} agentes-hora",
         f"Ratio eficiencia: {analysis.get('efficiency_ratio','?')} horas productivas por agente",
     ]
 
     ins["criticos"] += [
-        f"Días críticos: {analysis.get('critical_days_label','Miércoles, Viernes')}",
+        f"DÃ­as crÃ­ticos: {analysis.get('critical_days_label','MiÃ©rcoles, Viernes')}",
         f"Horas pico: {analysis.get('critical_hours_label','11:00 - 16:00')}",
         f"Perfil seleccionado: {cfg.get('optimization_profile','JEAN')}",
     ]
@@ -1998,7 +2099,7 @@ def _insights_from_analysis(analysis, cfg):
 
 
 def _analyze_demand(matrix):
-    days_names = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    days_names = ["Lunes", "Martes", "MiÃ©rcoles", "Jueves", "Viernes", "SÃ¡bado", "Domingo"]
     daily = matrix.sum(axis=1)
     hourly = matrix.sum(axis=0)
     active_days_idx = [i for i, v in enumerate(daily) if v > 0]
@@ -2083,7 +2184,7 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
             "demand": dem.tolist(),
             "coverage": cov.tolist(),
             "diff": diff.tolist(),
-            "day_labels": day_labels or [f"Día {i+1}" for i in range(D)],
+            "day_labels": day_labels or [f"DÃ­a {i+1}" for i in range(D)],
             "hour_labels": hour_labels or list(range(H)),
         },
         "figures": {
@@ -2099,7 +2200,7 @@ def _build_sync_payload(assignments, patterns, demand_matrix, *, day_labels=None
 def _empty_result_with_insights(demand_matrix, cfg, *, reason, analysis=None):
     analysis = analysis or _analyze_demand(demand_matrix)
     D, H = demand_matrix.shape
-    day_labels = [f"Día {i+1}" for i in range(D)]
+    day_labels = [f"DÃ­a {i+1}" for i in range(D)]
     hour_labels = list(range(H))
     payload = _build_sync_payload(
         {},
@@ -2135,7 +2236,7 @@ def run_complete_optimization(
     profile_params = PROFILES.get(resolved)
     if not profile_params:
         print(
-            f"[PROFILE] ADVERTENCIA: Perfil '{requested}' no encontrado, usando configuración por defecto"
+            f"[PROFILE] ADVERTENCIA: Perfil '{requested}' no encontrado, usando configuraciÃ³n por defecto"
         )
     else:
         for k, v in profile_params.items():
@@ -2151,17 +2252,21 @@ def run_complete_optimization(
             pass
 
     # Propagar configuraciones globales a current_app.config
-    if current_app is not None:
-        solver_time = cfg.get("TIME_SOLVER", cfg.get("solver_time"))
-        if solver_time is not None:
-            current_app.config["TIME_SOLVER"] = solver_time
-        current_app.config["iterations"] = int(
-            cfg.get("search_iterations", cfg.get("iterations", 30))
-        )
-        try:
-            current_app.config.pop("JEAN_LAST_ITERS", None)
-        except Exception:
-            pass
+    try:
+        if current_app is not None:
+            solver_time = cfg.get("TIME_SOLVER", cfg.get("solver_time"))
+            if solver_time is not None:
+                current_app.config["TIME_SOLVER"] = solver_time
+            current_app.config["iterations"] = int(
+                cfg.get("search_iterations", cfg.get("iterations", 30))
+            )
+            try:
+                current_app.config.pop("JEAN_LAST_ITERS", None)
+            except Exception:
+                pass
+    except RuntimeError:
+        # Working outside of application context - skip Flask config
+        pass
 
     # JEAN Personalizado: manejar JSON de turnos si viene en config
     if optimization_profile == "JEAN Personalizado":
@@ -2210,7 +2315,7 @@ def run_complete_optimization(
             use_custom_templates = False
     
     if not use_custom_templates:
-        # Generar patrones estándar FT/PT
+        # Generar patrones estÃ¡ndar FT/PT
         for batch in generate_shifts_coverage_optimized(
             demand_matrix,
             allow_8h=use_ft and cfg.get("allow_8h", False),
@@ -2323,7 +2428,9 @@ def run_complete_optimization(
         
         # Save execution result for future learning
         if assignments:
-            results = analyze_results(assignments, patterns, demand_matrix)
+            coverage_method = temp_cfg.get("coverage_method", "efficiency")
+            penalty_factor = temp_cfg.get("penalty_factor", 1.0)
+            results = analyze_results(assignments, patterns, demand_matrix, coverage_method, penalty_factor)
             if results:
                 execution_time = time.time() - start_time
                 save_execution_result(
@@ -2346,13 +2453,13 @@ def run_complete_optimization(
             f"[SCHEDULER] Executing standard profile with dedicated optimizer: {normalized}"
         )
         
-        # Usar optimizadores específicos para nuevos perfiles
-        if normalized == "Cobertura Máxima (Completo)":
+        # Usar optimizadores especÃ­ficos para nuevos perfiles
+        if normalized == "Cobertura MÃ¡xima (Completo)":
             assignments, pulp_status = optimize_maximum_coverage(patterns, demand_matrix, cfg=cfg)
         elif normalized == "Cobertura Real_Jean":
             assignments, pulp_status = optimize_cobertura_real_jean(patterns, demand_matrix, cfg=cfg)
         elif normalized == "HPO + Cascada 100%":
-            # Usar el optimizador HPO + Cascada específico
+            # Usar el optimizador HPO + Cascada especÃ­fico
             opt_fn = get_profile_optimizer(normalized)
             cfg["optimization_profile"] = normalized
             try:
@@ -2398,19 +2505,19 @@ def run_complete_optimization(
         assignments = {k: v for k, v in (assignments or {}).items() if _is_allowed_pid(k, cfg)}
 
     jean_iters = []
-    if current_app is not None:
-        try:
+    try:
+        if current_app is not None:
             jean_iters = current_app.config.get("JEAN_LAST_ITERS", [])
-        except Exception:
-            jean_iters = []
+    except (RuntimeError, Exception):
+        jean_iters = []
 
     if return_payload:
-        # --- ANTES de armar payload, filtra patrones según familias seleccionadas ---
+        # --- ANTES de armar payload, filtra patrones segÃºn familias seleccionadas ---
         patterns = _filter_patterns_by_cfg(patterns, cfg)
 
         # --- Payload con KPIs (pura vs real) ---
         D, H = demand_matrix.shape
-        day_labels = [f"Día {i+1}" for i in range(D)]
+        day_labels = [f"DÃ­a {i+1}" for i in range(D)]
         hour_labels = list(range(H))
         payload = _build_sync_payload(
             assignments=assignments or {},
@@ -2426,7 +2533,7 @@ def run_complete_optimization(
         payload["insights"] = _insights_from_analysis(analysis, cfg)
         payload["jean_iterations"] = jean_iters
         
-        # Añadir información del solver para multi-solver
+        # AÃ±adir informaciÃ³n del solver para multi-solver
         if "MULTI_SOLVER" in pulp_status:
             solver_name = pulp_status.split("_", 2)[-1] if "_" in pulp_status else "UNKNOWN"
             payload["solver_used"] = solver_name

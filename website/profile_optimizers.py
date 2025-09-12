@@ -802,14 +802,13 @@ def optimize_personalizado(shifts_coverage, demand_matrix, *, cfg=None):
 # --- HPO + Cascada 100% Implementation ---
 import random
 
-def _score_result_hpo(assignments, shifts_coverage, demand_matrix, target=100.0):
+def _score_result_hpo(assignments, shifts_coverage, demand_matrix, target=100.0, coverage_method="original", penalty_factor=1.0):
     """Score unificado: |100 - cobertura_real| + (exceso + déficit) normalizados."""
-    res = analyze_results(assignments, shifts_coverage, demand_matrix)
+    res = analyze_results(assignments, shifts_coverage, demand_matrix, coverage_method, penalty_factor)
     if not res:
         return float("inf")
-    # coverage_percentage existe en core; si usas analyze_results de scheduler.py,
-    # también tienes coverage_real. Aquí usamos porcentaje "puro" para robustez.
-    cov = res.get("coverage_percentage", 0.0)
+    # Usar coverage_real que ahora puede ser con penalización según el método
+    cov = res.get("coverage_real", 0.0)
     over = float(res.get("overstaffing", 0.0))
     under = float(res.get("understaffing", 0.0))
     total_dem = float(demand_matrix.sum() or 1.0)
@@ -852,7 +851,9 @@ def _hpo_unico(shifts_coverage, demand_matrix, base_cfg, n_trials=12, job_id=Non
             # Import tardío para evitar ciclos en import
             from .scheduler import solve_in_chunks_optimized
             assign = solve_in_chunks_optimized(shifts_coverage, demand_matrix, **cand)
-        score, _ = _score_result_hpo(assign, shifts_coverage, demand_matrix, target=cand.get("TARGET_COVERAGE", 100.0))
+        coverage_method = cand.get("coverage_method", "original")
+        penalty_factor = cand.get("penalty_factor", 1.0)
+        score, _ = _score_result_hpo(assign, shifts_coverage, demand_matrix, target=cand.get("TARGET_COVERAGE", 100.0), coverage_method=coverage_method, penalty_factor=penalty_factor)
         return score, cand
 
     # --- Ruta A: Optuna si está disponible (TPE) ---
@@ -911,7 +912,9 @@ def optimize_hpo_then_solve(shifts_coverage, demand_matrix, *, cfg=None, job_id=
         from .optimizer_pulp import optimize_with_pulp
         a_pulp, s_pulp = optimize_with_pulp(shifts_coverage, demand_matrix, cfg=run_cfg, job_id=job_id)
         if a_pulp:
-            sc, m = _score_result_hpo(a_pulp, shifts_coverage, demand_matrix, target=target)
+            coverage_method = run_cfg.get("coverage_method", "original")
+            penalty_factor = run_cfg.get("penalty_factor", 1.0)
+            sc, m = _score_result_hpo(a_pulp, shifts_coverage, demand_matrix, target=target, coverage_method=coverage_method, penalty_factor=penalty_factor)
             candidates.append(("PULP", sc, a_pulp, m))
     except Exception:
         pass
@@ -921,7 +924,9 @@ def optimize_hpo_then_solve(shifts_coverage, demand_matrix, *, cfg=None, job_id=
         from .optimizer_greedy import optimize_with_greedy
         a_greedy, s_gr = optimize_with_greedy(shifts_coverage, demand_matrix, cfg=run_cfg, job_id=job_id)
         if a_greedy:
-            sc, m = _score_result_hpo(a_greedy, shifts_coverage, demand_matrix, target=target)
+            coverage_method = run_cfg.get("coverage_method", "original")
+            penalty_factor = run_cfg.get("penalty_factor", 1.0)
+            sc, m = _score_result_hpo(a_greedy, shifts_coverage, demand_matrix, target=target, coverage_method=coverage_method, penalty_factor=penalty_factor)
             candidates.append(("GREEDY", sc, a_greedy, m))
     except Exception:
         pass
@@ -931,7 +936,9 @@ def optimize_hpo_then_solve(shifts_coverage, demand_matrix, *, cfg=None, job_id=
         from .scheduler import solve_in_chunks_optimized  # import tardío evita ciclos
         a_chunks = solve_in_chunks_optimized(shifts_coverage, demand_matrix, **run_cfg)
         if a_chunks:
-            sc, m = _score_result_hpo(a_chunks, shifts_coverage, demand_matrix, target=target)
+            coverage_method = run_cfg.get("coverage_method", "original")
+            penalty_factor = run_cfg.get("penalty_factor", 1.0)
+            sc, m = _score_result_hpo(a_chunks, shifts_coverage, demand_matrix, target=target, coverage_method=coverage_method, penalty_factor=penalty_factor)
             candidates.append(("CHUNKS", sc, a_chunks, m))
     except Exception:
         pass

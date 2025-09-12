@@ -398,17 +398,40 @@ def optimize_jean_perfect(demand_matrix, user_config=None):
     try:
         assignments = optimize_two_phase_ilp(patterns, demand_matrix, cfg)
         
-        # Verificar resultado
+        # Verificar resultado con nuevas fórmulas de cobertura
         coverage = calculate_coverage(assignments, patterns, demand_matrix.shape)
-        total_covered = np.minimum(coverage, demand_matrix).sum()
-        coverage_pct = (total_covered / demand_matrix.sum() * 100) if demand_matrix.sum() > 0 else 0
-        
         excess = np.maximum(coverage - demand_matrix, 0).sum()
         deficit = np.maximum(demand_matrix - coverage, 0).sum()
         total_agents = sum(assignments.values())
         
-        print(f"[JEAN] Resultado: {coverage_pct:.1f}% cobertura, {total_agents} agentes")
+        # Usar nueva fórmula de cobertura (efficiency por defecto)
+        coverage_method = cfg.get("coverage_method", "efficiency")
+        total_demand = demand_matrix.sum()
+        total_assigned = coverage.sum()
+        
+        if coverage_method == "efficiency" and total_demand > 0:
+            # Opción 2: min(asignado/requerido, requerido/asignado) * 100
+            ratio1 = total_assigned / total_demand
+            ratio2 = total_demand / total_assigned if total_assigned > 0 else 0
+            coverage_pct = min(ratio1, ratio2) * 100
+        elif coverage_method == "linear" and total_demand > 0:
+            # Opción 1: penalización lineal
+            penalty_factor = cfg.get("penalty_factor", 1.0)
+            base_coverage = min(100, (total_assigned / total_demand) * 100)
+            if total_assigned > total_demand:
+                excess_penalty = max(0, (total_assigned - total_demand) / total_demand * penalty_factor * 100)
+                coverage_pct = max(0, base_coverage - excess_penalty)
+            else:
+                coverage_pct = base_coverage
+        else:
+            # Método original
+            total_covered = np.minimum(coverage, demand_matrix).sum()
+            coverage_pct = (total_covered / total_demand * 100) if total_demand > 0 else 0
+        
+        print(f"[JEAN] Resultado: {coverage_pct:.1f}% cobertura ({coverage_method}), {total_agents} agentes")
         print(f"[JEAN] Exceso: {excess}, Déficit: {deficit}, Score: {excess + deficit}")
+        if excess > 0 and coverage_method != "original":
+            print(f"[JEAN] Cobertura ajustada por nueva fórmula: {total_assigned} asignado vs {total_demand} requerido")
         
         return assignments
         
